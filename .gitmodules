@@ -1,0 +1,9 @@
+[submodule "third_party/stunning-waddle"]
+	path = third_party/stunning-waddle
+	url = https://github.com/bebac/stunning-waddle.git
+[submodule "third_party/dripcore"]
+	path = third_party/dripcore
+	url = git@github.com:bebac/dripcore-dev.git
+[submodule "third_party/isocline"]
+	path = third_party/isocline
+	url = git@github.com:bebac/isocline.git

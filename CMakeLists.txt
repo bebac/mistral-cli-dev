@@ -11,10 +11,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(APPLE)
     set(DRIPCORE_EVENT_LOOP_SOURCE
-        references/dripcore-dev/lib/dripcore/source/event_loop_kqueue.cpp)
+        third_party/dripcore/lib/dripcore/source/event_loop_kqueue.cpp)
 elseif(UNIX)
     set(DRIPCORE_EVENT_LOOP_SOURCE
-        references/dripcore-dev/lib/dripcore/source/event_loop_epoll.cpp)
+        third_party/dripcore/lib/dripcore/source/event_loop_epoll.cpp)
 else()
     message(FATAL_ERROR "Unsupported platform")
 endif()
@@ -24,19 +24,19 @@ endif()
 # -----------------------------------------------
 
 add_library(dripcore STATIC
-    references/dripcore-dev/lib/dripcore/source/coroutine.cpp
-    references/dripcore-dev/lib/dripcore/source/executor.cpp
-    references/dripcore-dev/lib/dripcore/source/scheduler.cpp
-    references/dripcore-dev/lib/dripcore/source/yield_awaiter.cpp
-    references/dripcore-dev/lib/dripcore/source/io_awaiter.cpp
-    references/dripcore-dev/lib/dripcore/source/socket.cpp
+   third_party/dripcore/lib/dripcore/source/coroutine.cpp
+   third_party/dripcore/lib/dripcore/source/executor.cpp
+   third_party/dripcore/lib/dripcore/source/scheduler.cpp
+   third_party/dripcore/lib/dripcore/source/yield_awaiter.cpp
+   third_party/dripcore/lib/dripcore/source/io_awaiter.cpp
+   third_party/dripcore/lib/dripcore/source/socket.cpp
     ${DRIPCORE_EVENT_LOOP_SOURCE}
 )
 
 target_compile_features(dripcore PUBLIC cxx_std_20)
 
 target_include_directories(dripcore PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/references/dripcore-dev/lib/dripcore/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/dripcore/lib/dripcore/include
 )
 
 # -----------------------------------------------
@@ -44,7 +44,7 @@ target_include_directories(dripcore PUBLIC
 # -----------------------------------------------
 
 add_subdirectory(
-    references/stunning-waddle-examples/vendor/stunning-waddle
+    third_party/stunning-waddle
     stunning-waddle-build
 )
 
@@ -53,7 +53,7 @@ add_subdirectory(
 # -----------------------------------------------
 
 add_subdirectory(
-    references/mimir_ex/third_party/isocline
+    third_party/isocline
     isocline-build
 )
 
