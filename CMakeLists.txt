@@ -79,7 +79,9 @@ target_include_directories(nlohmann_json INTERFACE
 add_library(mistral-core STATIC
     lib/http/tls_connection.cpp
     lib/api/mistral_api.cpp
+    lib/template/template_engine.cpp
     lib/tools/file_tools.cpp
+    lib/tools/note_tools.cpp
     lib/console/console_task.cpp
 )
 
