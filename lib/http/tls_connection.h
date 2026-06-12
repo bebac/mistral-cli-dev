@@ -14,7 +14,7 @@
 #include <string_view>
 #include <utility>
 
-namespace mistral::http
+namespace mistral::net
 {
   // RAII wrapper for getaddrinfo results.
   class address_info

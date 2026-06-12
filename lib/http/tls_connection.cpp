@@ -5,7 +5,7 @@
 #include <format>
 #include <iostream>
 
-namespace mistral::http
+namespace mistral::net
 {
   // ---- init_openssl ----
 

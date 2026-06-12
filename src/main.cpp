@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
 {
 
   // Default configuration.
-  std::string model              = "mistral-medium-latest";
+  std::string model              = "mistral-small-latest";
   std::string system_prompt      = "You are a helpful AI assistant with access to file system and note tools.";
   std::string system_prompt_file;
   std::string base_dir           = ".mistral-cli";
@@ -99,7 +99,7 @@ int main(int argc, char* argv[])
   }
 
   // Initialize OpenSSL.
-  mistral::http::init_openssl();
+  mistral::net::init_openssl();
 
   // Register tools.
   mistral::tools::file_tools file_tools;

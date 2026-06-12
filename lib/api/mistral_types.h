@@ -114,6 +114,20 @@ namespace mistral::api
     bool stream = true;
   };
 
+  struct api_response
+  {
+    int status_code = 0;
+    std::string body;
+    bool done = false;
+
+    void reset()
+    {
+      status_code = 0;
+      body.clear();
+      done = false;
+    }
+  };
+
   enum class event_type { data, error, done };
 
   struct api_event
