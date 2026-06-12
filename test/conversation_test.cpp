@@ -64,6 +64,91 @@ TEST_CASE("conversation: sliding window")
   CHECK(chat.size() == 4);
 }
 
+TEST_CASE("conversation: sliding window preserves alternation")
+{
+  mistral::agent::conversation chat(2); // Keep 2 conversation messages
+  chat.set_system_message("system");
+
+  // Add alternating user/assistant messages
+  chat.add_user_message("user1");
+  chat.add_assistant_message("assistant1");
+  chat.add_user_message("user2");
+  chat.add_assistant_message("assistant2");
+  chat.add_user_message("user3");
+  chat.add_assistant_message("assistant3");
+
+  chat.ensure_window_size();
+
+  // Should have: system + last 2 conversation messages
+  // Since we keep the most recent, we should have:
+  // [system, user3, assistant3]
+  REQUIRE(chat.size() == 3);
+  CHECK(chat.messages()[0].role == "system");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[1].content == "user3");
+  CHECK(chat.messages()[2].role == "assistant");
+  CHECK(chat.messages()[2].content == "assistant3");
+}
+
+TEST_CASE("conversation: sliding window with tool calls")
+{
+  mistral::agent::conversation chat(2); // Keep 2 conversation messages
+  chat.set_system_message("system");
+
+  // Add user message
+  chat.add_user_message("list files");
+
+  // Add assistant message with tool call
+  std::vector<mistral::api::tool_call> calls = {{
+    .id = "call_1",
+    .type = "function",
+    .function = {.name = "ls", .arguments = R"({"path":"."})"}
+  }};
+  chat.add_assistant_message("", std::move(calls));
+
+  // Add tool result
+  chat.add_tool_result("ls", "call_1", R"({"files":["a.txt"]})");
+
+  // Add another user message
+  chat.add_user_message("read file");
+  chat.add_assistant_message("content");
+
+  chat.ensure_window_size();
+
+  // Should keep: system + last 2 conversation messages
+  // The conversation messages are: user1, assistant1, tool1, user2, assistant2
+  // We want to keep the most recent 2, which should be user2 and assistant2
+  REQUIRE(chat.size() == 3); // system + 2 conversation messages
+  CHECK(chat.messages()[0].role == "system");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[1].content == "read file");
+  CHECK(chat.messages()[2].role == "assistant");
+  CHECK(chat.messages()[2].content == "content");
+}
+
+TEST_CASE("conversation: sliding window without system message")
+{
+  mistral::agent::conversation chat(2); // Keep 2 messages
+
+  chat.add_user_message("user1");
+  chat.add_assistant_message("assistant1");
+  chat.add_user_message("user2");
+  chat.add_assistant_message("assistant2");
+  chat.add_user_message("user3");
+
+  chat.ensure_window_size();
+
+  // Should keep last 2 messages: user3 and... but we only have user3 as the last
+  // Actually, we added 3 user messages and 2 assistant messages
+  // The sequence is: user1, assistant1, user2, assistant2, user3
+  // We want to keep the last 2: assistant2, user3
+  REQUIRE(chat.size() == 2);
+  CHECK(chat.messages()[0].role == "assistant");
+  CHECK(chat.messages()[0].content == "assistant2");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[1].content == "user3");
+}
+
 TEST_CASE("tool_registry: schema generation")
 {
   using namespace mistral::agent;

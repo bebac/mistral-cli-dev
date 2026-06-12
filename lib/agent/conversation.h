@@ -57,16 +57,25 @@ namespace mistral::agent
     {
       if (max_history_ == 0 || messages_.size() <= max_history_) return;
 
-      // Keep system message (if any) + the most recent messages.
-      size_t start = 0;
+      // Keep system message (if any) + max_history_ conversation messages.
+      size_t system_offset = 0;
       if (!messages_.empty() && messages_.front().role == "system") {
-        start = 1;
+        system_offset = 1;
       }
 
-      size_t keep = max_history_;
-      if (messages_.size() - start > keep) {
-        messages_.erase(messages_.begin() + start,
-                        messages_.end() - keep);
+      // Total messages to keep: system message + max_history_ conversation messages
+      size_t total_to_keep = system_offset + max_history_;
+
+      // If we have more messages than we want to keep, trim from the oldest
+      if (messages_.size() > total_to_keep) {
+        // Calculate how many messages to remove from the beginning (after system message)
+        size_t messages_to_remove = messages_.size() - total_to_keep;
+
+        // Start trimming after the system message
+        auto first_to_remove = messages_.begin() + system_offset;
+        auto last_to_remove = first_to_remove + messages_to_remove;
+
+        messages_.erase(first_to_remove, last_to_remove);
       }
     }
 
