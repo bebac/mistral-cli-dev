@@ -59,23 +59,41 @@ namespace mistral::agent
 
       // Keep system message (if any) + max_history_ conversation messages.
       size_t system_offset = 0;
+
       if (!messages_.empty() && messages_.front().role == "system") {
         system_offset = 1;
       }
 
-      // Total messages to keep: system message + max_history_ conversation messages
-      size_t total_to_keep = system_offset + max_history_;
+      if (messages_[system_offset].role != "user")
+      {
+        // TODO. First message after the system message (if present) must
+        // always be a user message. Not sure extaclty how to handle this.
+        // It should probably be an assertion or an exception as it would
+        // be a violation of the chat alteration and means that our
+        // mistral-cli logic is incorrect.
+        return;
+      }
 
-      // If we have more messages than we want to keep, trim from the oldest
-      if (messages_.size() > total_to_keep) {
-        // Calculate how many messages to remove from the beginning (after system message)
-        size_t messages_to_remove = messages_.size() - total_to_keep;
-
-        // Start trimming after the system message
+      while (messages_.size() > system_offset + max_history_)
+      {
         auto first_to_remove = messages_.begin() + system_offset;
-        auto last_to_remove = first_to_remove + messages_to_remove;
 
-        messages_.erase(first_to_remove, last_to_remove);
+        // Find the next user message. We want to remove complete turns
+        // (user + assistant [+ tool results]) to preserve alternation.
+        auto next_user_message = std::find_if(first_to_remove+1, messages_.end(),
+          [](const api::message& msg) {
+            return msg.role == "user";
+          }
+        );
+
+        if ( next_user_message == messages_.end() ) {
+          // We cannot remove the active turn.
+          return;
+        }
+        else {
+          // Remove messages up to the next user message (exclusive).
+          messages_.erase(first_to_remove, next_user_message);
+        }
       }
     }
 
