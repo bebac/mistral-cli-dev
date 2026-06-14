@@ -12,6 +12,7 @@ namespace mistral::api
     body["model"]    = model;
     body["messages"]  = messages;
     body["stream"]    = stream;
+    body["reasoning_effort"] = "high";
 
     if (!tools_schema.empty()) {
       body["tools"]       = tools_schema;
