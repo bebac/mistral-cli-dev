@@ -200,9 +200,6 @@ namespace mistral::net
     if (alpn != "h2") {
       throw std::runtime_error(std::format("expected ALPN 'h2', got '{}'", alpn));
     }
-
-    // Switch to non-blocking for dripcore event loop integration.
-    ssl_.set_non_blocking(true);
   }
 
 } // namespace mistral::http

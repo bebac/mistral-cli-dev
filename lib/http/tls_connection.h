@@ -105,6 +105,8 @@ namespace mistral::net
     SSL* ssl() const { return ssl_.get(); }
     bool connected() const { return sock_ >= 0; }
 
+    void set_non_blocking(bool enable) { ssl_.set_non_blocking(enable); }
+
     ~tls_connection();
 
     tls_connection(tls_connection&&) = default;

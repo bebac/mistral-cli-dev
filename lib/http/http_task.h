@@ -22,9 +22,59 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
 namespace mistral::net
 {
+  // Helper class that ties together the HTTP client context and the TLS connection. These
+  // are thight coupled as a new connection means we also need a new context as the context
+  // holds the protocol engine which will handle sending preface etc. on connection init.
+  class http_client
+  {
+  public:
+    http_client()
+    {
+      reset();
+    }
+
+    void reset()
+    {
+      conn_ = std::make_unique<net::tls_connection>();
+      context_ = std::make_unique<http::client_context>();
+    }
+
+    int fd()
+    {
+      return conn_->fd();
+    }
+
+    void connect(std::string host, int port)
+    {
+      // NOTE: Connect is blocking for now, should probably use nonblock connect as well.
+      conn_->connect(host, std::to_string(port));
+      // Switch to non-blocking mode for dripcore event loop
+      conn_->set_non_blocking(true);
+    }
+
+    auto open_stream() { return context_->open_stream(); }
+
+    auto input_begin() { return context_->input_begin(); }
+    void input_end(size_t n) { context_->input_end(n); }
+    auto output_begin() { return context_->output_begin(); }
+    void output_end(size_t n) { context_->output_end(n); }
+
+    int read(std::span<std::byte> in) { return SSL_read(conn_->ssl(), in.data(), static_cast<int>(in.size())); }
+    int write(std::span<const std::byte> out) { return SSL_write(conn_->ssl(), out.data(), static_cast<int>(out.size())); }
+    bool no_data_pending() { return SSL_pending(conn_->ssl()) == 0; }
+    int get_error(int n) { return SSL_get_error(conn_->ssl(), n); }
+
+  private:
+    std::unique_ptr<net::tls_connection> conn_;
+    std::unique_ptr<http::client_context> context_;
+  };
+
+  // HTTP task. Pulls request from request channel and stream response to reponse channel.
+
   class http_task : public dripcore::task
   {
   public:
@@ -44,129 +94,134 @@ namespace mistral::net
 
     dripcore::coroutine execute()
     {
-      // Initial connection
-      try {
-        establish_connection();
-      } catch (const std::exception& e) {
-        std::cerr << "[http_task] initial connection failed: " << e.what() << std::endl;
-        response_ch_->try_send({api::event_type::error, e.what()});
-        response_ch_->close();
-        co_return;
-      }
-
-      SSL* ssl = conn_.ssl();
-      int fd = conn_.fd();
-
       // Process requests until channel closes.
       while (true)
       {
         auto req = co_await request_ch_->recv();
 
-        // --- Process a single HTTP request ---
+        // No request means we are shutting down.
         if (!req) break;
 
-        std::cout << "[http_task] Sending request of size: " << req->body.size() << std::endl;
-
+        // Reset state for new request.
         response_.reset();
         sse_parser_.reset();
 
-        auto stream = open_stream(*req);
+        unsigned retries = 0;
 
-        ::http::headers hdrs{
-          {"content-type",  "application/json"},
-          {"authorization", "Bearer " + api_key_},
-          {"accept",        req->stream ? "text/event-stream" : "application/json"},
-          {"user-agent",    "mistral-cli/1.0"},
-        };
-
-        stream.send_headers("POST", req->path, host_, hdrs, false);
-
-        auto body_bytes = std::as_bytes(std::span{req->body.data(), req->body.size()});
-        stream.send_data(body_bytes, true);
-
-        // --- SSL pump loop ---
-        //
-        // Key subtlety: SSL_read may consume data from OpenSSL's internal
-        // TLS record buffer, not just from the kernel socket buffer.
-        // After a successful SSL_read, there may be more data available
-        // in the SSL layer that won't trigger a kqueue readable event.
-        // We must check SSL_pending() before co_await readable(fd).
-
-        while (!response_.done)
+        while ( !response_.done && ++retries < 3 )
         {
-          // 1. Flush pending output (WINDOW_UPDATE, SETTINGS_ACK, etc.)
-          //    This must happen promptly — HTTP/2 flow control depends on it.
-          while (true) {
-            auto out = context_.output_begin();
-            if (out.empty()) break;
-
-            int n = SSL_write(ssl, out.data(), static_cast<int>(out.size()));
-
-            if (n > 0) {
-              context_.output_end(n);
-            } else {
-              int err = SSL_get_error(ssl, n);
-              if (err == SSL_ERROR_WANT_WRITE) {
-                co_await writable(fd);
-              } else if (err == SSL_ERROR_WANT_READ) {
-                co_await readable(fd);
-              } else if (err == SSL_ERROR_ZERO_RETURN) {
-                response_.done = true;
-                response_ch_->try_send({api::event_type::error, "SSL_write failed, err=SSL_ERROR_ZERO_RETURN"});
-                response_ch_->try_send({api::event_type::done, {}});
-                break;
-              } else {
-                response_.done = true;
-                response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}", err)});
-                response_ch_->try_send({api::event_type::done, {}});
-                break;
-              }
-            }
-          }
-
-          if (response_.done) break;
-
-          // 2. Read incoming data — drain all available SSL data.
-          //    Only block on the fd if SSL has no buffered data.
-          if (SSL_pending(ssl) == 0) {
-            co_await readable(fd);
-          }
-
-          // Drain loop: process all available SSL records before breaking
-          // to flush. This avoids N outer-loop iterations for N records
-          // in a burst, and keeps the response channel fed without gaps.
-          // WINDOW_UPDATEs accumulate in the output buffer and get flushed
-          // in one batch after the drain — safe because the flow control
-          // window (65KB) is far larger than a typical SSL burst.
-          while (!response_.done) {
-            auto in = context_.input_begin();
-            if (in.empty()) break;
-
-            int n = SSL_read(ssl, in.data(), static_cast<int>(in.size()));
-
-            if (n > 0) {
-              context_.input_end(n);  // Processes HTTP/2 frames, fires callbacks.
-              if (SSL_pending(ssl) == 0) break;  // No more buffered data.
-              // Otherwise continue draining.
-            }
-            else
+          // If not connected, establish connection or end with an error.
+          if ( !connected_ )
+          {
+            // Reset client to create a new HTTP client context and tls connection.
+            client_.reset();
+            try
             {
-              int err = SSL_get_error(ssl, n);
-              if (err == SSL_ERROR_WANT_READ) {
-                break;  // No more data — go back to outer loop.
-              } else if (err == SSL_ERROR_WANT_WRITE) {
-                co_await writable(fd);
-                break;  // Retry from outer loop.
-              } else if (err == SSL_ERROR_ZERO_RETURN) {
-                response_.done = true;
-                response_ch_->try_send({api::event_type::error, "SSL_read failed, err=SSL_ERROR_ZERO_RETURN"});
-                response_ch_->try_send({api::event_type::done, {}});
+              std::cerr << "[http_task] connecting (" << retries << ")..." << std::endl;
+              client_.connect(host_, port_);
+              connected_ = true;
+            }
+            catch (const std::exception& e)
+            {
+              std::cerr << "[http_task] initial connection failed: " << e.what() << std::endl;
+              response_ch_->try_send({api::event_type::error, e.what()});
+              response_ch_->close();
+              co_return;
+            }
+          }
+
+          // --- Process a single HTTP request ---
+
+          std::cout << "[http_task] Sending request of size: " << req->body.size() << std::endl;
+
+          // Open a new HTTP stream for this request.
+          auto stream = open_stream(client_, *req);
+
+          // Buffer request (headers + body).
+          init_request(stream, *req);
+
+          // --- SSL pump loop ---
+          //
+          // Key subtlety: SSL_read may consume data from OpenSSL's internal
+          // TLS record buffer, not just from the kernel socket buffer.
+          // After a successful SSL_read, there may be more data available
+          // in the SSL layer that won't trigger a kqueue readable event.
+          // We must check SSL_pending() before co_await readable(fd).
+
+          while (!response_.done)
+          {
+            while (true)
+            {
+              auto out = client_.output_begin();
+
+              // init_request buffers the complete request, so once we get an empty output buffer we
+              // have sent the complete request.
+              if (out.empty())
                 break;
-              } else {
-                response_.done = true;
-                response_ch_->try_send({api::event_type::error, std::format("stream closed: {}", err)});
-                response_ch_->try_send({api::event_type::done, {}});
+
+              int n = client_.write(out);
+
+              if (n > 0) {
+                client_.output_end(n);
               }
+              else {
+                int err = client_.get_error(n);
+                if (err == SSL_ERROR_WANT_WRITE) {
+                  co_await writable(client_.fd());
+                }
+                else if (err == SSL_ERROR_WANT_READ) {
+                  co_await readable(client_.fd());
+                }
+                else {
+                  std::cerr << "[http_task] SSL_write error " << err << std::endl;
+                  response_.done = true;
+                  response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}",  err)});
+                  response_ch_->try_send({api::event_type::done, {}});
+                  std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // TEMP! dripcore does not currently have a sleep/timer support.
+                }
+              }
+            }
+
+            if (response_.done) break;
+
+            // Read incoming data — drain all available SSL data.
+            // Only block on the fd if SSL has no buffered data.
+            if (client_.no_data_pending()) {
+              co_await readable(client_.fd());
+            }
+
+            while (!response_.done)
+            {
+              auto in = client_.input_begin();
+
+              if (in.empty())
+                break;
+
+              int n = client_.read(in);
+
+              if (n > 0) {
+                client_.input_end(n);  // Processes HTTP/2 frames, fires callbacks.
+              }
+              else {
+                int err = client_.get_error(n);
+
+                if (err == SSL_ERROR_WANT_READ) {
+                  break;
+                }
+                else if (err == SSL_ERROR_WANT_WRITE) {
+                  co_await writable(client_.fd());
+                }
+                else {
+                  std::cerr << "[http_task] stream closed" << std::endl;
+                  connected_ = false;
+                  break;
+                }
+              }
+            }
+
+            if (!connected_ && !response_.done) {
+              // Break to outer loop to retry connect.
+              break;
             }
           }
         }
@@ -184,20 +239,9 @@ namespace mistral::net
     }
 
   private:
-    void establish_connection()
+    auto open_stream(http_client& client, const api::api_request& req) -> ::http::stream
     {
-      conn_.connect(host_, std::to_string(port_));
-
-      // Switch to non-blocking mode for dripcore event loop
-      int fd = conn_.fd();
-
-      int flags = fcntl(fd, F_GETFL, 0);
-      fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-
-    auto open_stream(const api::api_request& req) -> ::http::stream
-    {
-      auto stream = context_.open_stream();
+      auto stream = client.open_stream();
 
       stream.on_headers(
         [&](const ::http::headers& h) {
@@ -254,14 +298,29 @@ namespace mistral::net
       return stream;
     }
 
+    void init_request(http::stream& stream, const api::api_request& req)
+    {
+      ::http::headers hdrs{
+        {"content-type",  "application/json"},
+        {"authorization", "Bearer " + api_key_},
+        {"accept",        req.stream ? "text/event-stream" : "application/json"},
+        {"user-agent",    "mistral-cli/1.0"},
+      };
+
+      stream.send_headers(req.method, req.path, host_, hdrs, false);
+
+      auto body_bytes = std::as_bytes(std::span{req.body.data(), req.body.size()});
+      stream.send_data(body_bytes, true);
+    }
+
     std::string host_;
     int port_;
     std::string api_key_;
 
-    net::tls_connection conn_;
-    http::client_context context_;
+    http_client client_;
     api::sse_parser sse_parser_;
     api::api_response response_;
+    bool connected_ = false;
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
