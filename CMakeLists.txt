@@ -30,6 +30,7 @@ add_library(dripcore STATIC
    third_party/dripcore/lib/dripcore/source/yield_awaiter.cpp
    third_party/dripcore/lib/dripcore/source/io_awaiter.cpp
    third_party/dripcore/lib/dripcore/source/socket.cpp
+   third_party/dripcore/lib/dripcore/source/sleep_awaiter.cpp
     ${DRIPCORE_EVENT_LOOP_SOURCE}
 )
 

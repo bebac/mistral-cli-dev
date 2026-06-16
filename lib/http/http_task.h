@@ -177,7 +177,7 @@ namespace mistral::net
                   response_.done = true;
                   response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}",  err)});
                   response_ch_->try_send({api::event_type::done, {}});
-                  std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // TEMP! dripcore does not currently have a sleep/timer support.
+                  co_await sleep_for(std::chrono::milliseconds(2000));
                 }
               }
             }
