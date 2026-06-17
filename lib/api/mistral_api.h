@@ -4,6 +4,7 @@
 #include "api/mistral_types.h"
 
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace mistral::api
@@ -19,7 +20,10 @@ namespace mistral::api
   // Parsed content from a streaming delta chunk.
   struct stream_delta
   {
-    std::string content;                        // Text content (may be empty)
+    // Content can be:
+    // - A plain string (when reasoning_effort="none" or during answer phase)
+    // - A vector of content_chunk (when reasoning_effort="high" and in thinking phase)
+    std::variant<std::string, std::vector<content_chunk>> content;
     std::optional<std::vector<tool_call>> tool_calls;  // Incremental tool calls
     std::string finish_reason;                  // "stop", "tool_calls", or empty
   };
@@ -30,7 +34,7 @@ namespace mistral::api
   // Parse a non-streaming response into message content + tool calls.
   struct chat_response
   {
-    std::string content;
+    std::variant<std::string, std::vector<content_chunk>> content;
     std::vector<tool_call> tool_calls;
     std::string finish_reason;
   };

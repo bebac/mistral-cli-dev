@@ -86,9 +86,9 @@ TEST_CASE("conversation: sliding window preserves alternation")
   REQUIRE(chat.size() == 3);
   CHECK(chat.messages()[0].role == "system");
   CHECK(chat.messages()[1].role == "user");
-  CHECK(chat.messages()[1].content == "user3");
+  CHECK(std::get<std::string>(chat.messages()[1].content) == "user3");
   CHECK(chat.messages()[2].role == "assistant");
-  CHECK(chat.messages()[2].content == "assistant3");
+  CHECK(std::get<std::string>(chat.messages()[2].content) == "assistant3");
 }
 
 TEST_CASE("conversation: sliding window with tool calls preserves tool results")
@@ -178,9 +178,9 @@ TEST_CASE("conversation: sliding window without system message")
   // We want to keep the last 2: assistant2, user3
   REQUIRE(chat.size() == 2);
   CHECK(chat.messages()[0].role == "user");
-  CHECK(chat.messages()[0].content == "user3");
+  CHECK(std::get<std::string>(chat.messages()[0].content) == "user3");
   CHECK(chat.messages()[1].role == "assistant");
-  CHECK(chat.messages()[1].content == "assistant3");
+  CHECK(std::get<std::string>(chat.messages()[1].content) == "assistant3");
 }
 
 TEST_CASE("tool_registry: schema generation")
@@ -261,6 +261,6 @@ TEST_CASE("mistral_api: parse_stream_delta")
   };
 
   auto delta = parse_stream_delta(j);
-  CHECK(delta.content == "Hello");
+  CHECK(std::get<std::string>(delta.content) == "Hello");
   CHECK(delta.finish_reason.empty());
 }

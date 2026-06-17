@@ -43,7 +43,35 @@ namespace mistral::api
     const auto& delta = choice["delta"];
 
     if (delta.contains("content") && !delta["content"].is_null()) {
-      result.content = delta["content"].get<std::string>();
+      const auto& content_json = delta["content"];
+
+      // Handle string content (legacy or answer phase).
+      if (content_json.is_string()) {
+        result.content = content_json.get<std::string>();
+      }
+      // Handle array content (reasoning chunks).
+      else if (content_json.is_array()) {
+        std::vector<content_chunk> chunks;
+        for (const auto& chunk_json : content_json) {
+          content_chunk chunk;
+          chunk.type = chunk_json["type"].get<std::string>();
+
+          if (chunk.type == "thinking") {
+            if (chunk_json.contains("closed") && !chunk_json["closed"].is_null()) {
+              chunk.closed = chunk_json["closed"].get<bool>();
+            }
+            if (chunk_json.contains("thinking") && !chunk_json["thinking"].is_null()) {
+              chunk.thinking = chunk_json["thinking"].get<std::vector<text_chunk>>();
+            }
+          } else if (chunk.type == "text") {
+            if (chunk_json.contains("text") && !chunk_json["text"].is_null()) {
+              chunk.text = chunk_json["text"].get<std::string>();
+            }
+          }
+          chunks.push_back(std::move(chunk));
+        }
+        result.content = std::move(chunks);
+      }
     }
 
     if (delta.contains("tool_calls") && delta["tool_calls"].is_array()) {
@@ -94,7 +122,35 @@ namespace mistral::api
     const auto& msg = choice["message"];
 
     if (msg.contains("content") && !msg["content"].is_null()) {
-      result.content = msg["content"].get<std::string>();
+      const auto& content_json = msg["content"];
+
+      // Handle string content.
+      if (content_json.is_string()) {
+        result.content = content_json.get<std::string>();
+      }
+      // Handle array content (reasoning chunks).
+      else if (content_json.is_array()) {
+        std::vector<content_chunk> chunks;
+        for (const auto& chunk_json : content_json) {
+          content_chunk chunk;
+          chunk.type = chunk_json["type"].get<std::string>();
+
+          if (chunk.type == "thinking") {
+            if (chunk_json.contains("closed") && !chunk_json["closed"].is_null()) {
+              chunk.closed = chunk_json["closed"].get<bool>();
+            }
+            if (chunk_json.contains("thinking") && !chunk_json["thinking"].is_null()) {
+              chunk.thinking = chunk_json["thinking"].get<std::vector<text_chunk>>();
+            }
+          } else if (chunk.type == "text") {
+            if (chunk_json.contains("text") && !chunk_json["text"].is_null()) {
+              chunk.text = chunk_json["text"].get<std::string>();
+            }
+          }
+          chunks.push_back(std::move(chunk));
+        }
+        result.content = std::move(chunks);
+      }
     }
 
     if (msg.contains("tool_calls") && msg["tool_calls"].is_array()) {

@@ -54,10 +54,7 @@ namespace mistral::api
         // Parse "data: ..." lines.
         if (line.starts_with("data: ")) {
           auto payload = line.substr(6);
-          if (!current_data_.empty()) {
-            current_data_ += '\n';
-          }
-          current_data_ += payload;
+          current_data_.append(payload);
         }
         // Ignore other SSE fields (event:, id:, retry:) for now.
       }

@@ -29,6 +29,16 @@ namespace mistral::agent
       });
     }
 
+    void add_assistant_message(const std::vector<api::content_chunk>& content,
+                               std::optional<std::vector<api::tool_call>> tool_calls = std::nullopt)
+    {
+      messages_.push_back({
+        .role = "assistant",
+        .content = content,
+        .tool_calls = std::move(tool_calls)
+      });
+    }
+
     void add_tool_result(const std::string& name,
                          const std::string& tool_call_id,
                          const std::string& content)
@@ -45,9 +55,12 @@ namespace mistral::agent
     {
       // System message is always at the front.
       if (!messages_.empty() && messages_.front().role == "system") {
-        messages_.front().content = content;
+        messages_.front().content = std::string(content);
       } else {
-        messages_.insert(messages_.begin(), {.role = "system", .content = content});
+        api::message sys_msg;
+        sys_msg.role = "system";
+        sys_msg.content = std::string(content);
+        messages_.insert(messages_.begin(), std::move(sys_msg));
       }
     }
 

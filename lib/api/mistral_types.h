@@ -5,11 +5,73 @@
 
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace mistral::api
 {
   using json = nlohmann::ordered_json;
+
+  // ---- Reasoning chunk types ----
+
+  // Represents a text chunk within thinking or final answer.
+  struct text_chunk
+  {
+    std::string type;  // "text"
+    std::string text;
+  };
+
+  inline void to_json(json& j, const text_chunk& tc)
+  {
+    j = {{"type", tc.type}, {"text", tc.text}};
+  }
+
+  inline void from_json(const json& j, text_chunk& tc)
+  {
+    j.at("type").get_to(tc.type);
+    j.at("text").get_to(tc.text);
+  }
+
+  // Represents a content chunk that can be either thinking or text.
+  struct content_chunk
+  {
+    std::string type;  // "thinking" or "text"
+
+    // For type="thinking": the reasoning trace.
+    std::optional<std::vector<text_chunk>> thinking;
+    std::optional<bool> closed;
+
+    // For type="text": the final answer text.
+    std::optional<std::string> text;
+  };
+
+  inline void to_json(json& j, const content_chunk& cc)
+  {
+    j = {{"type", cc.type}};
+    if (cc.thinking) {
+      j["thinking"] = *cc.thinking;
+    }
+    if (cc.closed) {
+      j["closed"] = *cc.closed;
+    }
+    if (cc.text) {
+      j["text"] = *cc.text;
+    }
+  }
+
+  inline void from_json(const json& j, content_chunk& cc)
+  {
+    j.at("type").get_to(cc.type);
+    if (j.contains("thinking") && !j["thinking"].is_null()) {
+      cc.thinking = j["thinking"].get<std::vector<text_chunk>>();
+    }
+    if (j.contains("closed") && !j["closed"].is_null()) {
+      cc.closed = j["closed"].get<bool>();
+    }
+    if (j.contains("text") && !j["text"].is_null()) {
+      cc.text = j["text"].get<std::string>();
+    }
+  }
 
   // ---- Tool definition (sent in request) ----
 
@@ -79,7 +141,8 @@ namespace mistral::api
   struct message
   {
     std::string role;
-    std::string content;
+    // Content can be either a plain string or a list of content chunks (for reasoning).
+    std::variant<std::string, std::vector<content_chunk>> content;
 
     // For assistant messages with tool calls.
     std::optional<std::vector<tool_call>> tool_calls;
@@ -91,7 +154,14 @@ namespace mistral::api
 
   inline void to_json(json& j, const message& m)
   {
-    j = {{"role", m.role}, {"content", m.content}};
+    j = {{"role", m.role}};
+
+    // Handle content variant.
+    if (std::holds_alternative<std::string>(m.content)) {
+      j["content"] = std::get<std::string>(m.content);
+    } else if (std::holds_alternative<std::vector<content_chunk>>(m.content)) {
+      j["content"] = std::get<std::vector<content_chunk>>(m.content);
+    }
 
     if (m.tool_calls && !m.tool_calls->empty()) {
       j["tool_calls"] = *m.tool_calls;

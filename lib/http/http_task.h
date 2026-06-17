@@ -50,7 +50,7 @@ namespace mistral::net
 
     void connect(std::string host, int port)
     {
-      // NOTE: Connect is blocking for now, should probably use nonblock connect as well.
+      // NOTE: Connect is blocking for now, should probably use non-blocking connect as well.
       conn_->connect(host, std::to_string(port));
       // Switch to non-blocking mode for dripcore event loop
       conn_->set_non_blocking(true);
@@ -73,7 +73,7 @@ namespace mistral::net
     std::unique_ptr<http::client_context> context_;
   };
 
-  // HTTP task. Pulls request from request channel and stream response to reponse channel.
+  // HTTP task. Pulls requests from request channel and stream response to response channel.
 
   class http_task : public dripcore::task
   {

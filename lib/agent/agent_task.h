@@ -13,6 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace mistral::agent
@@ -69,9 +70,11 @@ namespace mistral::agent
           request_ch_->try_send({.body = std::move(body), .stream = true});
 
           // Consume streaming events.
-          std::string accumulated_content;
+          std::string accumulated_text_content;
+          std::vector<api::content_chunk> accumulated_content_chunks;
           std::vector<api::tool_call> accumulated_tool_calls;
           bool print_prefix = true;
+          bool in_thinking = false;
 
           while (true)
           {
@@ -91,27 +94,104 @@ namespace mistral::agent
               auto j = api::json::parse(evt->payload);
               auto delta = api::parse_stream_delta(j);
 
-              // Print content tokens as they arrive.
-              if (!delta.content.empty()) {
-                if (print_prefix) {
-                  std::cout << "\033[32m";  // Green.
-                  print_prefix = false;
+              //std::cerr << "\n[debug] SSE data '" << evt->payload << "'" << std::endl;
+
+              // Handle content based on its type (string or chunks).
+              if (std::holds_alternative<std::string>(delta.content)) {
+                const auto& text = std::get<std::string>(delta.content);
+                if (!text.empty()) {
+                  // If we were in thinking mode, end it.
+                  if (in_thinking) {
+                    std::cout << "\n\n\033[0m";  // Reset color.
+                    in_thinking = false;
+                  }
+
+                  if (print_prefix) {
+                    std::cout << "\033[32m";  // Green for assistant text.
+                    print_prefix = false;
+                  }
+                  std::cout << text << std::flush;
+                  accumulated_text_content += text;
                 }
-                std::cout << delta.content << std::flush;
-                accumulated_content += delta.content;
+              }
+              else if (std::holds_alternative<std::vector<api::content_chunk>>(delta.content)) {
+                const auto& chunks = std::get<std::vector<api::content_chunk>>(delta.content);
+
+                for (const auto& chunk : chunks) {
+                  if (chunk.type == "thinking") {
+                    // Start or continue thinking display.
+                    if (!in_thinking) {
+                      if (print_prefix) {
+                        std::cout << "\n\033[90m";  // Gray for thinking.
+                        print_prefix = false;
+                      }
+                      in_thinking = true;
+                    }
+
+                    // Accumulate thinking chunks.
+                    if (chunk.thinking) {
+                      for (const auto& think : *chunk.thinking) {
+                        std::cout << think.text << std::flush;
+                        // Store thinking in accumulated chunks.
+                        api::content_chunk think_chunk;
+                        think_chunk.type = "thinking";
+                        if (!think_chunk.thinking) {
+                          think_chunk.thinking = std::vector<api::text_chunk>();
+                        }
+                        think_chunk.thinking->push_back(think);
+                        think_chunk.closed = chunk.closed;
+                        accumulated_content_chunks.push_back(std::move(think_chunk));
+                      }
+                    }
+
+                    // Check if thinking is closed.
+                    if (chunk.closed.value_or(false)) {
+                      // Thinking phase is done, but there might be text chunks in the same delta.
+                      // Don't reset in_thinking yet as there might be text chunks following.
+                    }
+                  }
+                  else if (chunk.type == "text") {
+                    // Text chunk - could be during thinking or final answer.
+                    if (chunk.text) {
+                      if (in_thinking) {
+                        // End thinking display.
+                        std::cout << "\n\n\033[0m";  // Reset color.
+                        in_thinking = false;
+                      }
+                      if (print_prefix) {
+                        std::cout << "\033[32m";  // Green for answer text.
+                        print_prefix = false;
+                      }
+                      std::cout << *chunk.text << std::flush;
+                      accumulated_text_content += *chunk.text;
+
+                      // Store text chunk.
+                      api::content_chunk text_chunk;
+                      text_chunk.type = "text";
+                      text_chunk.text = *chunk.text;
+                      accumulated_content_chunks.push_back(std::move(text_chunk));
+                    }
+                  }
+                }
               }
 
               // Accumulate tool calls from deltas.
-              if (delta.tool_calls) {
-                for (auto& tc : *delta.tool_calls) {
+              if (delta.tool_calls)
+              {
+                for (auto &tc : *delta.tool_calls)
+                {
                   // Find existing call by index or create new.
-                  if (!tc.id.empty()) {
+                  if (!tc.id.empty())
+                  {
                     // New tool call.
                     accumulated_tool_calls.push_back(std::move(tc));
-                  } else if (!accumulated_tool_calls.empty()) {
+                  }
+                  else if (!accumulated_tool_calls.empty())
+                  {
                     // Append to last tool call's arguments.
-                    auto& last = accumulated_tool_calls.back();
-                    if (!tc.function.name.empty()) {
+                    auto &last = accumulated_tool_calls.back();
+                    if (!tc.function.name.empty())
+                    {
                       last.function.name += tc.function.name;
                     }
                     last.function.arguments += tc.function.arguments;
@@ -125,6 +205,7 @@ namespace mistral::agent
               }
             } catch (const std::exception& e) {
               // Skip malformed SSE data.
+              std::cerr << "\n[error] malformed SSE data '" << evt->payload << "' " << e.what() << std::endl;
             }
           }
 
@@ -135,9 +216,39 @@ namespace mistral::agent
 
           if (!accumulated_tool_calls.empty())
           {
+            // Build final content for the message.
+            std::variant<std::string, std::vector<api::content_chunk>> final_content;
+            if (!accumulated_text_content.empty() || !accumulated_content_chunks.empty())
+            {
+              if (!accumulated_content_chunks.empty()) {
+                // Use the chunked content (includes reasoning).
+                final_content = std::move(accumulated_content_chunks);
+              }
+              else {
+                // Use plain text.
+                final_content = std::move(accumulated_text_content);
+              }
+            }
+            else
+            {
+              final_content = std::string();
+            }
+
             // Add assistant message with tool calls.
-            chat_.add_assistant_message(accumulated_content,
-              std::vector<api::tool_call>(accumulated_tool_calls));
+            if (std::holds_alternative<std::vector<api::content_chunk>>(final_content))
+            {
+              chat_.add_assistant_message(
+                std::get<std::vector<api::content_chunk>>(final_content),
+                std::vector<api::tool_call>(accumulated_tool_calls)
+              );
+            }
+            else
+            {
+              chat_.add_assistant_message(
+                std::get<std::string>(final_content),
+                std::vector<api::tool_call>(accumulated_tool_calls)
+              );
+            }
 
             // Execute each tool call.
             for (const auto& tc : accumulated_tool_calls)
@@ -163,8 +274,23 @@ namespace mistral::agent
           else
           {
             // Final text response.
-            if (!accumulated_content.empty()) {
-              chat_.add_assistant_message(accumulated_content);
+            std::variant<std::string, std::vector<api::content_chunk>> final_content;
+            if (!accumulated_content_chunks.empty()) {
+              final_content = std::move(accumulated_content_chunks);
+            }
+            else {
+              final_content = std::move(accumulated_text_content);
+            }
+
+            if (std::holds_alternative<std::vector<api::content_chunk>>(final_content)) {
+              chat_.add_assistant_message(std::get<std::vector<api::content_chunk>>(final_content));
+            }
+            else {
+              const auto &text = std::get<std::string>(final_content);
+              if (!text.empty())
+              {
+                chat_.add_assistant_message(text);
+              }
             }
             std::cout << std::endl;
             final_answer = true;
