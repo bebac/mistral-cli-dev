@@ -13,6 +13,8 @@ namespace mistral::api
     body["messages"]  = messages;
     body["stream"]    = stream;
     body["reasoning_effort"] = "high";
+    body["max_tokens"] = 5000;
+    body["temperature"] =0.5f;
 
     if (!tools_schema.empty()) {
       body["tools"]       = tools_schema;
@@ -101,6 +103,7 @@ namespace mistral::api
     return result;
   }
 
+#if 0
   chat_response parse_response(const json& j)
   {
     chat_response result;
@@ -159,5 +162,6 @@ namespace mistral::api
 
     return result;
   }
+#endif
 
 } // namespace mistral::api

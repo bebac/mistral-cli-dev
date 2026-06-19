@@ -39,7 +39,9 @@ namespace mistral::api
     std::string finish_reason;
   };
 
+#if 0
   chat_response parse_response(const json& j);
+#endif
 
 } // namespace mistral::api
 

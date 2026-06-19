@@ -47,6 +47,10 @@ namespace mistral::agent
 
       auto tools_schema = tools_.get_schema();
 
+#if 0
+      std::cerr << "[debug] " << tools_schema << std::endl;
+#endif
+
       while (true)
       {
         // Signal console to show prompt.
@@ -93,6 +97,12 @@ namespace mistral::agent
             try {
               auto j = api::json::parse(evt->payload);
               auto delta = api::parse_stream_delta(j);
+
+              auto usage = j.value("usage", json());
+
+              if ( !usage.is_null() ) {
+                std::cerr << "\n\n[debug] usage '" << usage << "'" << std::endl;
+              }
 
               //std::cerr << "\n[debug] SSE data '" << evt->payload << "'" << std::endl;
 
@@ -309,7 +319,7 @@ namespace mistral::agent
     std::string model_;
     std::string system_prompt_;
     tool_registry& tools_;
-    conversation chat_{50};  // Keep last 50 messages.
+    conversation chat_{200};  // Keep last 200 messages. We need a better way to track context usage.
 
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;

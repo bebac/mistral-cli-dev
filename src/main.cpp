@@ -16,12 +16,80 @@
 #include <iostream>
 #include <string>
 #include <getopt.h>
+#include <filesystem>
+
+// Collect all unique tags from all notes and write to a file
+std::string generate_note_tags_file(const std::string &notes_dir, const std::string &base_dir)
+{
+  namespace fs = std::filesystem;
+
+  std::set<std::string> all_tags;
+  fs::path notes_path(notes_dir);
+
+  if (!fs::exists(notes_path))
+  {
+    return "";
+  }
+
+  // Recursively scan all .md files in notes directory
+  for (const auto &entry : fs::recursive_directory_iterator(notes_path))
+  {
+    if (!entry.is_regular_file())
+      continue;
+    if (entry.path().extension() != ".md")
+      continue;
+
+    std::ifstream f(entry.path());
+    if (!f)
+      continue;
+
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    auto parsed = mistral::tools::parse_frontmatter(ss.str());
+
+    for (const auto &tag : parsed.front.tags)
+    {
+      all_tags.insert(tag);
+    }
+  }
+
+  // Write tags to file in .mistral-cli directory
+  fs::path tags_file = fs::path(base_dir) / "note_tags.txt";
+  std::ofstream out(tags_file);
+  if (!out)
+  {
+    std::cerr << "warning: could not write note tags file: " << tags_file << std::endl;
+    return "";
+  }
+
+  out << "Available note tags:\n";
+  for (const auto &tag : all_tags)
+  {
+    out << "- " << tag << "\n";
+  }
+
+  return tags_file.string();
+}
+
+void terminate_handler() {
+    try {
+        if (auto e = std::current_exception()) {
+            std::rethrow_exception(e);
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "\n[FATAL] Unhandled exception: " << ex.what() << std::endl;
+    } catch (...) {
+        std::cerr << "\n[FATAL] Unhandled unknown exception" << std::endl;
+    }
+    std::abort();
+}
 
 int main(int argc, char* argv[])
 {
+  std::set_terminate(terminate_handler);
 
   // Default configuration.
-  std::string model              = "mistral-small-latest";
+  std::string model              = "mistral-medium-latest";
   std::string system_prompt      = "You are a helpful AI assistant with access to file system and note tools.";
   std::string system_prompt_file;
   std::string base_dir           = ".mistral-cli";
@@ -77,6 +145,15 @@ int main(int argc, char* argv[])
     return 1;
   }
   std::string api_key(api_key_env);
+
+  // Generate note tags file before processing system prompt
+  if (!system_prompt_file.empty())
+  {
+    std::string tags_file = generate_note_tags_file(notes_dir, base_dir);
+    if (!tags_file.empty()) {
+      std::cout << "Generated note tags file: " << tags_file << std::endl;
+    }
+  }
 
   // Load system prompt from file if specified.
   if (!system_prompt_file.empty()) {

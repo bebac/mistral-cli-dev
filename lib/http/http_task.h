@@ -192,6 +192,15 @@ namespace mistral::net
 
             while (!response_.done)
             {
+              // Send any pending output, WINDOW_UPDATE frames etc.
+              auto out = client_.output_begin();
+              if ( !out.empty() )
+              {
+                if (auto n = client_.write(out) <= 0) {
+                  std::cerr << "[http_task] SSL_write' error" << client_.get_error(n) << std::endl;
+                }
+              }
+
               auto in = client_.input_begin();
 
               if (in.empty())
@@ -212,7 +221,7 @@ namespace mistral::net
                   co_await writable(client_.fd());
                 }
                 else {
-                  std::cerr << "[http_task] stream closed" << std::endl;
+                  std::cerr << "[http_task] stream closed err=" << err << std::endl;
                   connected_ = false;
                   break;
                 }
