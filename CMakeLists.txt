@@ -84,6 +84,7 @@ add_library(mistral-core STATIC
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
     lib/console/console_task.cpp
+    lib/agent/policy_engine.cpp
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)
