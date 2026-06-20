@@ -120,7 +120,7 @@ void approval_manager::display_prompt(const approval_request& request)
   std::cout << "  Tool: " << request.tool_name << std::endl;
 
   // Format and display tool arguments
-  if (!request.tool_arguments.empty())
+  if (!request.tool_arguments.empty() && request.tool_arguments.is_object())
   {
     std::cout << "  Arguments:" << std::endl;
     for (auto it = request.tool_arguments.begin(); it != request.tool_arguments.end(); ++it)

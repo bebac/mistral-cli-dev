@@ -3,6 +3,8 @@
 
 #include "agent/conversation.h"
 #include "agent/tool_registry.h"
+#include "agent/policy_engine.h"
+#include "agent/approval_manager.h"
 #include "api/mistral_api.h"
 #include "api/mistral_types.h"
 
@@ -25,6 +27,8 @@ namespace mistral::agent
       std::string model,
       std::string system_prompt,
       tool_registry& tools,
+      policy_engine policy_engine,
+      approval_manager approval_manager,
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
@@ -33,6 +37,8 @@ namespace mistral::agent
       : model_(std::move(model))
       , system_prompt_(std::move(system_prompt))
       , tools_(tools)
+      , policy_engine_(std::move(policy_engine))
+      , approval_manager_(std::move(approval_manager))
       , prompt_ch_(std::move(prompt_ch))
       , input_ch_(std::move(input_ch))
       , request_ch_(std::move(request_ch))
@@ -266,6 +272,130 @@ namespace mistral::agent
               std::cout << "\n[tool] " << tc.function.name
                         << "(" << tc.function.arguments << ")" << std::flush;
 
+              // Check policy for this tool call
+              // Parse arguments from JSON string to json object
+              json tool_args;
+              try {
+                if (!tc.function.arguments.empty()) {
+                  tool_args = json::parse(tc.function.arguments);
+                }
+              } catch (const std::exception& e) {
+                std::cerr << "\n[warning] Failed to parse tool arguments: " << e.what() << std::endl;
+                tool_args = json::object();
+              }
+
+              policy_context ctx{
+                .tool_name = tc.function.name,
+                .tool_arguments = tool_args,
+                .working_directory = ""  // TODO: get actual working directory
+              };
+
+              auto policy_result = policy_engine_.evaluate(ctx);
+
+              if (policy_result.decision == policy_decision::DENY)
+              {
+                // Policy denies this tool call
+                std::string rejection_msg = policy_result.rejection_message
+                  ? *policy_result.rejection_message
+                  : "Tool call denied by policy";
+                std::cout << " → [DENIED] " << rejection_msg << std::endl;
+
+                // Add rejection as a tool result to the conversation
+                api::json rejection_result = {
+                  {"status", "denied"},
+                  {"message", rejection_msg}
+                };
+                chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
+                continue;
+              }
+
+              if (policy_result.decision == policy_decision::REQUIRE_APPROVAL)
+              {
+                // Check if this is already session-approved
+                if (approval_manager_.is_session_approved(tc.function.name, tool_args))
+                {
+                  std::cout << " → [SESSION APPROVED]" << std::endl;
+                  // Proceed with tool execution
+                }
+                else
+                {
+                  // Prompt user for approval
+                  approval_request approval_req{
+                    .tool_name = tc.function.name,
+                    .tool_arguments = tool_args,
+                    .reason = policy_result.reason ? *policy_result.reason : "Policy requires approval",
+                    .suggested_rejection_message = policy_result.rejection_message
+                  };
+
+                  auto approval_resp = approval_manager_.prompt_user(approval_req);
+
+                  if (approval_resp.action == approval_action::REJECT)
+                  {
+                    std::string rejection_msg;
+                    if (approval_resp.custom_message)
+                    {
+                      rejection_msg = *approval_resp.custom_message;
+                    }
+                    else if (approval_req.suggested_rejection_message)
+                    {
+                      rejection_msg = *approval_req.suggested_rejection_message;
+                    }
+                    else
+                    {
+                      rejection_msg = "Tool call rejected by user";
+                    }
+                    std::cout << " → [REJECTED] " << rejection_msg << std::endl;
+
+                    // Add rejection as a tool result to the conversation
+                    api::json rejection_result = {
+                      {"status", "rejected"},
+                      {"message", rejection_msg}
+                    };
+                    chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
+                    continue;
+                  }
+
+                  if (approval_resp.action == approval_action::REJECT_WITH_MESSAGE)
+                  {
+                    std::string rejection_msg;
+                    if (approval_resp.custom_message)
+                    {
+                      rejection_msg = *approval_resp.custom_message;
+                    }
+                    else if (approval_req.suggested_rejection_message)
+                    {
+                      rejection_msg = *approval_req.suggested_rejection_message;
+                    }
+                    else
+                    {
+                      rejection_msg = "Tool call rejected by user";
+                    }
+                    std::cout << " → [REJECTED WITH MESSAGE] " << rejection_msg << std::endl;
+
+                    // Add rejection as a tool result to the conversation
+                    api::json rejection_result = {
+                      {"status", "rejected"},
+                      {"message", rejection_msg}
+                    };
+                    chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
+                    continue;
+                  }
+
+                  // APPROVE or APPROVE_ALL
+                  if (approval_resp.action == approval_action::APPROVE_ALL)
+                  {
+                    // Add session approval for this pattern
+                    approval_manager_.add_session_approval(tc.function.name, tool_args);
+                    std::cout << " → [APPROVED ALL] Session approval added" << std::endl;
+                  }
+                  else
+                  {
+                    std::cout << " → [APPROVED]" << std::endl;
+                  }
+                }
+              }
+
+              // Execute the tool
               auto result = tools_.dispatch(api::json{
                 {"function", {
                   {"name", tc.function.name},
@@ -319,6 +449,8 @@ namespace mistral::agent
     std::string model_;
     std::string system_prompt_;
     tool_registry& tools_;
+    policy_engine policy_engine_;
+    approval_manager approval_manager_;
     conversation chat_{200};  // Keep last 200 messages. We need a better way to track context usage.
 
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;

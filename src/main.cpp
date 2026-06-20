@@ -3,6 +3,8 @@
 #include "api/mistral_types.h"
 #include "agent/agent_task.h"
 #include "agent/tool_registry.h"
+#include "agent/policy_engine.h"
+#include "agent/approval_manager.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
@@ -97,6 +99,8 @@ int main(int argc, char* argv[])
   std::string host               = "api.mistral.ai";
   int port                       = 443;
   bool system_prompt_show        = false;
+  std::string tool_policy_file;
+  std::string tool_default_policy = "deny";
 
   // Parse command-line arguments.
   static struct option long_options[] = {
@@ -107,12 +111,14 @@ int main(int argc, char* argv[])
     {"host",               required_argument, 0, 'H'},
     {"port",               required_argument, 0, 'p'},
     {"system-prompt-show", no_argument,       0, 'e'},
+    {"tool-policy",        required_argument, 0, 'P'},
+    {"tool-default",       required_argument, 0, 'D'},
     {"help",               no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "m:s:f:n:H:p:eh", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "m:s:f:n:H:p:eP:D:h", long_options, nullptr)) != -1)
   {
     switch (opt) {
       case 'm': model = optarg; break;
@@ -122,6 +128,8 @@ int main(int argc, char* argv[])
       case 'H': host = optarg; break;
       case 'p': port = std::atoi(optarg); break;
       case 'e': system_prompt_show = true; break;
+      case 'P': tool_policy_file = optarg; break;
+      case 'D': tool_default_policy = optarg; break;
       case 'h':
         std::cout << "Usage: mistral-cli [OPTIONS]\n"
                   << "  -m, --model MODEL              Model name (default: mistral-medium-latest)\n"
@@ -131,6 +139,8 @@ int main(int argc, char* argv[])
                   << "  -H, --host HOST                API host (default: api.mistral.ai)\n"
                   << "  -p, --port PORT                API port (default: 443)\n"
                   << "  -e, --system-prompt-show       Show system prompt, then exit\n"
+                  << "  -P, --tool-policy FILE         Load tool policy from JSON file\n"
+                  << "  -D, --tool-default POLICY      Default tool policy: deny, allow, require_approval (default: deny)\n"
                   << "  -h, --help                     Show this help\n";
         return 0;
       default:
@@ -248,6 +258,36 @@ int main(int argc, char* argv[])
     mistral::agent::arg("tag", "Filter by tag (case-insensitive)", std::string(""))
   );
 
+  // Initialize policy engine and approval manager.
+  mistral::agent::policy_engine policy_engine;
+  mistral::agent::approval_manager approval_manager;
+
+  // Set default policy.
+  if (tool_default_policy == "allow") {
+    policy_engine.set_default_policy(mistral::agent::policy_decision::ALLOW);
+  } else if (tool_default_policy == "require_approval") {
+    policy_engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  } else {
+    policy_engine.set_default_policy(mistral::agent::policy_decision::DENY);
+  }
+
+  // Load policy configuration from file if specified.
+  if (!tool_policy_file.empty()) {
+    try {
+      std::ifstream policy_file(tool_policy_file);
+      if (!policy_file) {
+        std::cerr << "error: could not open tool policy file: " << tool_policy_file << std::endl;
+        return 1;
+      }
+      auto policy_config = mistral::agent::json::parse(policy_file);
+      policy_engine.load_configuration(policy_config);
+      std::cout << "Loaded tool policy from: " << tool_policy_file << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "error loading tool policy file: " << e.what() << std::endl;
+      return 1;
+    }
+  }
+
   // Create channels.
   auto prompt_ch   = std::make_shared<dripcore::channel<std::string>>(1);
   auto input_ch    = std::make_shared<dripcore::channel<std::string>>(1);
@@ -263,6 +303,7 @@ int main(int argc, char* argv[])
   sched.spawn<mistral::console::console_task>(prompt_ch, input_ch);
   sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch, response_ch);
   sched.spawn<mistral::agent::agent_task>(model, system_prompt, tools,
+                                          std::move(policy_engine), std::move(approval_manager),
                                           prompt_ch, input_ch, request_ch, response_ch);
 
   sched.run();
