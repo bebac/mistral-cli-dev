@@ -4,6 +4,7 @@
 
 #include <unistd.h>
 #include <fcntl.h>
+#include <termios.h>
 
 #include <atomic>
 #include <cstdlib>
@@ -33,6 +34,10 @@ namespace mistral::console
     std::atomic<bool> shutdown{false};
 
     std::thread thread;
+
+    // For passing the prompt string to the input thread
+    std::string current_prompt;
+    bool is_approval_prompt = false;
   };
 
   static void input_thread_func(console_state* state)
@@ -55,26 +60,66 @@ namespace mistral::console
       ssize_t n = ::read(state->prompt_read, &sig, 1);
       if (n <= 0 || state->shutdown.load()) break;
 
-      // Call isocline (blocking).
-      char* raw = ic_readline("mistral");
-      if (!raw) {
-        // EOF (Ctrl-D).
-        state->eof.store(true);
-        char notify = 0;
-        ::write(state->notify_write, &notify, 1);
-        break;
+      std::string input;
+      std::string prompt_to_display;
+      bool approval_mode = false;
+
+      {
+        std::lock_guard<std::mutex> lock(state->mtx);
+        prompt_to_display = state->current_prompt;
+        approval_mode = state->is_approval_prompt;
       }
 
-      std::string line(raw);
-      std::free(raw);
+      if (approval_mode) {
+        // Approval mode: read single character
+        // Display the approval prompt first
+        std::cout << prompt_to_display << std::flush;
 
-      if (!line.empty()) {
-        ic_history_add(line.c_str());
+        // We need to put the terminal in raw mode to read a single char without Enter
+        // Save current terminal attributes
+        struct termios oldtio, newtio;
+        tcgetattr(STDIN_FILENO, &oldtio);
+        newtio = oldtio;
+        newtio.c_lflag &= ~ICANON;  // Disable canonical mode (but keep ECHO so user sees what they type)
+        newtio.c_cc[VMIN] = 1;
+        newtio.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &newtio);
+
+        int ch = getchar();
+
+        // Restore terminal attributes
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldtio);
+
+        if (ch == EOF) {
+          state->eof.store(true);
+          char notify = 0;
+          ::write(state->notify_write, &notify, 1);
+          break;
+        }
+        // Note: Terminal ECHO is enabled, so the character is already displayed
+        input = std::string(1, static_cast<char>(ch));
+      } else {
+        // Chat mode: read full line
+        char* raw = ic_readline(prompt_to_display.c_str());
+        if (!raw) {
+          // EOF (Ctrl-D).
+          state->eof.store(true);
+          char notify = 0;
+          ::write(state->notify_write, &notify, 1);
+          break;
+        }
+
+        input = std::string(raw);
+        std::free(raw);
+
+        if (!input.empty()) {
+          ic_history_add(input.c_str());
+        }
       }
 
       {
         std::lock_guard<std::mutex> lock(state->mtx);
-        state->pending.push(std::move(line));
+        state->pending.push(std::move(input));
       }
 
       // Notify the event loop.
@@ -122,8 +167,27 @@ namespace mistral::console
       auto prompt = co_await prompt_ch_->recv();
       if (!prompt) break;  // Agent closed the prompt channel.
 
-      // Signal the thread to call readline.
-      char sig = 1;
+      // Check for approval marker
+      const std::string approval_prefix = "[APPROVAL_PROMPT]";
+      bool is_approval = false;
+      std::string display_prompt;
+
+      if (prompt->find(approval_prefix) == 0) {
+        is_approval = true;
+        display_prompt = prompt->substr(approval_prefix.length());
+      } else {
+        display_prompt = *prompt;
+      }
+
+      // Store the prompt and mode in the state for the input thread
+      {
+        std::lock_guard<std::mutex> lock(state->mtx);
+        state->current_prompt = display_prompt;
+        state->is_approval_prompt = is_approval;
+      }
+
+      // Signal the thread to call readline (or readchar for approvals).
+      char sig = 1;  // Just a signal, the actual mode is stored in state
       ::write(state->prompt_write, &sig, 1);
 
       // Wait for the thread to provide input.
@@ -137,16 +201,16 @@ namespace mistral::console
         break;
       }
 
-      std::string line;
+      std::string input;
       {
         std::lock_guard<std::mutex> lock(state->mtx);
         if (!state->pending.empty()) {
-          line = std::move(state->pending.front());
+          input = std::move(state->pending.front());
           state->pending.pop();
         }
       }
 
-      input_ch_->try_send(std::move(line));
+      input_ch_->try_send(std::move(input));
     }
 
     // Cleanup.

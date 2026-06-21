@@ -2,7 +2,7 @@
 
 A **command-line interface** for interacting with [Mistral AI](https://mistral.ai/) models, featuring **real-time streaming**, **tool integration** (e.g., file operations), and an interactive console with history.
 
-Built with **C++20**, **coroutines** (via [dripcore](https://github.com/epiclabs-io/dripcore)), and **HTTP/2** (via [stunning-waddle](https://github.com/simon-meusburger/stunning-waddle)).
+Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dripcore-dev)), and **HTTP/2** (via [stunning-waddle](https://github.com/bebac/stunning-waddle)).
 
 ---
 

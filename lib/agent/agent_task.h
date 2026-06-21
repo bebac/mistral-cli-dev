@@ -14,9 +14,11 @@
 
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <variant>
 #include <vector>
+#include <cctype>
 
 namespace mistral::agent
 {
@@ -319,31 +321,78 @@ namespace mistral::agent
                 }
                 else
                 {
-                  // Prompt user for approval
-                  approval_request approval_req{
-                    .tool_name = tc.function.name,
-                    .tool_arguments = tool_args,
-                    .reason = policy_result.reason ? *policy_result.reason : "Policy requires approval",
-                    .suggested_rejection_message = policy_result.rejection_message
-                  };
+                  // Build approval prompt string
+                  std::string approval_prompt = build_approval_prompt(tc.function.name, tool_args,
+                    policy_result.reason ? *policy_result.reason : "Policy requires approval");
 
-                  auto approval_resp = approval_manager_.prompt_user(approval_req);
+                  // Send approval prompt through prompt channel with marker
+                  prompt_ch_->try_send("[APPROVAL_PROMPT]" + approval_prompt);
 
-                  if (approval_resp.action == approval_action::REJECT)
+                  // Wait for single-character response
+                  auto response = co_await input_ch_->recv();
+                  if (!response) {
+                    // Handle EOF or channel closed
+                    std::cout << " → [CANCELLED] Approval prompt cancelled" << std::endl;
+                    continue;
+                  }
+
+                  // Parse single character response
+                  auto parsed_action = parse_approval_response(*response);
+                  std::optional<std::string> custom_message = std::nullopt;
+
+                  // Handle help request
+                  if (!parsed_action.has_value())
                   {
-                    std::string rejection_msg;
-                    if (approval_resp.custom_message)
-                    {
-                      rejection_msg = *approval_resp.custom_message;
+                    // Show help and re-prompt
+                    std::string help_prompt = "\n  Approval Options:\n"
+                      "    y - Approve this specific call\n"
+                      "    n - Reject this call\n"
+                      "    r - Reject with custom message for AI\n"
+                      "    a - Approve all similar calls for this session\n"
+                      "    ? - Show this help\n"
+                      "  Approve? [y/n/r/a/?]: ";
+                    prompt_ch_->try_send("[APPROVAL_PROMPT]" + help_prompt);
+
+                    // Wait for next response
+                    response = co_await input_ch_->recv();
+                    if (!response) {
+                      std::cout << " → [CANCELLED] Approval prompt cancelled" << std::endl;
+                      continue;
                     }
-                    else if (approval_req.suggested_rejection_message)
-                    {
-                      rejection_msg = *approval_req.suggested_rejection_message;
+                    parsed_action = parse_approval_response(*response);
+                    if (!parsed_action.has_value()) {
+                      // Still help, just reject
+                      parsed_action = approval_action::REJECT;
                     }
-                    else
-                    {
-                      rejection_msg = "Tool call rejected by user";
+                  }
+
+                  approval_action action = *parsed_action;
+
+                  // For reject with message, we need to prompt for the message
+                  if (action == approval_action::REJECT_WITH_MESSAGE)
+                  {
+                    // Send a follow-up prompt for the rejection message
+                    // Use regular prompt (not approval) so user can type a full line
+                    std::string message_prompt = "  Enter message for AI (or press Enter for default): ";
+                    prompt_ch_->try_send(message_prompt);
+
+                    auto message_response = co_await input_ch_->recv();
+                    if (message_response && !message_response->empty()) {
+                      custom_message = *message_response;
+                    } else if (policy_result.rejection_message) {
+                      custom_message = *policy_result.rejection_message;
+                    } else {
+                      custom_message = "Tool call rejected by user";
                     }
+                  }
+
+                  if (action == approval_action::REJECT || action == approval_action::REJECT_WITH_MESSAGE)
+                  {
+                    std::string rejection_msg = custom_message
+                      ? *custom_message
+                      : (policy_result.rejection_message
+                         ? *policy_result.rejection_message
+                         : "Tool call rejected by user");
                     std::cout << " → [REJECTED] " << rejection_msg << std::endl;
 
                     // Add rejection as a tool result to the conversation
@@ -355,34 +404,8 @@ namespace mistral::agent
                     continue;
                   }
 
-                  if (approval_resp.action == approval_action::REJECT_WITH_MESSAGE)
-                  {
-                    std::string rejection_msg;
-                    if (approval_resp.custom_message)
-                    {
-                      rejection_msg = *approval_resp.custom_message;
-                    }
-                    else if (approval_req.suggested_rejection_message)
-                    {
-                      rejection_msg = *approval_req.suggested_rejection_message;
-                    }
-                    else
-                    {
-                      rejection_msg = "Tool call rejected by user";
-                    }
-                    std::cout << " → [REJECTED WITH MESSAGE] " << rejection_msg << std::endl;
-
-                    // Add rejection as a tool result to the conversation
-                    api::json rejection_result = {
-                      {"status", "rejected"},
-                      {"message", rejection_msg}
-                    };
-                    chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
-                    continue;
-                  }
-
                   // APPROVE or APPROVE_ALL
-                  if (approval_resp.action == approval_action::APPROVE_ALL)
+                  if (action == approval_action::APPROVE_ALL)
                   {
                     // Add session approval for this pattern
                     approval_manager_.add_session_approval(tc.function.name, tool_args);
@@ -457,6 +480,102 @@ namespace mistral::agent
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
+
+    // Build approval prompt string for display
+    std::string build_approval_prompt(const std::string& tool_name, const json& tool_arguments, const std::string& reason)
+    {
+      std::ostringstream oss;
+      oss << "\n[APPROVAL REQUIRED]\n";
+      oss << "  Tool: " << tool_name << "\n";
+
+      // Format and display tool arguments
+      if (!tool_arguments.empty() && tool_arguments.is_object())
+      {
+        oss << "  Arguments:\n";
+        for (auto it = tool_arguments.begin(); it != tool_arguments.end(); ++it)
+        {
+          std::string key = it.key();
+          json value = it.value();
+
+          // Format the value
+          std::string value_str;
+          if (value.is_string())
+          {
+            value_str = value.get<std::string>();
+            // Truncate long strings
+            if (value_str.length() > 60)
+            {
+              value_str = value_str.substr(0, 57) + "...";
+            }
+          }
+          else if (value.is_boolean())
+          {
+            value_str = value.get<bool>() ? "true" : "false";
+          }
+          else if (value.is_number())
+          {
+            if (value.is_number_integer())
+            {
+              value_str = std::to_string(value.get<int64_t>());
+            }
+            else
+            {
+              value_str = std::to_string(value.get<double>());
+            }
+          }
+          else
+          {
+            value_str = value.dump();
+            if (value_str.length() > 60)
+            {
+              value_str = value_str.substr(0, 57) + "...";
+            }
+          }
+
+          oss << "    " << key << " = " << value_str << "\n";
+        }
+      }
+
+      oss << "\n  Reason: " << reason << "\n";
+      oss << "  Approve? [y/n/r/a/?]: ";
+      return oss.str();
+    }
+
+    // Parse single-character approval response
+    // Returns std::nullopt if the input is a help request ('?')
+    std::optional<approval_action> parse_approval_response(const std::string& input)
+    {
+      if (input.empty()) {
+        return approval_action::REJECT;
+      }
+
+      char first_char = std::tolower(static_cast<unsigned char>(input[0]));
+
+      if (first_char == 'y')
+      {
+        return approval_action::APPROVE;
+      }
+      else if (first_char == 'n')
+      {
+        return approval_action::REJECT;
+      }
+      else if (first_char == 'r')
+      {
+        return approval_action::REJECT_WITH_MESSAGE;
+      }
+      else if (first_char == 'a')
+      {
+        return approval_action::APPROVE_ALL;
+      }
+      else if (first_char == '?')
+      {
+        // Help request - return nullopt to signal caller to show help
+        return std::nullopt;
+      }
+
+      // Default to reject for unrecognized input
+      return approval_action::REJECT;
+    }
   };
 
 } // namespace mistral::agent

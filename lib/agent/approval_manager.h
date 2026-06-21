@@ -50,10 +50,6 @@ namespace mistral::agent
   public:
     approval_manager();
 
-    // Prompt user for approval of a tool call
-    // Returns the user's decision
-    approval_response prompt_user(const approval_request& request);
-
     // Add a session-level approval for a specific tool call pattern
     void add_session_approval(const std::string& tool_name, const json& argument_pattern);
 
@@ -67,18 +63,6 @@ namespace mistral::agent
     void clear_session_approvals();
 
   private:
-    // Display the approval prompt to the user
-    void display_prompt(const approval_request& request);
-
-    // Display help for approval options
-    void display_help() const;
-
-    // Read user input from stdin
-    std::string read_user_input() const;
-
-    // Parse user input into approval action
-    approval_action parse_input(const std::string& input) const;
-
     // Check if arguments match a session approval pattern
     bool arguments_match(const json& arguments, const session_approval& approval) const;
 
