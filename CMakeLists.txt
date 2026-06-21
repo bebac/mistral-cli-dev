@@ -86,12 +86,14 @@ add_library(mistral-core STATIC
     lib/console/console_task.cpp
     lib/agent/policy_engine.cpp
     lib/agent/approval_manager.cpp
+    lib/common/string_utils.cpp
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)
 
 target_include_directories(mistral-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/common
 )
 
 target_link_libraries(mistral-core PUBLIC

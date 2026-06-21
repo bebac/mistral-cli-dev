@@ -1,4 +1,5 @@
 #include "agent/approval_manager.h"
+#include "common/string_utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -12,42 +13,8 @@ namespace mistral::agent
 
 namespace
 {
-  // Trim whitespace from both ends
-  std::string trim(const std::string& s)
-  {
-    auto is_not_space = [](unsigned char c) { return !std::isspace(c); };
-    auto start = std::find_if(s.begin(), s.end(), is_not_space);
-    auto end = std::find_if(s.rbegin(), s.rend(), is_not_space).base();
-    return (start < end) ? std::string(start, end) : std::string();
-  }
-
-  // Convert to lowercase
-  std::string to_lower(const std::string& s)
-  {
-    std::string result = s;
-    std::transform(result.begin(), result.end(), result.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return result;
-  }
-
-  // Escape special regex characters in a string
-  std::string escape_regex(const std::string& s)
-  {
-    std::string result;
-    for (char c : s)
-    {
-      if (c == '.' || c == '^' || c == '$' || c == '*' || c == '+' || c == '?' ||
-          c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' ||
-          c == '|' || c == '\\')
-      {
-        result += '\\';
-      }
-      result += c;
-    }
-    return result;
-  }
-
-} // anonymous namespace
+  using namespace mistral::utils;
+}
 
 // ---- approval_manager Implementation ----
 

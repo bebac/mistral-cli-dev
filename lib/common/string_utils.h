@@ -1,0 +1,32 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+namespace mistral::utils
+{
+  // Trim whitespace from both ends
+  std::string trim(const std::string& s);
+
+  // Split string by delimiter
+  std::vector<std::string> split(const std::string& s, char delimiter);
+
+  // Split string by comma
+  std::vector<std::string> split_comma(const std::string& s);
+
+  // Convert to lowercase
+  std::string to_lower(const std::string& s);
+
+  // Check if string starts with prefix
+  bool starts_with(const std::string& s, const std::string& prefix);
+
+  // Check if string ends with suffix
+  bool ends_with(const std::string& s, const std::string& suffix);
+
+  // Escape special regex characters
+  std::string escape_regex(const std::string& s);
+
+  // Convert glob pattern to regex
+  std::string glob_to_regex(const std::string& pattern);
+
+} // namespace mistral::utils

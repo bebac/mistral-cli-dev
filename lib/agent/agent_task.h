@@ -109,7 +109,7 @@ namespace mistral::agent
               auto usage = j.value("usage", json());
 
               if ( !usage.is_null() ) {
-                std::cerr << "\n\n[debug] usage '" << usage << "'" << std::endl;
+                //std::cerr << "\n\n[debug] usage '" << usage << "'" << std::endl;
               }
 
               //std::cerr << "\n[debug] SSE data '" << evt->payload << "'" << std::endl;
@@ -220,6 +220,9 @@ namespace mistral::agent
               // Check finish reason.
               if (delta.finish_reason == "tool_calls" || delta.finish_reason == "stop") {
                 // Will be handled after breaking out of the event loop.
+              }
+              else if ( delta.finish_reason == "error") {
+                std::cerr << "\n[error] got finish_reason 'error'" << std::endl;
               }
             } catch (const std::exception& e) {
               // Skip malformed SSE data.

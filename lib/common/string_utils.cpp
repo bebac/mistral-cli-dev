@@ -1,0 +1,117 @@
+#include "common/string_utils.h"
+
+#include <algorithm>
+#include <sstream>
+#include <cctype>
+#include <regex>
+#include <ranges>
+
+namespace mistral::utils
+{
+  // Trim whitespace from both ends
+  std::string trim(const std::string& s)
+  {
+    auto is_not_space = [](unsigned char c) { return !std::isspace(c); };
+    auto start = std::ranges::find_if(s, is_not_space);
+    auto end = std::ranges::find_if(s | std::views::reverse, is_not_space).base();
+    return (start < end) ? std::string(start, end) : std::string();
+  }
+
+  // Split string by delimiter
+  std::vector<std::string> split(const std::string& s, char delimiter)
+  {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream token_stream(s);
+    while (std::getline(token_stream, token, delimiter)) {
+      token = trim(token);
+      if (!token.empty()) tokens.push_back(token);
+    }
+    return tokens;
+  }
+
+  // Split string by comma
+  std::vector<std::string> split_comma(const std::string& s)
+  {
+    return split(s, ',');
+  }
+
+  // Convert to lowercase
+  std::string to_lower(const std::string& s)
+  {
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+  }
+
+  // Check if string starts with prefix
+  bool starts_with(const std::string& s, const std::string& prefix)
+  {
+    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+  }
+
+  // Check if string ends with suffix
+  bool ends_with(const std::string& s, const std::string& suffix)
+  {
+    return s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix;
+  }
+
+  // Escape special regex characters
+  std::string escape_regex(const std::string& s)
+  {
+    static const std::string special_chars = "\\.*+?^$()[]{}|";
+    std::string result;
+    for (char c : s) {
+      if (special_chars.find(c) != std::string::npos) {
+        result += '\\';
+      }
+      result += c;
+    }
+    return result;
+  }
+
+  // Convert glob pattern to regex
+  std::string glob_to_regex(const std::string& pattern)
+  {
+    std::string regex;
+    for (size_t i = 0; i < pattern.size(); ++i) {
+      char c = pattern[i];
+      switch (c) {
+        case '*':
+          if (i + 1 < pattern.size() && pattern[i + 1] == '*') {
+            // ** matches any path including slashes
+            regex += ".*";
+            ++i;
+          } else {
+            // * matches anything except slash
+            regex += "[^/]*";
+          }
+          break;
+        case '?':
+          regex += '.';
+          break;
+        case '.':
+        case '\\':
+        case '^':
+        case '$':
+        case '+':
+        case '(':
+        case ')':
+        case '[':
+        case ']':
+        case '{':
+        case '}':
+        case '|':
+          regex += '\\';
+          regex += c;
+          break;
+        default:
+          regex += escape_regex(std::string(1, c));
+          break;
+      }
+    }
+    return "^" + regex + "$";
+  }
+
+} // namespace mistral::utils
