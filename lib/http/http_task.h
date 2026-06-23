@@ -196,8 +196,12 @@ namespace mistral::net
               auto out = client_.output_begin();
               if ( !out.empty() )
               {
-                if (auto n = client_.write(out) <= 0) {
+                auto n = client_.write(out);
+                if (n <= 0) {
                   std::cerr << "[http_task] SSL_write' error" << client_.get_error(n) << std::endl;
+                }
+                else {
+                  client_.output_end(n);
                 }
               }
 
