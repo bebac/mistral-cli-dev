@@ -12,64 +12,52 @@ namespace mistral::api
 {
   using json = nlohmann::ordered_json;
 
-  // ---- Reasoning chunk types ----
+  // ---- Message content ----
 
-  // Represents a text chunk within thinking or final answer.
-  struct text_chunk
+  // Represents the content of a message (thinking or text).
+  struct message_content
   {
-    std::string type;  // "text"
-    std::string text;
-  };
-
-  inline void to_json(json& j, const text_chunk& tc)
-  {
-    j = {{"type", tc.type}, {"text", tc.text}};
-  }
-
-  inline void from_json(const json& j, text_chunk& tc)
-  {
-    j.at("type").get_to(tc.type);
-    j.at("text").get_to(tc.text);
-  }
-
-  // Represents a content chunk that can be either thinking or text.
-  struct content_chunk
-  {
-    std::string type;  // "thinking" or "text"
-
-    // For type="thinking": the reasoning trace.
-    std::optional<std::vector<text_chunk>> thinking;
+    std::string type;    // "thinking" or "text"
+    std::string content;  // the accumulated content
     std::optional<bool> closed;
-
-    // For type="text": the final answer text.
-    std::optional<std::string> text;
   };
 
-  inline void to_json(json& j, const content_chunk& cc)
+  inline void to_json(json& j, const message_content& mc)
   {
-    j = {{"type", cc.type}};
-    if (cc.thinking) {
-      j["thinking"] = *cc.thinking;
-    }
-    if (cc.closed) {
-      j["closed"] = *cc.closed;
-    }
-    if (cc.text) {
-      j["text"] = *cc.text;
+    j = {{"type", mc.type}};
+    if (mc.type == "text") {
+      j["text"] = mc.content;
+    } else if (mc.type == "thinking") {
+      // For thinking, Mistral API expects: {"type": "thinking", "thinking": [{"type": "text", "text": "..."}]}
+      // Build the text_chunk object explicitly
+      json text_chunk_obj = {
+        {"type", "text"},
+        {"text", mc.content}
+      };
+      j["thinking"] = json::array({text_chunk_obj});
+      if (mc.closed) {
+        j["closed"] = *mc.closed;
+      }
     }
   }
 
-  inline void from_json(const json& j, content_chunk& cc)
+  inline void from_json(const json& j, message_content& mc)
   {
-    j.at("type").get_to(cc.type);
-    if (j.contains("thinking") && !j["thinking"].is_null()) {
-      cc.thinking = j["thinking"].get<std::vector<text_chunk>>();
+    j.at("type").get_to(mc.type);
+    if (mc.type == "text") {
+      j.at("text").get_to(mc.content);
+    } else if (mc.type == "thinking") {
+      // Handle both string format and array format for backward compatibility
+      const auto& thinking_json = j["thinking"];
+      if (thinking_json.is_string()) {
+        mc.content = thinking_json.get<std::string>();
+      } else if (thinking_json.is_array() && !thinking_json.empty()) {
+        // Extract text from the first (and should be only) text_chunk
+        mc.content = thinking_json[0]["text"].get<std::string>();
+      }
     }
     if (j.contains("closed") && !j["closed"].is_null()) {
-      cc.closed = j["closed"].get<bool>();
-    }
-    if (j.contains("text") && !j["text"].is_null()) {
-      cc.text = j["text"].get<std::string>();
+      mc.closed = j["closed"].get<bool>();
     }
   }
 
@@ -141,8 +129,8 @@ namespace mistral::api
   struct message
   {
     std::string role;
-    // Content can be either a plain string or a list of content chunks (for reasoning).
-    std::variant<std::string, std::vector<content_chunk>> content;
+    // Content is a list of message_content blocks (thinking or text).
+    std::vector<message_content> content;
 
     // For assistant messages with tool calls.
     std::optional<std::vector<tool_call>> tool_calls;
@@ -156,11 +144,33 @@ namespace mistral::api
   {
     j = {{"role", m.role}};
 
-    // Handle content variant.
-    if (std::holds_alternative<std::string>(m.content)) {
-      j["content"] = std::get<std::string>(m.content);
-    } else if (std::holds_alternative<std::vector<content_chunk>>(m.content)) {
-      j["content"] = std::get<std::vector<content_chunk>>(m.content);
+    // Content is always a vector of message_content.
+    // Filter out empty text content blocks (but keep thinking blocks and closed blocks).
+    std::vector<message_content> non_empty_content;
+    for (const auto& mc : m.content) {
+      // Keep all thinking blocks (even if empty, they might have closed flag)
+      // Keep text blocks only if they have content
+      if (mc.type == "thinking" || !mc.content.empty()) {
+        non_empty_content.push_back(mc);
+      }
+    }
+
+    if (!non_empty_content.empty()) {
+      // Filter out thinking content for API requests - thinking is only for responses
+      std::vector<message_content> api_content;
+      for (const auto& mc : non_empty_content) {
+        if (mc.type != "thinking") {
+          api_content.push_back(mc);
+        }
+      }
+      
+      // If there's only one content block and it's text, serialize as plain string for compatibility
+      if (api_content.size() == 1 && api_content[0].type == "text" && !api_content[0].closed) {
+        j["content"] = api_content[0].content;
+      } else if (!api_content.empty()) {
+        j["content"] = api_content;
+      }
+      // If all content was thinking, don't include content field at all
     }
 
     if (m.tool_calls && !m.tool_calls->empty()) {

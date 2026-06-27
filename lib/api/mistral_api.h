@@ -20,10 +20,9 @@ namespace mistral::api
   // Parsed content from a streaming delta chunk.
   struct stream_delta
   {
-    // Content can be:
-    // - A plain string (when reasoning_effort="none" or during answer phase)
-    // - A vector of content_chunk (when reasoning_effort="high" and in thinking phase)
-    std::variant<std::string, std::vector<content_chunk>> content;
+    // Content is a vector of message_content blocks.
+    // Each block can be "thinking" or "text" type.
+    std::vector<message_content> content;
     std::optional<std::vector<tool_call>> tool_calls;  // Incremental tool calls
     std::string finish_reason;                  // "stop", "tool_calls", or empty
   };
@@ -34,7 +33,7 @@ namespace mistral::api
   // Parse a non-streaming response into message content + tool calls.
   struct chat_response
   {
-    std::variant<std::string, std::vector<content_chunk>> content;
+    std::vector<message_content> content;
     std::vector<tool_call> tool_calls;
     std::string finish_reason;
   };

@@ -17,20 +17,26 @@ namespace mistral::agent
 
     void add_user_message(const std::string& content)
     {
-      messages_.push_back({.role = "user", .content = content});
+      api::message_content mc;
+      mc.type = "text";
+      mc.content = content;
+      messages_.push_back({.role = "user", .content = {std::move(mc)}});
     }
 
     void add_assistant_message(const std::string& content,
                                std::optional<std::vector<api::tool_call>> tool_calls = std::nullopt)
     {
+      api::message_content mc;
+      mc.type = "text";
+      mc.content = content;
       messages_.push_back({
         .role = "assistant",
-        .content = content,
+        .content = {std::move(mc)},
         .tool_calls = std::move(tool_calls)
       });
     }
 
-    void add_assistant_message(const std::vector<api::content_chunk>& content,
+    void add_assistant_message(const std::vector<api::message_content>& content,
                                std::optional<std::vector<api::tool_call>> tool_calls = std::nullopt)
     {
       messages_.push_back({
@@ -44,9 +50,12 @@ namespace mistral::agent
                          const std::string& tool_call_id,
                          const std::string& content)
     {
+      api::message_content mc;
+      mc.type = "text";
+      mc.content = content;
       messages_.push_back({
         .role = "tool",
-        .content = content,
+        .content = {std::move(mc)},
         .name = name,
         .tool_call_id = tool_call_id
       });
@@ -55,12 +64,21 @@ namespace mistral::agent
     void set_system_message(const std::string& content)
     {
       // System message is always at the front.
-      if (!messages_.empty() && messages_.front().role == "system") {
-        messages_.front().content = std::string(content);
-      } else {
+      if (!messages_.empty() && messages_.front().role == "system")
+      {
+        api::message_content mc;
+        mc.type = "text";
+        mc.content = content;
+        messages_.front().content = {std::move(mc)};
+      }
+      else
+      {
         api::message sys_msg;
         sys_msg.role = "system";
-        sys_msg.content = std::string(content);
+        api::message_content mc;
+        mc.type = "text";
+        mc.content = content;
+        sys_msg.content = {std::move(mc)};
         messages_.insert(messages_.begin(), std::move(sys_msg));
       }
     }
@@ -119,7 +137,8 @@ namespace mistral::agent
       std::ofstream out(filename);
       if (out) {
         out << api::json(messages_).dump(2);
-      } else {
+      }
+      else {
         throw std::runtime_error("Failed to open file: " + filename);
       }
     }
