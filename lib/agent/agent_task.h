@@ -79,6 +79,9 @@ namespace mistral::agent
         {
           // Build and send API request.
           auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true);
+
+          chat_.save(".mistral-cli/chat.latest.json");
+
           request_ch_->try_send({.body = std::move(body), .stream = true});
 
           // Consume streaming events.

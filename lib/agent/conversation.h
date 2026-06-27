@@ -5,6 +5,7 @@
 
 #include <string>
 #include <vector>
+#include <fstream>
 
 namespace mistral::agent
 {
@@ -113,7 +114,18 @@ namespace mistral::agent
     void clear() { messages_.clear(); }
     size_t size() const { return messages_.size(); }
 
+    void save(const std::string& filename) const
+    {
+      std::ofstream out(filename);
+      if (out) {
+        out << api::json(messages_).dump(2);
+      } else {
+        throw std::runtime_error("Failed to open file: " + filename);
+      }
+    }
+
   private:
+
     std::vector<api::message> messages_;
     size_t max_history_;
   };
