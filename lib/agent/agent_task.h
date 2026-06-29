@@ -131,19 +131,7 @@ namespace mistral::agent
                   std::cout << mc.content << std::flush;
 
                   // Accumulate thinking content.
-                  // Check if we already have a thinking block in accumulated_content
-                  bool has_thinking = false;
-                  for (auto& acc_mc : accumulated_content) {
-                    if (acc_mc.type == "thinking") {
-                      acc_mc.content += mc.content;
-                      if (mc.closed) acc_mc.closed = mc.closed;
-                      has_thinking = true;
-                      break;
-                    }
-                  }
-                  if (!has_thinking) {
-                    accumulated_content.push_back(mc);
-                  }
+                  accumulate_message_content(accumulated_content, mc);
 
                   // Check if thinking is closed.
                   if (mc.closed.value_or(false)) {
@@ -165,42 +153,15 @@ namespace mistral::agent
                   std::cout << mc.content << std::flush;
 
                   // Accumulate text content.
-                  // Check if we already have a text block in accumulated_content
-                  bool has_text = false;
-                  for (auto& acc_mc : accumulated_content) {
-                    if (acc_mc.type == "text") {
-                      acc_mc.content += mc.content;
-                      has_text = true;
-                      break;
-                    }
-                  }
-                  if (!has_text) {
-                    accumulated_content.push_back(mc);
-                  }
+                  accumulate_message_content(accumulated_content, mc);
                 }
               }
 
               // Accumulate tool calls from deltas.
               if (delta.tool_calls)
               {
-                for (auto &tc : *delta.tool_calls)
-                {
-                  // Find existing call by index or create new.
-                  if (!tc.id.empty())
-                  {
-                    // New tool call.
-                    accumulated_tool_calls.push_back(std::move(tc));
-                  }
-                  else if (!accumulated_tool_calls.empty())
-                  {
-                    // Append to last tool call's arguments.
-                    auto &last = accumulated_tool_calls.back();
-                    if (!tc.function.name.empty())
-                    {
-                      last.function.name += tc.function.name;
-                    }
-                    last.function.arguments += tc.function.arguments;
-                  }
+                for (auto &tc : *delta.tool_calls) {
+                  accumulate_tool_call(accumulated_tool_calls, std::move(tc));
                 }
               }
 
@@ -211,7 +172,8 @@ namespace mistral::agent
               else if ( delta.finish_reason == "error") {
                 std::cerr << "\n[error] got finish_reason 'error'" << std::endl;
               }
-            } catch (const std::exception& e) {
+            }
+            catch (const std::exception& e) {
               // Skip malformed SSE data.
               std::cerr << "\n[error] malformed SSE data '" << evt->payload << "' " << e.what() << std::endl;
             }
@@ -237,16 +199,7 @@ namespace mistral::agent
                         << "(" << tc.function.arguments << ")" << std::flush;
 
               // Check policy for this tool call
-              // Parse arguments from JSON string to json object
-              json tool_args;
-              try {
-                if (!tc.function.arguments.empty()) {
-                  tool_args = json::parse(tc.function.arguments);
-                }
-              } catch (const std::exception& e) {
-                std::cerr << "\n[warning] Failed to parse tool arguments: " << e.what() << std::endl;
-                tool_args = json::object();
-              }
+              auto tool_args = parse_tool_arguments(tc.function.arguments);
 
               policy_context ctx{
                 .tool_name = tc.function.name,
@@ -374,18 +327,7 @@ namespace mistral::agent
               }
 
               // Execute the tool
-              auto result = tools_.dispatch(api::json{
-                {"function", {
-                  {"name", tc.function.name},
-                  {"arguments", tc.function.arguments}
-                }}
-              });
-
-              std::string result_str = result.dump();
-              chat_.add_tool_result(tc.function.name, tc.id, result_str);
-
-              std::cout << " → " << (result_str.size() > 200
-                ? result_str.substr(0, 200) + "..." : result_str) << std::endl;
+              execute_tool_and_handle_result(tc);
             }
             // Loop back to send tool results to the API.
           }
@@ -406,6 +348,73 @@ namespace mistral::agent
       // Cleanup: close channels.
       request_ch_->close();
       co_return;
+    }
+
+  private:
+    void accumulate_message_content(std::vector<api::message_content> &accumulated, api::message_content mc)
+    {
+      for (auto &acc_mc : accumulated)
+      {
+        if (acc_mc.type == mc.type)
+        {
+          acc_mc.content += mc.content;
+          if (mc.closed) {
+            acc_mc.closed = mc.closed;
+          }
+          return;
+        }
+      }
+      accumulated.push_back(std::move(mc));
+    }
+
+    void accumulate_tool_call(std::vector<api::tool_call> &accumulated, api::tool_call tc)
+    {
+      if (!tc.id.empty())
+      {
+        // New tool call.
+        accumulated.push_back(std::move(tc));
+      }
+      else if (!accumulated.empty())
+      {
+        // Append to last tool call's arguments.
+        auto &last = accumulated.back();
+        if (!tc.function.name.empty()) {
+          last.function.name += tc.function.name;
+        }
+        last.function.arguments += tc.function.arguments;
+      }
+    }
+
+    void execute_tool_and_handle_result(const api::tool_call &tc)
+    {
+      auto result = tools_.dispatch(
+        api::json{{
+          "function", {
+            {"name", tc.function.name},
+            {"arguments", tc.function.arguments}
+          }
+        }}
+      );
+      std::string result_str = result.dump();
+      chat_.add_tool_result(tc.function.name, tc.id, result_str);
+      std::cout << " → " << (result_str.size() > 200 ? result_str.substr(0, 200) + "..." : result_str) << std::endl;
+    }
+
+    api::json parse_tool_arguments(const std::string &arguments_str)
+    {
+      api::json tool_args;
+      try
+      {
+        if (!arguments_str.empty()) {
+          tool_args = api::json::parse(arguments_str);
+        }
+      }
+      catch (const std::exception &e)
+      {
+        std::cerr << "\n[warning] Failed to parse tool arguments: " << e.what() << std::endl;
+        tool_args = api::json::object();
+      }
+      return tool_args;
     }
 
   private:

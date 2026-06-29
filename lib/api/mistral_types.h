@@ -140,9 +140,10 @@ namespace mistral::api
     std::optional<std::string> tool_call_id;  // matching call id
   };
 
-  inline void to_json(json& j, const message& m)
+  // Primary serialization function with optional thinking inclusion
+  inline json message_to_json(const message& m, bool include_thinking = false)
   {
-    j = {{"role", m.role}};
+    json j = {{"role", m.role}};
 
     // Content is always a vector of message_content.
     // Filter out empty text content blocks (but keep thinking blocks and closed blocks).
@@ -156,21 +157,21 @@ namespace mistral::api
     }
 
     if (!non_empty_content.empty()) {
-      // Filter out thinking content for API requests - thinking is only for responses
-      std::vector<message_content> api_content;
+      std::vector<message_content> content_to_serialize;
       for (const auto& mc : non_empty_content) {
-        if (mc.type != "thinking") {
-          api_content.push_back(mc);
+        // Only filter thinking if include_thinking is false
+        if (include_thinking || mc.type != "thinking") {
+          content_to_serialize.push_back(mc);
         }
       }
-      
+
       // If there's only one content block and it's text, serialize as plain string for compatibility
-      if (api_content.size() == 1 && api_content[0].type == "text" && !api_content[0].closed) {
-        j["content"] = api_content[0].content;
-      } else if (!api_content.empty()) {
-        j["content"] = api_content;
+      if (content_to_serialize.size() == 1 && content_to_serialize[0].type == "text" && !content_to_serialize[0].closed) {
+        j["content"] = content_to_serialize[0].content;
+      } else if (!content_to_serialize.empty()) {
+        j["content"] = content_to_serialize;
       }
-      // If all content was thinking, don't include content field at all
+      // If all content was thinking and !include_thinking, don't include content field
     }
 
     if (m.tool_calls && !m.tool_calls->empty()) {
@@ -182,6 +183,14 @@ namespace mistral::api
     if (m.tool_call_id) {
       j["tool_call_id"] = *m.tool_call_id;
     }
+
+    return j;
+  }
+
+  // Existing to_json forwards with include_thinking=false (for API requests)
+  inline void to_json(json& j, const message& m)
+  {
+    j = message_to_json(m, false);
   }
 
   // ---- HTTP-level request/response types (for channel transport) ----

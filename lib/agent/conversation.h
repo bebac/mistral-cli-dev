@@ -136,7 +136,11 @@ namespace mistral::agent
     {
       std::ofstream out(filename);
       if (out) {
-        out << api::json(messages_).dump(2);
+        api::json j = api::json::array();
+        for (const auto& msg : messages_) {
+          j.push_back(api::message_to_json(msg, true));  // Include thinking for logging
+        }
+        out << j.dump(2);
       }
       else {
         throw std::runtime_error("Failed to open file: " + filename);
