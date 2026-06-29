@@ -58,6 +58,14 @@ namespace mistral::net
 
     auto open_stream() { return context_->open_stream(); }
 
+    // Expose connection-level callbacks from stunning-waddle
+    void on_goaway(std::function<void(uint32_t, std::error_code)> cb) {
+      context_->on_goaway(std::move(cb));
+    }
+    void on_connection_error(std::function<void(std::error_code)> cb) {
+      context_->on_connection_error(std::move(cb));
+    }
+
     auto input_begin() { return context_->input_begin(); }
     void input_end(size_t n) { context_->input_end(n); }
     auto output_begin() { return context_->output_begin(); }
@@ -90,7 +98,20 @@ namespace mistral::net
       , api_key_(std::move(api_key))
       , request_ch_(std::move(request_ch))
       , response_ch_(std::move(response_ch))
-    {}
+    {
+      // Register connection-level callbacks
+      client_.on_goaway([this](uint32_t last_stream_id, std::error_code ec) {
+        std::cerr << "[http_task] GOAWAY received, last_stream_id=" << last_stream_id
+                  << ", error=" << ec.message() << std::endl;
+        connected_ = false;
+      });
+
+      client_.on_connection_error([this](std::error_code ec) {
+        std::cerr << "[http_task] Connection error: " << ec.message() << std::endl;
+        connected_ = false;
+        response_ch_->try_send({api::event_type::error, ec.message()});
+      });
+    }
 
     dripcore::coroutine execute()
     {
