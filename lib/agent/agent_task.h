@@ -8,6 +8,7 @@
 #include "agent/approval_prompt.h"
 #include "api/mistral_api.h"
 #include "api/mistral_types.h"
+#include "common/string_utils.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -45,6 +46,7 @@ namespace mistral::agent
       , input_ch_(std::move(input_ch))
       , request_ch_(std::move(request_ch))
       , response_ch_(std::move(response_ch))
+      , session_id_(mistral::utils::generate_session_id())
     {}
 
     dripcore::coroutine execute()
@@ -80,7 +82,7 @@ namespace mistral::agent
           // Build and send API request.
           auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true);
 
-          chat_.save(".mistral-cli/chat.latest.json");
+          chat_.save(".mistral-cli", session_id_);
 
           request_ch_->try_send({.body = std::move(body), .stream = true});
 
@@ -336,6 +338,7 @@ namespace mistral::agent
             // Final text response.
             if (!accumulated_content.empty()) {
               chat_.add_assistant_message(std::move(accumulated_content));
+              chat_.save(".mistral-cli", session_id_);
             }
             std::cout << std::endl;
             final_answer = true;
@@ -424,6 +427,7 @@ namespace mistral::agent
     policy_engine policy_engine_;
     approval_manager approval_manager_;
     conversation chat_{200};  // Keep last 200 messages. We need a better way to track context usage.
+    std::string session_id_;
 
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;

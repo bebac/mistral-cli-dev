@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <filesystem>
 
 namespace mistral::agent
 {
@@ -132,9 +133,13 @@ namespace mistral::agent
     void clear() { messages_.clear(); }
     size_t size() const { return messages_.size(); }
 
-    void save(const std::string& filename) const
+    void save(const std::string& base_dir, const std::string& session_id) const
     {
-      std::ofstream out(filename);
+      std::filesystem::path chat_dir = std::filesystem::path(base_dir) / "chats";
+      std::filesystem::create_directories(chat_dir);
+
+      std::string chat_path = std::format("{}/chat_{}.json", chat_dir.string(), session_id);
+      std::ofstream out(chat_path);
       if (out) {
         api::json j = api::json::array();
         for (const auto& msg : messages_) {
@@ -143,8 +148,13 @@ namespace mistral::agent
         out << j.dump(2);
       }
       else {
-        throw std::runtime_error("Failed to open file: " + filename);
+        throw std::runtime_error("Failed to open file: " + chat_path);
       }
+
+      // Create/update latest symlink
+      std::filesystem::path latest_path = chat_dir / "chat.latest.json";
+      std::filesystem::remove(latest_path);
+      std::filesystem::create_symlink(std::filesystem::path(chat_path).filename(), latest_path);
     }
 
   private:

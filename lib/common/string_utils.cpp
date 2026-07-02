@@ -5,6 +5,7 @@
 #include <cctype>
 #include <regex>
 #include <ranges>
+#include <random>
 
 namespace mistral::utils
 {
@@ -112,6 +113,20 @@ namespace mistral::utils
       }
     }
     return "^" + regex + "$";
+  }
+
+  // Generate a unique session ID using timestamp and random number
+  std::string generate_session_id()
+  {
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+      now.time_since_epoch()).count();
+
+    // Simple random number (not crypto-secure, but sufficient for session IDs)
+    static std::random_device rd;
+    static std::mt19937_64 gen(rd());
+
+    return std::format("{:016x}{:016x}", timestamp, gen());
   }
 
 } // namespace mistral::utils

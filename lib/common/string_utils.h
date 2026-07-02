@@ -29,4 +29,7 @@ namespace mistral::utils
   // Convert glob pattern to regex
   std::string glob_to_regex(const std::string& pattern);
 
+  // Generate a unique session ID (timestamp + random)
+  std::string generate_session_id();
+
 } // namespace mistral::utils
