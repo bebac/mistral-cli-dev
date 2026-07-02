@@ -86,9 +86,13 @@ TEST_CASE("conversation: sliding window preserves alternation")
   REQUIRE(chat.size() == 3);
   CHECK(chat.messages()[0].role == "system");
   CHECK(chat.messages()[1].role == "user");
-  CHECK(std::get<std::string>(chat.messages()[1].content) == "user3");
+  CHECK(chat.messages()[1].content.size() == 1);
+  CHECK(chat.messages()[1].content[0].type == "text");
+  CHECK(chat.messages()[1].content[0].content == "user3");
   CHECK(chat.messages()[2].role == "assistant");
-  CHECK(std::get<std::string>(chat.messages()[2].content) == "assistant3");
+  CHECK(chat.messages()[2].content.size() == 1);
+  CHECK(chat.messages()[2].content[0].type == "text");
+  CHECK(chat.messages()[2].content[0].content == "assistant3");
 }
 
 TEST_CASE("conversation: sliding window with tool calls preserves tool results")
@@ -175,12 +179,14 @@ TEST_CASE("conversation: sliding window without system message")
   // Should keep last 2 messages: user3 and... but we only have user3 as the last
   // Actually, we added 3 user messages and 2 assistant messages
   // The sequence is: user1, assistant1, user2, assistant2, user3
-  // We want to keep the last 2: assistant2, user3
+  // We want to keep the last 2: user2, assistant2
   REQUIRE(chat.size() == 2);
   CHECK(chat.messages()[0].role == "user");
-  CHECK(std::get<std::string>(chat.messages()[0].content) == "user3");
+  CHECK(chat.messages()[0].content.size() == 1);
+  CHECK(chat.messages()[0].content[0].content == "user3");
   CHECK(chat.messages()[1].role == "assistant");
-  CHECK(std::get<std::string>(chat.messages()[1].content) == "assistant3");
+  CHECK(chat.messages()[1].content.size() == 1);
+  CHECK(chat.messages()[1].content[0].content == "assistant3");
 }
 
 TEST_CASE("tool_registry: schema generation")
@@ -238,7 +244,7 @@ TEST_CASE("mistral_api: build_chat_request")
   using namespace mistral::api;
 
   std::vector<message> msgs = {
-    {.role = "user", .content = "hello"}
+    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
   };
 
   auto body = build_chat_request("test-model", msgs, json::array(), true);
@@ -261,6 +267,8 @@ TEST_CASE("mistral_api: parse_stream_delta")
   };
 
   auto delta = parse_stream_delta(j);
-  CHECK(std::get<std::string>(delta.content) == "Hello");
+  REQUIRE(delta.content.size() == 1);
+  CHECK(delta.content[0].type == "text");
+  CHECK(delta.content[0].content == "Hello");
   CHECK(delta.finish_reason.empty());
 }
