@@ -166,12 +166,22 @@ namespace mistral::net
       int sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sock == -1) continue;
 
-      if (::connect(sock, res->ai_addr, res->ai_addrlen) == 0) {
+      if (::connect(sock, res->ai_addr, res->ai_addrlen) == 0)
+      {
         // Disable Nagle's algorithm — critical for HTTP/2 where we send
         // small control frames (WINDOW_UPDATE, SETTINGS_ACK) that must
         // not be delayed.
         int yes = 1;
         setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+
+#if defined(__APPLE__)
+        int value = 1;
+        if (setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &value, sizeof(value)) < 0) {
+          std::cerr << "[http] Failed to enable SO_NOSIGPIPE" << std::endl;
+        }
+#else
+        // TODO
+#endif
         return sock;
       }
       ::close(sock);
