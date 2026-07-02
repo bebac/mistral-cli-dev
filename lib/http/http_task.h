@@ -3,7 +3,6 @@
 
 #include "http/tls_connection.h"
 #include "api/mistral_types.h"
-#include "api/sse_parser.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -12,6 +11,7 @@
 #include <http/client_context.h>
 #include <http/headers.h>
 #include <http/stream.h>
+#include <http/sse.h>
 
 #include <openssl/ssl.h>
 
@@ -288,19 +288,22 @@ namespace mistral::net
 
       stream.on_data(
         [&](std::span<const std::byte> data) {
-          std::string_view chunk(reinterpret_cast<const char*>(data.data()), data.size());
-
           if (req.stream) {
-            auto events = sse_parser_.feed(chunk);
-            for (auto& evt : events) {
-              if (evt.kind == api::sse_parser::event::type::done) {
-                response_ch_->try_send({api::event_type::done, {}});
-              } else {
-                response_ch_->try_send({api::event_type::data, std::move(evt.payload)});
+            sse_parser_.parse(
+              data,
+              [&](http::sse_event evt) {
+                if (evt.data == "[DONE]") {
+                  response_ch_->try_send({api::event_type::done, {}});
+                } else if (!evt.data.empty()) {
+                  response_ch_->try_send({api::event_type::data, std::move(evt.data)});
+                }
               }
-            }
-          } else {
-            response_.body.append(chunk);
+            );
+          }
+          else
+          {
+            auto* first = reinterpret_cast<const char*>(data.data());
+            response_.body.append(first, first + data.size());
           }
         }
       );
@@ -352,7 +355,7 @@ namespace mistral::net
     std::string api_key_;
 
     http_client client_;
-    api::sse_parser sse_parser_;
+    http::sse_parser sse_parser_;
     api::api_response response_;
     bool connected_ = false;
 
