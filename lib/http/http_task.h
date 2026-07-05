@@ -3,6 +3,7 @@
 
 #include "http/tls_connection.h"
 #include "api/mistral_types.h"
+#include "trace/trace.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -17,6 +18,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 #include <charconv>
 #include <format>
 #include <iostream>
@@ -193,11 +196,21 @@ namespace mistral::net
                 else if (err == SSL_ERROR_WANT_READ) {
                   co_await readable(client_.fd());
                 }
+                else if (err == SSL_ERROR_SYSCALL) {
+                  // Connection closed or reset - not a fatal error, allows retry
+                  if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
+                    std::cerr << "[http_task] SSL_write: connection closed (errno=" << errno << ")" << std::endl;
+                    connected_ = false;
+                    break;
+                  } else {
+                    response_.done = true;
+                    response_ch_->try_send({api::event_type::error, std::format("SSL write syscall error: {} ({})", errno, strerror(errno))});
+                    co_await sleep_for(std::chrono::milliseconds(2000));
+                  }
+                }
                 else {
-                  std::cerr << "[http_task] SSL_write error " << err << std::endl;
                   response_.done = true;
-                  response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}",  err)});
-                  response_ch_->try_send({api::event_type::done, {}});
+                  response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}", err)});
                   co_await sleep_for(std::chrono::milliseconds(2000));
                 }
               }
@@ -218,11 +231,22 @@ namespace mistral::net
               if ( !out.empty() )
               {
                 auto n = client_.write(out);
-                if (n <= 0) {
-                  std::cerr << "[http_task] SSL_write' error" << client_.get_error(n) << std::endl;
+                if (n > 0) {
+                  client_.output_end(n);
                 }
                 else {
-                  client_.output_end(n);
+                  int err = client_.get_error(n);
+                  if (err == SSL_ERROR_WANT_WRITE) {
+                    co_await writable(client_.fd());
+                  }
+                  else if (err == SSL_ERROR_WANT_READ) {
+                    co_await readable(client_.fd());
+                  }
+                  else if (err == SSL_ERROR_SYSCALL && (errno == 0 || errno == EPIPE || errno == ECONNRESET)) {
+                    std::cerr << "[http_task] SSL_write: connection closed (errno=" << errno << ")" << std::endl;
+                    connected_ = false;
+                    break;
+                  }
                 }
               }
 
@@ -233,7 +257,9 @@ namespace mistral::net
 
               int n = client_.read(in);
 
-              if (n > 0) {
+              if (n > 0)
+              {
+                mistral::trace::logger::instance().trace(mistral::trace::category::data, "read {}", in.subspan(0, n));
                 client_.input_end(n);  // Processes HTTP/2 frames, fires callbacks.
               }
               else {
@@ -244,6 +270,23 @@ namespace mistral::net
                 }
                 else if (err == SSL_ERROR_WANT_WRITE) {
                   co_await writable(client_.fd());
+                }
+                else if (err == SSL_ERROR_ZERO_RETURN) {
+                  // Connection closed gracefully by peer
+                  std::cerr << "[http_task] SSL_read: connection closed gracefully" << std::endl;
+                  connected_ = false;
+                  break;
+                }
+                else if (err == SSL_ERROR_SYSCALL) {
+                  if (errno == 0 || errno == ECONNRESET) {
+                    std::cerr << "[http_task] SSL_read: connection closed (errno=" << errno << ")" << std::endl;
+                    connected_ = false;
+                    break;
+                  } else {
+                    std::cerr << "[http_task] SSL_read: syscall error errno=" << errno << " (" << strerror(errno) << ")" << std::endl;
+                    connected_ = false;
+                    break;
+                  }
                 }
                 else {
                   std::cerr << "[http_task] stream closed err=" << err << std::endl;
@@ -280,6 +323,7 @@ namespace mistral::net
       stream.on_headers(
         [&](const ::http::headers& h) {
           auto status = h.get(":status");
+          mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_headers status='{}'", status);
           if (!status.empty()) {
             std::from_chars(status.data(), status.data() + status.size(), response_.status_code);
           }
@@ -287,7 +331,11 @@ namespace mistral::net
       );
 
       stream.on_data(
-        [&](std::span<const std::byte> data) {
+        [&](std::span<const std::byte> data)
+        {
+          auto* first = reinterpret_cast<const char*>(data.data());
+          response_.body.append(first, first + data.size());
+          mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_data body={}", response_.body);
           if (req.stream) {
             sse_parser_.parse(
               data,
@@ -300,24 +348,28 @@ namespace mistral::net
               }
             );
           }
-          else
-          {
-            auto* first = reinterpret_cast<const char*>(data.data());
-            response_.body.append(first, first + data.size());
-          }
         }
       );
 
       stream.on_end(
         [&]() {
-          if (!req.stream) {
-            if (response_.status_code >= 200 && response_.status_code < 300) {
+          mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_end status_code='{}', req.stream={}", response_.status_code, req.stream);
+          if (response_.status_code < 200 || response_.status_code >= 300)
+          {
+            response_ch_->try_send({api::event_type::error,
+              std::format("HTTP {}: {}", response_.status_code, response_.body)});
+          }
+          else
+          {
+            if (!req.stream)
+            {
               response_ch_->try_send({api::event_type::data, std::move(response_.body)});
-            } else {
-              response_ch_->try_send({api::event_type::error,
-                std::format("HTTP {}: {}", response_.status_code, response_.body)});
+              response_ch_->try_send({api::event_type::done, {}});
             }
-            response_ch_->try_send({api::event_type::done, {}});
+            else
+            {
+              // For successful streaming, SSE parser already sent [DONE]
+            }
           }
           response_.done = true;
         }
@@ -325,9 +377,9 @@ namespace mistral::net
 
       stream.on_reset(
         [&](std::error_code ec) {
+          mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_reset error_code='{}'", ec.message());
           response_ch_->try_send({api::event_type::error,
             std::format("stream reset: {}", ec.message())});
-          response_ch_->try_send({api::event_type::done, {}});
           response_.done = true;
         }
       );
