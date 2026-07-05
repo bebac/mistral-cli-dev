@@ -46,7 +46,6 @@ target_include_directories(dripcore PUBLIC
 
 add_subdirectory(
     third_party/stunning-waddle
-    stunning-waddle-build
 )
 
 # -----------------------------------------------
