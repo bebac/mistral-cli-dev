@@ -6,7 +6,8 @@ namespace mistral::api
     const std::string& model,
     const std::vector<message>& messages,
     const json& tools_schema,
-    bool stream)
+    bool stream,
+    const std::optional<std::string>& prompt_cache_key)
   {
     json body;
     body["model"]    = model;
@@ -16,6 +17,10 @@ namespace mistral::api
     body["reasoning_effort"] = "high";
     //body["max_tokens"] = 5000;
     //body["temperature"] = 0.9f;
+
+    if (prompt_cache_key) {
+      body["prompt_cache_key"] = *prompt_cache_key;
+    }
 
     if (!tools_schema.empty()) {
       body["tools"]       = tools_schema;

@@ -14,7 +14,8 @@ namespace mistral::api
     const std::string& model,
     const std::vector<message>& messages,
     const json& tools_schema,
-    bool stream = true
+    bool stream = true,
+    const std::optional<std::string>& prompt_cache_key = std::nullopt
   );
 
   // Parsed content from a streaming delta chunk.

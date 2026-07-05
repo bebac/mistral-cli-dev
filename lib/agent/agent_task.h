@@ -80,7 +80,7 @@ namespace mistral::agent
         while (!final_answer)
         {
           // Build and send API request.
-          auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true);
+          auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_);
 
           chat_.save(".mistral-cli", session_id_);
 
