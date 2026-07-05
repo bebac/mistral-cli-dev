@@ -7,6 +7,7 @@
 #include "agent/approval_manager.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
+#include "tools/grep_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
 
@@ -211,6 +212,17 @@ int main(int argc, char* argv[])
     mistral::agent::arg("path", "File path to read"),
     mistral::agent::arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
     mistral::agent::arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
+  );
+
+  // Grep tool
+  mistral::tools::grep_tools grep_tools;
+  tools.register_tool(
+    "grep",
+    "Search for a regular expression pattern in files. Returns matching lines with filename and line number.",
+    &grep_tools, &mistral::tools::grep_tools::grep,
+    mistral::agent::arg("pattern", "Regular expression pattern to search for"),
+    mistral::agent::arg("path", "Path to search (file or directory)", std::string(".")),
+    mistral::agent::arg("recursive", "Search recursively in directories", false)
   );
 
   tools.register_tool(
