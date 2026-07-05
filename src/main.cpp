@@ -10,6 +10,7 @@
 #include "tools/grep_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
+#include "trace/trace.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
@@ -148,6 +149,10 @@ int main(int argc, char* argv[])
         return 1;
     }
   }
+
+  auto log_filename = std::filesystem::path(base_dir) / "trace.log";
+  mistral::trace::logger::instance().set_log_path(log_filename.string());
+  mistral::trace::logger::instance().enable(false);
 
   // Read API key from environment.
   const char* api_key_env = std::getenv("MISTRAL_API_KEY");

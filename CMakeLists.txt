@@ -89,6 +89,7 @@ add_library(mistral-core STATIC
     lib/agent/approval_manager.cpp
     lib/agent/approval_prompt.cpp
     lib/common/string_utils.cpp
+    lib/trace/trace.cpp
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)
