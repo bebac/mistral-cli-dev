@@ -3,7 +3,7 @@
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
-#include <dripcore/coroutine.h>
+#include <dripcore/task_handle.h>
 
 #include <memory>
 #include <string>
@@ -34,7 +34,7 @@ namespace mistral::console
 
     ~console_task();
 
-    dripcore::coroutine execute();
+    dripcore::task_handle execute();
 
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;

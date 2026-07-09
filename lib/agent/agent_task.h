@@ -12,7 +12,7 @@
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
-#include <dripcore/coroutine.h>
+#include <dripcore/task_handle.h>
 
 #include <iostream>
 #include <memory>
@@ -49,7 +49,7 @@ namespace mistral::agent
       , session_id_(mistral::utils::generate_session_id())
     {}
 
-    dripcore::coroutine execute()
+    dripcore::task_handle execute()
     {
       if (!system_prompt_.empty()) {
         chat_.set_system_message(system_prompt_);

@@ -138,7 +138,7 @@ namespace mistral::console
 
   console_task::~console_task() = default;
 
-  dripcore::coroutine console_task::execute()
+  dripcore::task_handle console_task::execute()
   {
     auto state = std::make_shared<console_state>();
 

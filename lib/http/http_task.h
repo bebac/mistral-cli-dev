@@ -7,7 +7,7 @@
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
-#include <dripcore/coroutine.h>
+#include <dripcore/task_handle.h>
 
 #include <http/client_context.h>
 #include <http/headers.h>
@@ -116,7 +116,7 @@ namespace mistral::net
       });
     }
 
-    dripcore::coroutine execute()
+    dripcore::task_handle execute()
     {
       // Process requests until channel closes.
       while (true)

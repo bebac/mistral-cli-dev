@@ -24,7 +24,7 @@ endif()
 # -----------------------------------------------
 
 add_library(dripcore STATIC
-   third_party/dripcore/lib/dripcore/source/coroutine.cpp
+   third_party/dripcore/lib/dripcore/source/task_handle.cpp
    third_party/dripcore/lib/dripcore/source/executor.cpp
    third_party/dripcore/lib/dripcore/source/scheduler.cpp
    third_party/dripcore/lib/dripcore/source/yield_awaiter.cpp
