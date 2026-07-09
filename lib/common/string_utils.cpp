@@ -6,6 +6,7 @@
 #include <regex>
 #include <ranges>
 #include <random>
+#include <fstream>
 
 namespace mistral::utils
 {
@@ -127,6 +128,38 @@ namespace mistral::utils
     static std::mt19937_64 gen(rd());
 
     return std::format("{:016x}{:016x}", timestamp, gen());
+  }
+
+  // Check if a file appears to be text (not binary)
+  bool is_text_file(const std::string& filepath)
+  {
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file) return false;
+
+    // Read first 4KB to check - enough to detect binary signatures
+    constexpr size_t buffer_size = 4096;
+    char buffer[buffer_size];
+    file.read(buffer, buffer_size);
+    size_t bytes_read = file.gcount();
+
+    // Check for null bytes (strong indicator of binary)
+    for (size_t i = 0; i < bytes_read; ++i) {
+      if (buffer[i] == '\0') {
+        return false;
+      }
+    }
+
+    // Check ratio of printable/whitespace characters
+    int printable = 0;
+    for (size_t i = 0; i < bytes_read; ++i) {
+      unsigned char c = static_cast<unsigned char>(buffer[i]);
+      if (c >= 32 || c == '\n' || c == '\r' || c == '\t') {
+        printable++;
+      }
+    }
+
+    // If more than 90% are printable/whitespace, treat as text
+    return (printable * 10) >= (bytes_read * 9);
   }
 
 } // namespace mistral::utils

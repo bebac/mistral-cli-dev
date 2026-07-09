@@ -28,6 +28,11 @@ namespace mistral::tools
     json results = json::array();
 
     auto process_file = [&](const fs::path& file_path) {
+      // Skip binary files
+      if (!mistral::utils::is_text_file(file_path.string())) {
+        return;
+      }
+
       std::ifstream file(file_path);
       if (!file) return;
 

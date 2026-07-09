@@ -32,4 +32,8 @@ namespace mistral::utils
   // Generate a unique session ID (timestamp + random)
   std::string generate_session_id();
 
+  // Check if a file appears to be text (not binary)
+  // Uses heuristic: contains no null bytes and mostly printable characters
+  bool is_text_file(const std::string& filepath);
 } // namespace mistral::utils
+
