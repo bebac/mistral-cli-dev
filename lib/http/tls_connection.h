@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -106,6 +107,16 @@ namespace mistral::net
     bool connected() const { return sock_ >= 0; }
 
     void set_non_blocking(bool enable) { ssl_.set_non_blocking(enable); }
+
+    int read(std::span<std::byte> in) {
+        return SSL_read(ssl_.get(), in.data(), static_cast<int>(in.size()));
+    }
+    int write(std::span<const std::byte> out) {
+        return SSL_write(ssl_.get(), out.data(), static_cast<int>(out.size()));
+    }
+    bool no_data_pending() const {
+        return SSL_pending(ssl_.get()) == 0;
+    }
 
     ~tls_connection();
 

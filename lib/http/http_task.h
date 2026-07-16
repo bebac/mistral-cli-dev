@@ -1,6 +1,7 @@
 #ifndef MISTRAL_HTTP_TASK_H
 #define MISTRAL_HTTP_TASK_H
 
+#include "http/http_client.h"
 #include "http/tls_connection.h"
 #include "api/mistral_types.h"
 #include "trace/trace.h"
@@ -8,8 +9,8 @@
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
 #include <dripcore/task_handle.h>
+#include <dripcore/awaitable.h>
 
-#include <http/client_context.h>
 #include <http/headers.h>
 #include <http/stream.h>
 #include <http/sse.h>
@@ -29,61 +30,6 @@
 
 namespace mistral::net
 {
-  // Helper class that ties together the HTTP client context and the TLS connection. These
-  // are thight coupled as a new connection means we also need a new context as the context
-  // holds the protocol engine which will handle sending preface etc. on connection init.
-  class http_client
-  {
-  public:
-    http_client()
-    {
-      reset();
-    }
-
-    void reset()
-    {
-      conn_ = std::make_unique<net::tls_connection>();
-      context_ = std::make_unique<http::client_context>();
-    }
-
-    int fd()
-    {
-      return conn_->fd();
-    }
-
-    void connect(std::string host, int port)
-    {
-      // NOTE: Connect is blocking for now, should probably use non-blocking connect as well.
-      conn_->connect(host, std::to_string(port));
-      // Switch to non-blocking mode for dripcore event loop
-      conn_->set_non_blocking(true);
-    }
-
-    auto open_stream() { return context_->open_stream(); }
-
-    // Expose connection-level callbacks from stunning-waddle
-    void on_goaway(std::function<void(uint32_t, std::error_code)> cb) {
-      context_->on_goaway(std::move(cb));
-    }
-    void on_connection_error(std::function<void(std::error_code)> cb) {
-      context_->on_connection_error(std::move(cb));
-    }
-
-    auto input_begin() { return context_->input_begin(); }
-    void input_end(size_t n) { context_->input_end(n); }
-    auto output_begin() { return context_->output_begin(); }
-    void output_end(size_t n) { context_->output_end(n); }
-
-    int read(std::span<std::byte> in) { return SSL_read(conn_->ssl(), in.data(), static_cast<int>(in.size())); }
-    int write(std::span<const std::byte> out) { return SSL_write(conn_->ssl(), out.data(), static_cast<int>(out.size())); }
-    bool no_data_pending() { return SSL_pending(conn_->ssl()) == 0; }
-    int get_error(int n) { return SSL_get_error(conn_->ssl(), n); }
-
-  private:
-    std::unique_ptr<net::tls_connection> conn_;
-    std::unique_ptr<http::client_context> context_;
-  };
-
   // HTTP task. Pulls requests from request channel and stream response to response channel.
 
   class http_task : public dripcore::task
@@ -116,6 +62,7 @@ namespace mistral::net
       });
     }
 
+  public:
     dripcore::task_handle execute()
     {
       // Process requests until channel closes.
@@ -174,125 +121,31 @@ namespace mistral::net
 
           while (!response_.done)
           {
-            while (true)
+            if (auto err = co_await client_output_task(connected_))
             {
-              auto out = client_.output_begin();
-
-              // init_request buffers the complete request, so once we get an empty output buffer we
-              // have sent the complete request.
-              if (out.empty())
-                break;
-
-              int n = client_.write(out);
-
-              if (n > 0) {
-                client_.output_end(n);
-              }
-              else {
-                int err = client_.get_error(n);
-                if (err == SSL_ERROR_WANT_WRITE) {
-                  co_await writable(client_.fd());
-                }
-                else if (err == SSL_ERROR_WANT_READ) {
-                  co_await readable(client_.fd());
-                }
-                else if (err == SSL_ERROR_SYSCALL) {
-                  // Connection closed or reset - not a fatal error, allows retry
-                  if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
-                    std::cerr << "[http_task] SSL_write: connection closed (errno=" << errno << ")" << std::endl;
-                    connected_ = false;
-                    break;
-                  } else {
-                    response_.done = true;
-                    response_ch_->try_send({api::event_type::error, std::format("SSL write syscall error: {} ({})", errno, strerror(errno))});
-                    co_await sleep_for(std::chrono::milliseconds(2000));
-                  }
-                }
-                else {
-                  response_.done = true;
-                  response_ch_->try_send({api::event_type::error, std::format("SSL write error: {}", err)});
-                  co_await sleep_for(std::chrono::milliseconds(2000));
-                }
-              }
+              response_.done = true;
+              response_ch_->try_send({api::event_type::error, *err});
             }
 
-            if (response_.done) break;
+            if (!connected_)
+              break;
 
-            // Read incoming data — drain all available SSL data.
-            // Only block on the fd if SSL has no buffered data.
-            if (client_.no_data_pending()) {
-              co_await readable(client_.fd());
-            }
+            if (response_.done)
+              break;
 
             while (!response_.done)
             {
-              // Send any pending output, WINDOW_UPDATE frames etc.
-              auto out = client_.output_begin();
-              if ( !out.empty() )
-              {
-                auto n = client_.write(out);
-                if (n > 0) {
-                  client_.output_end(n);
-                }
-                else {
-                  int err = client_.get_error(n);
-                  if (err == SSL_ERROR_WANT_WRITE) {
-                    co_await writable(client_.fd());
-                  }
-                  else if (err == SSL_ERROR_WANT_READ) {
-                    co_await readable(client_.fd());
-                  }
-                  else if (err == SSL_ERROR_SYSCALL && (errno == 0 || errno == EPIPE || errno == ECONNRESET)) {
-                    std::cerr << "[http_task] SSL_write: connection closed (errno=" << errno << ")" << std::endl;
-                    connected_ = false;
-                    break;
-                  }
-                }
+              if (auto err = co_await client_output_task(connected_)) {
+                std::cerr << "[http_task] client_output_task error: " << *err << std::endl;
               }
 
-              auto in = client_.input_begin();
-
-              if (in.empty())
+              if ( !connected_ ) {
                 break;
-
-              int n = client_.read(in);
-
-              if (n > 0)
-              {
-                mistral::trace::logger::instance().trace(mistral::trace::category::data, "read {}", in.subspan(0, n));
-                client_.input_end(n);  // Processes HTTP/2 frames, fires callbacks.
               }
-              else {
-                int err = client_.get_error(n);
 
-                if (err == SSL_ERROR_WANT_READ) {
-                  break;
-                }
-                else if (err == SSL_ERROR_WANT_WRITE) {
-                  co_await writable(client_.fd());
-                }
-                else if (err == SSL_ERROR_ZERO_RETURN) {
-                  // Connection closed gracefully by peer
-                  std::cerr << "[http_task] SSL_read: connection closed gracefully" << std::endl;
-                  connected_ = false;
-                  break;
-                }
-                else if (err == SSL_ERROR_SYSCALL) {
-                  if (errno == 0 || errno == ECONNRESET) {
-                    std::cerr << "[http_task] SSL_read: connection closed (errno=" << errno << ")" << std::endl;
-                    connected_ = false;
-                    break;
-                  } else {
-                    std::cerr << "[http_task] SSL_read: syscall error errno=" << errno << " (" << strerror(errno) << ")" << std::endl;
-                    connected_ = false;
-                    break;
-                  }
-                }
-                else {
-                  std::cerr << "[http_task] stream closed err=" << err << std::endl;
-                  connected_ = false;
-                  break;
-                }
+              if (auto err = co_await client_input_task(connected_)) {
+                std::cerr << "[http_task] client_input_task error: " << *err << std::endl;
+                break;
               }
             }
 
@@ -313,6 +166,118 @@ namespace mistral::net
 
       response_ch_->close();
       co_return;
+    }
+
+  private:
+    dripcore::awaitable<std::optional<std::string>> client_output_task(bool& connected)
+    {
+      std::optional<std::string> error;
+
+      if (!connected) {
+        std::cerr << "[http_task] client_output_task !connected" << std::endl;
+      }
+
+      while (true)
+      {
+        auto out = client_.output_begin();
+
+        // init_request buffers the complete request, so once we get an empty output buffer we
+        // have sent the complete request.
+        if (out.empty())
+          break;
+
+        int n = client_.write(out);
+
+        if (n > 0) {
+          client_.output_end(n);
+        }
+        else
+        {
+          int err = client_.get_error(n);
+
+          if (err == SSL_ERROR_WANT_WRITE) {
+            co_await writable(client_.fd());
+          }
+          else if (err == SSL_ERROR_WANT_READ) {
+            co_await readable(client_.fd());
+          }
+          else if (err == SSL_ERROR_SYSCALL) {
+            // Connection closed or reset - not a fatal error, allows retry
+            if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
+              std::cerr << "[http_task] SSL_write: connection closed error: " << errno << "(" <<strerror(errno) << ")" << std::endl;
+              connected = false;
+              break;
+            }
+            else {
+              co_await sleep_for(std::chrono::milliseconds(500));
+              error = std::format("[http_task] SSL_write: syscall error: {} ({})", errno, strerror(errno));
+              break;
+            }
+          }
+          else {
+            co_await sleep_for(std::chrono::milliseconds(500));
+            error = std::format("[http_task] SSL_write: error: {}", err);
+            break;
+          }
+        }
+      }
+      co_return error;
+    }
+
+    dripcore::awaitable<std::optional<std::string>> client_input_task(bool& connected)
+    {
+      std::optional<std::string> error;
+
+      auto in = client_.input_begin();
+
+      if (in.empty()) {
+        co_return error;
+      }
+
+      int n = client_.read(in);
+
+      if (n > 0)
+      {
+        mistral::trace::logger::instance().trace(mistral::trace::category::data, "read {}", in.subspan(0, n));
+        client_.input_end(n);  // Processes HTTP/2 frames, fires callbacks.
+      }
+      else
+      {
+        int err = client_.get_error(n);
+
+        if (err == SSL_ERROR_WANT_READ)
+        {
+          // Only wait on fd if SSL has no pending data.
+          if (client_.no_data_pending()) {
+            co_await readable(client_.fd());
+          }
+        }
+        else if (err == SSL_ERROR_WANT_WRITE) {
+          co_await writable(client_.fd());
+        }
+        else if (err == SSL_ERROR_ZERO_RETURN) {
+          // Connection closed gracefully by peer
+          error = "[http_task] SSL_read: connection closed gracefully";
+          connected = false;
+        }
+        else if (err == SSL_ERROR_SYSCALL)
+        {
+          if (errno == 0 || errno == ECONNRESET) {
+            error = std::format("[http_task] SSL_read: connection closed (errno={})", errno);
+            connected = false;
+          }
+          else {
+            error = std::format("[http_task] SSL_read: syscall error errno={}", errno);
+            connected = false;
+          }
+        }
+        else {
+          error = std::format("[http_task] stream closed err={}", err);
+          connected = false;
+        }
+      }
+
+      co_return error;
     }
 
   private:
