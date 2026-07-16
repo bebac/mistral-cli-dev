@@ -6,11 +6,30 @@
 #include <format>
 #include <regex>
 #include <sstream>
+#include <vector>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
 namespace mistral::tools
 {
+  // Hardcoded list of directories to exclude from grep
+  const std::vector<std::string> EXCLUDED_DIRS = {
+    ".git", ".gitmodules", ".mistral-cli", ".cache", ".DS_store", ".vscode", ".vibe", "build"
+  };
+
+  bool is_excluded(const fs::path& path, const fs::path& base) {
+  fs::path relative = fs::relative(path, base);
+  for (const auto& part : relative) {
+    for (const auto& dir : EXCLUDED_DIRS) {
+      if (part == dir) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
   json grep_tools::grep(std::string pattern, std::string path, bool recursive)
   {
     std::regex regex;
@@ -62,7 +81,7 @@ namespace mistral::tools
           for (const auto &entry : fs::recursive_directory_iterator(
                    base, fs::directory_options::skip_permission_denied))
           {
-            if (entry.is_regular_file()) {
+            if (entry.is_regular_file() && !is_excluded(entry.path(), base)) {
               process_file(entry.path());
             }
           }
@@ -72,7 +91,7 @@ namespace mistral::tools
           for (const auto &entry : fs::directory_iterator(
                    base, fs::directory_options::skip_permission_denied))
           {
-            if (entry.is_regular_file()) {
+            if (entry.is_regular_file() && !is_excluded(entry.path(), base)) {
               process_file(entry.path());
             }
           }
