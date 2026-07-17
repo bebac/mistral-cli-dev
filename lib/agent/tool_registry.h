@@ -80,6 +80,7 @@ namespace mistral::agent
     virtual ~tool_interface() = default;
     virtual json execute(const json& args) = 0;
     virtual json get_schema(const std::string& tool_name) = 0;
+    virtual std::shared_ptr<tool_interface> clone() const = 0;
   };
 
   // ---- Concrete tool wrapper ----
@@ -116,9 +117,7 @@ namespace mistral::agent
           }
           properties[info.name] = property;
         }.template operator()<Args>(),
-        ...
-      );
-
+        ...);
       // Mistral API format: {"type":"function","function":{...}}
       return {
         {"type", "function"},
@@ -132,6 +131,15 @@ namespace mistral::agent
           }}
         }}
       };
+    }
+
+    std::shared_ptr<tool_interface> clone() const override
+    {
+      // Create a new wrapper with the same function and metadata
+      // Note: The captured variables in func_ (like tool instance pointers) are preserved
+      return std::make_shared<tool_wrapper<Ret, Args...>>(
+        func_, args_info_, description_
+      );
     }
 
   private:
@@ -174,12 +182,38 @@ namespace mistral::agent
   class tool_registry
   {
   public:
+    // Default constructor
+    tool_registry() = default;
+
+    // Copy constructor - creates a deep copy of the registry
+    tool_registry(const tool_registry& other)
+    {
+      for (const auto& [name, tool] : other.tools_) {
+        // Clone the tool_wrapper by re-registering with the same parameters
+        // Note: This assumes the tool instances (T*) are still valid
+        // The actual tool execution will use the same underlying instances
+        tools_[name] = tool->clone();
+      }
+    }
+
+    // Copy assignment operator
+    tool_registry& operator=(const tool_registry& other)
+    {
+      if (this != &other) {
+        tools_.clear();
+        for (const auto& [name, tool] : other.tools_) {
+          tools_[name] = tool->clone();
+        }
+      }
+      return *this;
+    }
+
     template <typename T, typename Ret, typename... Args, typename... Names>
       requires (sizeof...(Args) == sizeof...(Names))
     void register_tool(std::string name, std::string desc, T* inst, Ret (T::*m)(Args...), Names... names)
     {
       std::vector<arg_info> info_vec = {names...};
-      auto wrapper = std::make_unique<tool_wrapper<Ret, Args...>>(
+      auto wrapper = std::make_shared<tool_wrapper<Ret, Args...>>(
         [inst, m](Args... args) { return (inst->*m)(args...); },
         std::move(info_vec), std::move(desc)
       );
@@ -191,9 +225,10 @@ namespace mistral::agent
       auto name = tool_call["function"]["name"].get<std::string>();
       auto args = json::parse(tool_call["function"]["arguments"].get<std::string>());
 
-      if (tools_.contains(name)) {
+      auto it = tools_.find(name);
+      if (it != tools_.end()) {
         try {
-          return tools_[name]->execute(args);
+          return it->second->execute(args);
         } catch (const std::exception& e) {
           return {{"error", e.what()}};
         }
@@ -211,8 +246,33 @@ namespace mistral::agent
       return schema;
     }
 
+    // Check if a tool is registered
+    bool has_tool(const std::string& name) const
+    {
+      return tools_.find(name) != tools_.end();
+    }
+
+    // Get a tool by name (returns nullptr if not found)
+    std::shared_ptr<tool_interface> get_tool(const std::string& name) const
+    {
+      auto it = tools_.find(name);
+      return it != tools_.end() ? it->second : nullptr;
+    }
+
+    // Get the underlying map (for iteration)
+    const std::map<std::string, std::shared_ptr<tool_interface>>& get_tools_map() const
+    {
+      return tools_;
+    }
+
+    // Add a tool directly (for use by agent_system when filtering)
+    void add_tool(const std::string& name, std::shared_ptr<tool_interface> tool)
+    {
+      tools_[name] = std::move(tool);
+    }
+
   private:
-    std::map<std::string, std::unique_ptr<tool_interface>> tools_;
+    std::map<std::string, std::shared_ptr<tool_interface>> tools_;
   };
 
 } // namespace mistral::agent

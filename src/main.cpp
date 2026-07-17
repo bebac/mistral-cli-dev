@@ -2,12 +2,9 @@
 #include "http/http_task.h"
 #include "api/mistral_types.h"
 #include "agent/agent_task.h"
-#include "agent/tool_registry.h"
-#include "agent/policy_engine.h"
-#include "agent/approval_manager.h"
-#include "tools/file_tools.h"
+#include "agent/agent_system.h"
+#include "agent/agent_config.h"
 #include "tools/note_tools.h"
-#include "tools/grep_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
 #include "trace/trace.h"
@@ -194,122 +191,91 @@ int main(int argc, char* argv[])
   // Initialize OpenSSL.
   mistral::net::init_openssl();
 
-  // Register tools.
-  mistral::tools::file_tools file_tools;
-  mistral::tools::note_tools notes(notes_dir);
-  mistral::agent::tool_registry tools;
+  // Create channels.
+  auto prompt_ch   = std::make_shared<dripcore::channel<std::string>>(1);
+  auto input_ch    = std::make_shared<dripcore::channel<std::string>>(1);
+  auto request_ch  = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
+  auto response_ch = std::make_shared<dripcore::channel<mistral::api::api_event>>(64);
 
-  tools.register_tool(
-    "ls",
-    "List files and directories. Returns entries with type indicator (f=file, d=directory, l=symlink), "
-    "size for files, and relative path.",
-    &file_tools, &mistral::tools::file_tools::list_files,
-    mistral::agent::arg("path", "Directory path to list"),
-    mistral::agent::arg("recursive", "Whether to list subdirectories recursively", false),
-    mistral::agent::arg("max_depth", "Maximum recursion depth (0 for unlimited)", 1)
-  );
+  // Initialize agent system with config file or command-line arguments
+  auto config_file = std::filesystem::path(base_dir) / "mistral-cli.json";
+  auto& agent_system = mistral::agent::agent_system::instance();
 
-  tools.register_tool(
-    "read",
-    "Read file contents. Use line_from and line_to for specific ranges. "
-    "Set both to 0 to read entire file. Lines are 1-indexed.",
-    &file_tools, &mistral::tools::file_tools::read_file,
-    mistral::agent::arg("path", "File path to read"),
-    mistral::agent::arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
-    mistral::agent::arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
-  );
-
-  // Grep tool
-  mistral::tools::grep_tools grep_tools;
-  tools.register_tool(
-    "grep",
-    "Search for a regular expression pattern in files. Returns matching lines with filename and line number.",
-    &grep_tools, &mistral::tools::grep_tools::grep,
-    mistral::agent::arg("pattern", "Regular expression pattern to search for"),
-    mistral::agent::arg("path", "Path to search (file or directory)", std::string(".")),
-    mistral::agent::arg("recursive", "Search recursively in directories", false)
-  );
-
-  tools.register_tool(
-    "write",
-    "Write content to a file. Creates the file and parent directories if needed. "
-    "Overwrites existing content.",
-    &file_tools, &mistral::tools::file_tools::write_file,
-    mistral::agent::arg("path", "File path to write to"),
-    mistral::agent::arg("content", "Content to write")
-  );
-
-  // Note tools.
-  tools.register_tool(
-    "notes_list",
-    "List notes in the notes directory. Shows path, title, and tags for each note. "
-    "Pass an empty string to list all notes, or a subfolder name to filter.",
-    &notes, &mistral::tools::note_tools::list_notes,
-    mistral::agent::arg("folder", "Subfolder to list (empty for all)", std::string(""))
-  );
-
-  tools.register_tool(
-    "notes_read",
-    "Read a note from the notes directory. Resolves {{> path}} include directives. "
-    "Returns title, tags, and rendered content. The .md extension is optional.",
-    &notes, &mistral::tools::note_tools::read_note,
-    mistral::agent::arg("path", "Note path relative to notes directory")
-  );
-
-  tools.register_tool(
-    "notes_write",
-    "Create or update a note. Use YAML frontmatter for title and tags:\n"
-    "---\ntitle: My Note\ntags: [tag1, tag2]\n---\n"
-    "Use {{> path}} to include other notes (partials). Put reusable snippets in _partials/.",
-    &notes, &mistral::tools::note_tools::write_note,
-    mistral::agent::arg("path", "Note path relative to notes directory"),
-    mistral::agent::arg("content", "Note content (with optional frontmatter)")
-  );
-
-  tools.register_tool(
-    "notes_search",
-    "Search notes by text content and/or tag. At least one must be provided. "
-    "Returns matching notes with path, title, tags, and matching line context.",
-    &notes, &mistral::tools::note_tools::search_notes,
-    mistral::agent::arg("query", "Text to search for (case-insensitive)", std::string("")),
-    mistral::agent::arg("tag", "Filter by tag (case-insensitive)", std::string(""))
-  );
-
-  // Initialize policy engine and approval manager.
-  mistral::agent::policy_engine policy_engine;
-  mistral::agent::approval_manager approval_manager;
-
-  // Set default policy.
-  if (tool_default_policy == "allow") {
-    policy_engine.set_default_policy(mistral::agent::policy_decision::ALLOW);
-  } else if (tool_default_policy == "require_approval") {
-    policy_engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
-  } else {
-    policy_engine.set_default_policy(mistral::agent::policy_decision::DENY);
+  if (std::filesystem::exists(config_file))
+  {
+    std::cout << "Loading configuration from: " << config_file << std::endl;
+    try
+    {
+      agent_system.initialize(config_file.string(), notes_dir, request_ch, response_ch);
+    }
+    catch (const std::exception &e)
+    {
+      std::cerr << "error loading configuration file: " << e.what() << std::endl;
+      return 1;
+    }
+  }
+  else
+  {
+    std::cout << "No config file found at " << config_file
+              << ", using command-line arguments" << std::endl;
+    agent_system.initialize_from_arguments(
+        model, system_prompt, tool_policy_file, tool_default_policy,
+        notes_dir, request_ch, response_ch);
   }
 
-  // Load policy configuration from file if specified.
-  if (!tool_policy_file.empty()) {
-    try {
+  // Get agent configuration
+  const auto& agent_config = agent_system.get_agent_config("main");
+  const auto& model_config = agent_system.get_model_config(agent_config.model);
+
+  // Resolve model ID and system prompt
+  std::string resolved_model = model_config.model_id;
+  std::string resolved_system_prompt = agent_config.system_prompt;
+  if (resolved_system_prompt.empty()) {
+    resolved_system_prompt = system_prompt;
+  }
+
+  // Create filtered tool registry based on agent's allowed_tools
+  auto tools = agent_system.create_tool_registry(agent_config.allowed_tools);
+
+  // Get policy engine and approval manager from agent system
+  auto policy_engine = agent_system.default_policy_engine();
+  auto approval_manager = agent_system.default_approval_manager();
+
+  // Override policy if command-line specifies
+  if (!tool_default_policy.empty())
+  {
+    if (tool_default_policy == "allow") {
+      policy_engine.set_default_policy(mistral::agent::policy_decision::ALLOW);
+    }
+    else if (tool_default_policy == "require_approval") {
+      policy_engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+    }
+    else {
+      policy_engine.set_default_policy(mistral::agent::policy_decision::DENY);
+    }
+  }
+
+  // Load policy configuration from file if specified (command-line takes precedence)
+  if (!tool_policy_file.empty())
+  {
+    try
+    {
       std::ifstream policy_file(tool_policy_file);
-      if (!policy_file) {
+      if (!policy_file)
+      {
         std::cerr << "error: could not open tool policy file: " << tool_policy_file << std::endl;
         return 1;
       }
       auto policy_config = mistral::agent::json::parse(policy_file);
       policy_engine.load_configuration(policy_config);
       std::cout << "Loaded tool policy from: " << tool_policy_file << std::endl;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "error loading tool policy file: " << e.what() << std::endl;
       return 1;
     }
   }
-
-  // Create channels.
-  auto prompt_ch   = std::make_shared<dripcore::channel<std::string>>(1);
-  auto input_ch    = std::make_shared<dripcore::channel<std::string>>(1);
-  auto request_ch  = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
-  auto response_ch = std::make_shared<dripcore::channel<mistral::api::api_event>>(64);
 
   std::cout << "mistral-cli (" << model << ")\n"
             << "Type your message, Ctrl-D to exit.\n" << std::endl;
@@ -319,9 +285,10 @@ int main(int argc, char* argv[])
 
   sched.spawn<mistral::console::console_task>(prompt_ch, input_ch);
   sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch, response_ch);
-  sched.spawn<mistral::agent::agent_task>(model, system_prompt, tools,
-                                          std::move(policy_engine), std::move(approval_manager),
-                                          prompt_ch, input_ch, request_ch, response_ch);
+  sched.spawn<mistral::agent::agent_task>(
+      resolved_model, resolved_system_prompt, tools,
+      std::move(policy_engine), std::move(approval_manager),
+      prompt_ch, input_ch, request_ch, response_ch);
 
   sched.run();
 
