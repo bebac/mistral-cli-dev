@@ -34,6 +34,7 @@ namespace mistral::agent
     // Initialize the agent system with configuration
     void initialize(
         const std::string& config_file,
+        const std::string& base_dir,
         const std::string& notes_dir,
         std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
         std::shared_ptr<dripcore::channel<api::api_event>> response_ch
@@ -42,13 +43,22 @@ namespace mistral::agent
     // Initialize from command-line arguments (backward compatibility)
     void initialize_from_arguments(
         const std::string& model,
-        const std::string& system_prompt,
-        const std::string& tool_policy_file,
-        const std::string& tool_default_policy,
+        //const std::string& tool_policy_file,
+        //const std::string& tool_default_policy,
+        const std::string& base_dir,
         const std::string& notes_dir,
         std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
         std::shared_ptr<dripcore::channel<api::api_event>> response_ch
     );
+
+    // Resolve system prompt (handles file:// URLs)
+    std::string resolve_system_prompt(
+        const agent_config& agent_cfg,
+        const std::string& model_id) const;
+
+    // Resolve tool policy (handles file:// URLs and JSON strings)
+    json resolve_tool_policy(
+        const agent_config& agent_cfg) const;
 
     // Agent configuration access
     const agent_config& get_agent_config(const std::string& agent_id) const;
@@ -63,7 +73,7 @@ namespace mistral::agent
     const full_config& get_config() const { return config_; }
 
     // Tool registry
-    tool_registry create_tool_registry(const std::vector<std::string>& allowed_tools) const;
+    tool_registry create_tool_registry(const std::vector<std::string>& available_tools) const;
     const tool_registry& global_tools() const { return global_tools_; }
     tool_registry& global_tools() { return global_tools_; }
 
@@ -79,10 +89,6 @@ namespace mistral::agent
     // Notes directory
     const std::string& notes_dir() const { return notes_dir_; }
 
-    // Default policy
-    policy_engine& default_policy_engine() { return default_policy_engine_; }
-    approval_manager& default_approval_manager() { return default_approval_manager_; }
-
   private:
     agent_system() = default;
     ~agent_system() = default;
@@ -94,14 +100,6 @@ namespace mistral::agent
     // Load configuration from file
     full_config load_config_from_file(const std::string& config_file) const;
 
-    // Create default configuration from command-line arguments
-    full_config create_default_config(
-        const std::string& model,
-        const std::string& system_prompt,
-        const std::string& tool_policy_file,
-        const std::string& tool_default_policy
-    ) const;
-
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);
 
@@ -110,6 +108,7 @@ namespace mistral::agent
 
   private:
     full_config config_;
+    std::string base_dir_;
     std::string notes_dir_;
 
     std::unique_ptr<mistral::tools::file_tools> file_tools_;
@@ -120,10 +119,6 @@ namespace mistral::agent
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
-
-    // Default policy engine and approval manager for backward compatibility
-    policy_engine default_policy_engine_;
-    approval_manager default_approval_manager_;
   };
 
 } // namespace mistral::agent

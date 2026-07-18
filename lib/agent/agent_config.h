@@ -27,8 +27,8 @@ namespace mistral::agent
   {
     std::string model;              // Name of model from models section
     std::string system_prompt;
-    std::string tool_policy;        // "deny", "allow", "require_approval"
-    std::vector<std::string> allowed_tools;
+    std::string tool_policy;        // Can be: "deny", "allow", "require_approval", a JSON object as string, or "file://path/to/policy.json"
+    std::vector<std::string> available_tools;
 
     // Future: sampling parameters override, temperature, top_p, etc.
   };

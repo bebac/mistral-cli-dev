@@ -3,6 +3,7 @@
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
+#include "template/template_engine.h"
 
 #include <api/mistral_api.h>
 
@@ -17,23 +18,6 @@ namespace mistral::agent
   namespace fs = std::filesystem;
   using json = nlohmann::ordered_json;
 
-  namespace
-  {
-    // Helper to convert tool_policy string to policy_decision
-    policy_decision string_to_policy_decision(const std::string &policy_str)
-    {
-      if (policy_str == "allow")
-      {
-        return policy_decision::ALLOW;
-      }
-      else if (policy_str == "require_approval")
-      {
-        return policy_decision::REQUIRE_APPROVAL;
-      }
-      return policy_decision::DENY;
-    }
-  }
-
   // ---- Singleton Instance ----
 
   agent_system &agent_system::instance()
@@ -46,10 +30,12 @@ namespace mistral::agent
 
   void agent_system::initialize(
       const std::string &config_file,
+      const std::string& base_dir,
       const std::string &notes_dir,
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
       std::shared_ptr<dripcore::channel<api::api_event>> response_ch)
   {
+    base_dir_ = base_dir;
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
     response_ch_ = std::move(response_ch);
@@ -62,35 +48,107 @@ namespace mistral::agent
 
     // Build global tool registry
     build_global_tool_registry();
+  }
 
-    // Set up default policy engine
-    default_policy_engine_.set_default_policy(string_to_policy_decision(config_.default_policy));
+  // ---- Tool Policy Resolution ----
+
+  json agent_system::resolve_tool_policy(
+      const agent_config& agent_cfg) const
+  {
+    std::string tool_policy = agent_cfg.tool_policy;
+
+    // Check if tool_policy is a file:// URL
+    if (tool_policy.find("file://") == 0)
+    {
+      // Extract path from file:// URL
+      std::string file_path = tool_policy.substr(7); // Remove "file://" prefix
+
+      try
+      {
+        // Check if file exists
+        if (!fs::exists(file_path))
+        {
+          throw std::runtime_error("Tool policy file not found: " + file_path);
+        }
+
+        // Read and parse the file
+        std::ifstream policy_file(file_path);
+        if (!policy_file)
+        {
+          throw std::runtime_error("Failed to open tool policy file: " + file_path);
+        }
+
+        json policy_config = json::parse(policy_file);
+
+        // Validate that it has at least a default field
+        if (!policy_config.contains("default"))
+        {
+          throw std::runtime_error("Tool policy file must contain a 'default' field: " + file_path);
+        }
+
+        return policy_config;
+      }
+      catch (const std::exception& e)
+      {
+        std::cerr << "error resolving tool policy file: " << e.what() << std::endl;
+        throw;
+      }
+    }
+
+    // Check if tool_policy is a JSON object string
+    if (!tool_policy.empty() && (tool_policy.front() == '{' || tool_policy.front() == '['))
+    {
+      try
+      {
+        json policy_config = json::parse(tool_policy);
+
+        // If it's a simple string value wrapped in quotes, unwrap it
+        if (policy_config.is_string())
+        {
+          std::string simple_policy = policy_config.get<std::string>();
+          json result;
+          result["default"] = simple_policy;
+          return result;
+        }
+
+        // Validate that it has at least a default field
+        if (!policy_config.contains("default"))
+        {
+          throw std::runtime_error("Tool policy JSON must contain a 'default' field");
+        }
+
+        return policy_config;
+      }
+      catch (const std::exception& e)
+      {
+        std::cerr << "error parsing tool policy JSON: " << e.what() << std::endl;
+        throw;
+      }
+    }
+
+    // Simple string policy - convert to policy engine format
+    json policy_config;
+    policy_config["default"] = tool_policy;
+    return policy_config;
   }
 
   void agent_system::initialize_from_arguments(
       const std::string &model,
-      const std::string &system_prompt,
-      const std::string &tool_policy_file,
-      const std::string &tool_default_policy,
+      const std::string& base_dir,
       const std::string &notes_dir,
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
       std::shared_ptr<dripcore::channel<api::api_event>> response_ch)
   {
+    base_dir_ = base_dir;
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
     response_ch_ = std::move(response_ch);
-
-    // Create default configuration
-    config_ = create_default_config(model, system_prompt, tool_policy_file, tool_default_policy);
 
     // Initialize tool instances
     initialize_tools(notes_dir_);
 
     // Build global tool registry
     build_global_tool_registry();
-
-    // Set up default policy engine
-    default_policy_engine_.set_default_policy(string_to_policy_decision(config_.default_policy));
   }
 
   // ---- Configuration Loading ----
@@ -145,13 +203,35 @@ namespace mistral::agent
         agent_config agent_cfg;
         agent_cfg.model = agent_json.value("model", "mistral-medium");
         agent_cfg.system_prompt = agent_json.value("system_prompt", "");
-        agent_cfg.tool_policy = agent_json.value("tool_policy", "deny");
 
-        if (agent_json.contains("allowed_tools") && agent_json["allowed_tools"].is_array())
+        // Handle tool_policy - can be string or JSON object
+        if (agent_json.contains("tool_policy"))
         {
-          for (auto &tool : agent_json["allowed_tools"])
+          if (agent_json["tool_policy"].is_string())
           {
-            agent_cfg.allowed_tools.push_back(tool.get<std::string>());
+            agent_cfg.tool_policy = agent_json["tool_policy"].get<std::string>();
+          }
+          else if (agent_json["tool_policy"].is_object())
+          {
+            // Convert JSON object to string
+            agent_cfg.tool_policy = agent_json["tool_policy"].dump();
+          }
+          else
+          {
+            agent_cfg.tool_policy = "deny";
+          }
+        }
+        else
+        {
+          agent_cfg.tool_policy = "deny";
+        }
+
+        // Handle available_tools
+        if (agent_json.contains("available_tools") && agent_json["available_tools"].is_array())
+        {
+          for (auto &tool : agent_json["available_tools"])
+          {
+            agent_cfg.available_tools.push_back(tool.get<std::string>());
           }
         }
 
@@ -163,59 +243,6 @@ namespace mistral::agent
     if (j.contains("policy") && j["policy"].is_object())
     {
       config.default_policy = j["policy"].value("default", "deny");
-    }
-
-    return config;
-  }
-
-  full_config agent_system::create_default_config(
-      const std::string &model,
-      const std::string &system_prompt,
-      const std::string &tool_policy_file,
-      const std::string &tool_default_policy) const
-  {
-    full_config config;
-
-    // Create default model
-    model_config model_cfg;
-    model_cfg.provider = "mistral";
-    model_cfg.model_id = model;
-    model_cfg.api_key_env = "MISTRAL_API_KEY";
-    model_cfg.base_url = "https://api.mistral.ai";
-    model_cfg.api_version = "v1";
-    config.models["default"] = std::move(model_cfg);
-
-    // Create default agent
-    agent_config agent_cfg;
-    agent_cfg.model = "default";
-    agent_cfg.system_prompt = system_prompt;
-    agent_cfg.tool_policy = tool_default_policy;
-    // All tools allowed by default in backward compatibility mode
-    config.agents["main"] = std::move(agent_cfg);
-
-    // Set default policy
-    config.default_policy = tool_default_policy;
-
-    // If tool policy file is specified, load it
-    if (!tool_policy_file.empty())
-    {
-      try
-      {
-        std::ifstream policy_file(tool_policy_file);
-        if (policy_file)
-        {
-          auto policy_config = json::parse(policy_file);
-          // Extract default policy if present
-          if (policy_config.contains("default"))
-          {
-            config.default_policy = policy_config["default"].get<std::string>();
-          }
-        }
-      }
-      catch (const std::exception &e)
-      {
-        std::cerr << "warning: could not load tool policy file: " << e.what() << std::endl;
-      }
     }
 
     return config;
@@ -339,23 +366,23 @@ namespace mistral::agent
 
   // ---- Tool Registry ----
 
-  tool_registry agent_system::create_tool_registry(const std::vector<std::string> &allowed_tools) const
+  tool_registry agent_system::create_tool_registry(const std::vector<std::string> &available_tools) const
   {
     // Handle wildcard - return copy of global registry with all tools
-    if (std::find(allowed_tools.begin(), allowed_tools.end(), "*") != allowed_tools.end())
+    if (std::find(available_tools.begin(), available_tools.end(), "*") != available_tools.end())
     {
       return global_tools_;
     }
 
-    // Empty allowed_tools means no tools allowed - return empty registry
-    if (allowed_tools.empty())
+    // Empty available_tools means no tools allowed - return empty registry
+    if (available_tools.empty())
     {
       return tool_registry{};
     }
 
-    // Filter to only include allowed tools that exist in global registry
+    // Filter to only include available tools that exist in global registry
     tool_registry filtered;
-    for (const auto& tool_name : allowed_tools)
+    for (const auto& tool_name : available_tools)
     {
       if (auto tool = global_tools_.get_tool(tool_name))
       {
@@ -377,4 +404,38 @@ namespace mistral::agent
     return response_ch_;
   }
 
+  std::string agent_system::resolve_system_prompt(
+    const agent_config& agent_cfg,
+    const std::string& model_id
+  ) const
+  {
+    std::string system_prompt = agent_cfg.system_prompt;
+
+    // Check if system_prompt is a file:// URL
+    if (system_prompt.find("file://") == 0) {
+      // Extract path from file:// URL
+      std::string file_path = system_prompt.substr(7); // Remove "file://" prefix
+
+      try {
+        // Check if file exists
+        if (!fs::exists(file_path)) {
+          throw std::runtime_error("System prompt file not found: " + file_path);
+        }
+
+        // Use template engine to process the file with variables
+        mistral::tmpl::template_engine tmpl;
+        tmpl.set_include_base(base_dir_);
+        tmpl.set_variable("model", model_id);
+        tmpl.set_variable("notes_dir", notes_dir_);
+
+        // Process the file as a template
+        system_prompt = tmpl.process_file(file_path);
+      } catch (const std::exception& e) {
+        std::cerr << "error resolving system prompt file: " << e.what() << std::endl;
+        throw;
+      }
+    }
+
+    return system_prompt;
+  }
 } // namespace mistral::agent
