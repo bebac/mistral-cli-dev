@@ -1,5 +1,5 @@
-#ifndef MISTRAL_AGENT_TASK_H
-#define MISTRAL_AGENT_TASK_H
+#ifndef MISTRAL_INTERACTIVE_AGENT_TASK_H
+#define MISTRAL_INTERACTIVE_AGENT_TASK_H
 
 #include "agent/agent_task_base.h"
 #include "agent/conversation.h"
@@ -276,4 +276,4 @@ namespace mistral::agent
   };
 } // namespace mistral::agent
 
-#endif // MISTRAL_AGENT_TASK_H
+#endif // MISTRAL_INTERACTIVE_AGENT_TASK_H
