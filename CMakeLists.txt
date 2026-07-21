@@ -84,6 +84,7 @@ add_library(mistral-core STATIC
     lib/tools/note_tools.cpp
     lib/tools/grep_tools.cpp
     lib/console/console_task.cpp
+    lib/agent/agent_task_base.cpp
     lib/agent/policy_engine.cpp
     lib/agent/approval_manager.cpp
     lib/agent/approval_prompt.cpp
