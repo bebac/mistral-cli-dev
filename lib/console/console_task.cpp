@@ -57,6 +57,15 @@ namespace mistral::console
   // Internal state shared between the dripcore coroutine and the isocline thread.
   struct console_state
   {
+    // Notification values for pipe communication
+    static constexpr char notify_input_ready_id = 1;
+    static constexpr char notify_slash_cmd_pending_id = 2;
+    static constexpr char notify_eof_id = 0;
+
+    // Prompt signal values
+    static constexpr char prompt_go_id = 1;
+    static constexpr char prompt_shutdown_id = 0;
+
     // Pipe: thread writes to notify_write, coroutine reads from notify_read.
     int notify_read  = -1;
     int notify_write = -1;
@@ -66,11 +75,10 @@ namespace mistral::console
     int prompt_write = -1;
 
     // Pipe: executor task fd for receiving slash command reponse.
-    int slash_resp_read  = -1;
-    //int slash_resp_write = -1;
+    int slash_resp_read = -1;
 
     // Thread-safe queue for input strings.
-    std::mutex mtx;
+    mutable std::mutex mtx;
     std::queue<std::string> pending;
     std::atomic<bool> eof{false};
     std::atomic<bool> shutdown{false};
@@ -83,6 +91,83 @@ namespace mistral::console
 
     // For passing slash commands from input thread to coroutine
     std::optional<slash_command_request> pending_slash_command;
+
+    // Thread-safe accessors
+    void enqueue_input(std::string input)
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      pending.push(std::move(input));
+    }
+
+    std::optional<std::string> dequeue_input()
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      if (pending.empty())
+        return std::nullopt;
+      auto front = std::move(pending.front());
+      pending.pop();
+      return front;
+    }
+
+    void set_prompt(std::string prompt, bool approval)
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      current_prompt = std::move(prompt);
+      is_approval_prompt = approval;
+    }
+
+    std::pair<std::string, bool> get_prompt() const
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      return {current_prompt, is_approval_prompt};
+    }
+
+    void set_pending_slash_command(slash_command_request req)
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      pending_slash_command.emplace(std::move(req));
+    }
+
+    std::optional<slash_command_request> take_pending_slash_command()
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      if (!pending_slash_command)
+        return std::nullopt;
+      auto req = std::move(*pending_slash_command);
+      pending_slash_command.reset();
+      return req;
+    }
+
+    // Helper methods for pipe notifications
+    void notify_input_ready()
+    {
+      char n = notify_input_ready_id;
+      ::write(notify_write, &n, 1);
+    }
+
+    void notify_slash_cmd_pending()
+    {
+      char n = notify_slash_cmd_pending_id;
+      ::write(notify_write, &n, 1);
+    }
+
+    void notify_eof()
+    {
+      char n = notify_eof_id;
+      ::write(notify_write, &n, 1);
+    }
+
+    void signal_prompt_go()
+    {
+      char s = prompt_go_id;
+      ::write(prompt_write, &s, 1);
+    }
+
+    void signal_prompt_shutdown()
+    {
+      char s = prompt_shutdown_id;
+      ::write(prompt_write, &s, 1);
+    }
   };
 
   // Handle slash command completion
@@ -141,8 +226,7 @@ namespace mistral::console
       std::cout << "Try /help for available commands" << std::endl;
       ic_history_add(input.c_str());
       // Notify coroutine to show prompt again
-      char notify = 1;
-      ::write(state->notify_write, &notify, 1);
+      state->notify_input_ready();
       return;
     }
 
@@ -154,23 +238,45 @@ namespace mistral::console
       std::string response = const_cast<slash_command *>(cmd)->execute_immediate(args);
       std::cout << response << std::endl;
       // Notify coroutine to show prompt again
-      char notify = 1;
-      ::write(state->notify_write, &notify, 1);
+      state->notify_input_ready();
     }
     else
     {
       // AGENT context: queue the request for the coroutine to forward
       // We cannot call try_send() from this std::thread context
-      {
-        std::lock_guard<std::mutex> lock(state->mtx);
-        state->pending_slash_command.emplace();
-        state->pending_slash_command->command_name = command;
-        state->pending_slash_command->args = args;
-      }
+      state->set_pending_slash_command({command, args});
       // Signal the coroutine with a special value for slash commands
-      char notify = 2; // 2 = slash command pending
-      ::write(state->notify_write, &notify, 1);
+      state->notify_slash_cmd_pending();
     }
+  }
+
+  // Reads a single character in raw mode for approval prompts
+  // Returns empty string on EOF or error (after sending notification)
+  static std::string read_approval_input(const std::string& prompt, console_state* state)
+  {
+    std::cout << prompt << std::flush;
+
+    // Save current terminal attributes
+    struct termios oldtio, newtio;
+    tcgetattr(STDIN_FILENO, &oldtio);
+    newtio = oldtio;
+    newtio.c_lflag &= ~ICANON;  // Disable canonical mode (keep ECHO so user sees input)
+    newtio.c_cc[VMIN] = 1;
+    newtio.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newtio);
+
+    int ch = getchar();
+
+    // Restore terminal attributes
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldtio);
+
+    if (ch == EOF) {
+      state->eof.store(true);
+      state->notify_eof();
+      return "";
+    }
+    // Terminal ECHO is enabled, so the character is already displayed
+    return std::string(1, static_cast<char>(ch));
   }
 
   static void input_thread_func(console_state* state)
@@ -234,8 +340,7 @@ namespace mistral::console
             std::cout << response << std::endl;
         }
         // Notify coroutine to show prompt again
-        char notify = 1;
-        ::write(state->notify_write, &notify, 1);
+        state->notify_input_ready();
         continue;
       }
 
@@ -250,44 +355,15 @@ namespace mistral::console
       if (n <= 0 || state->shutdown.load()) break;
 
       std::string input;
-      std::string prompt_to_display;
-      bool approval_mode = false;
-
-      {
-        std::lock_guard<std::mutex> lock(state->mtx);
-        prompt_to_display = state->current_prompt;
-        approval_mode = state->is_approval_prompt;
-      }
+      auto [prompt_to_display, approval_mode] = state->get_prompt();
 
       if (approval_mode)
       {
-        // Approval mode: read single character
-        // Display the approval prompt first
-        std::cout << prompt_to_display << std::flush;
-
-        // We need to put the terminal in raw mode to read a single char without Enter
-        // Save current terminal attributes
-        struct termios oldtio, newtio;
-        tcgetattr(STDIN_FILENO, &oldtio);
-        newtio = oldtio;
-        newtio.c_lflag &= ~ICANON;  // Disable canonical mode (but keep ECHO so user sees what they type)
-        newtio.c_cc[VMIN] = 1;
-        newtio.c_cc[VTIME] = 0;
-        tcsetattr(STDIN_FILENO, TCSANOW, &newtio);
-
-        int ch = getchar();
-
-        // Restore terminal attributes
-        tcsetattr(STDIN_FILENO, TCSANOW, &oldtio);
-
-        if (ch == EOF) {
-          state->eof.store(true);
-          char notify = 0;
-          ::write(state->notify_write, &notify, 1);
-          break;
+        input = read_approval_input(prompt_to_display, state);
+        if (input.empty()) {
+          // EOF or error already handled by read_approval_input
+          continue;
         }
-        // Note: Terminal ECHO is enabled, so the character is already displayed
-        input = std::string(1, static_cast<char>(ch));
       }
       else
       {
@@ -296,8 +372,7 @@ namespace mistral::console
         if (!raw) {
           // EOF (Ctrl-D).
           state->eof.store(true);
-          char notify = 0;
-          ::write(state->notify_write, &notify, 1);
+          state->notify_eof();
           break;
         }
 
@@ -315,14 +390,10 @@ namespace mistral::console
         }
       }
 
-      {
-        std::lock_guard<std::mutex> lock(state->mtx);
-        state->pending.push(std::move(input));
-      }
+      state->enqueue_input(std::move(input));
 
       // Notify the event loop.
-      char notify = 1;
-      ::write(state->notify_write, &notify, 1);
+      state->notify_input_ready();
     }
   }
 
@@ -384,15 +455,10 @@ namespace mistral::console
       }
 
       // Store the prompt and mode in the state for the input thread
-      {
-        std::lock_guard<std::mutex> lock(state->mtx);
-        state->current_prompt = display_prompt;
-        state->is_approval_prompt = is_approval;
-      }
+      state->set_prompt(display_prompt, is_approval);
 
       // Signal the thread to call readline (or readchar for approvals).
-      char sig = 1;  // Just a signal, the actual mode is stored in state
-      ::write(state->prompt_write, &sig, 1);
+      state->signal_prompt_go();
 
       // Wait for the thread to provide input.
       co_await readable(state->notify_read);
@@ -406,15 +472,10 @@ namespace mistral::console
       }
 
       // Check if this is a slash command to forward
-      if (buf == 2)
+      if (buf == console_state::notify_slash_cmd_pending_id)
       {
         // Slash command: forward to executor task
-        std::optional<slash_command_request> request;
-        {
-          std::lock_guard<std::mutex> lock(state->mtx);
-          request = std::move(state->pending_slash_command);
-          state->pending_slash_command.reset();
-        }
+        auto request = state->take_pending_slash_command();
         if (request && slash_cmd_request_ch_) {
           slash_cmd_request_ch_->try_send(std::move(*request));
         }
@@ -430,14 +491,8 @@ namespace mistral::console
       }
       else
       {
-        std::string input;
-        {
-          std::lock_guard<std::mutex> lock(state->mtx);
-          if (!state->pending.empty()) {
-            input = std::move(state->pending.front());
-            state->pending.pop();
-          }
-        }
+        auto input_opt = state->dequeue_input();
+        std::string input = input_opt ? std::move(*input_opt) : "";
         input_ch_->try_send(std::move(input));
       }
     }
@@ -454,8 +509,7 @@ namespace mistral::console
     state->shutdown.store(true);
 
     // Wake the thread if it's blocked on prompt_read.
-    char sig = 0;
-    ::write(state->prompt_write, &sig, 1);
+    state->signal_prompt_shutdown();
 
     if (state->thread.joinable()) {
       state->thread.join();
