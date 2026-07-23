@@ -22,16 +22,14 @@ namespace mistral::console
   public:
     slash_command_executor_task(
       std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch,
-      int slash_resp_write_fd
+      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch
     );
 
     dripcore::task_handle execute();
 
   private:
     std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch_;
-    int slash_resp_write_fd_ = -1;
-
-    void write_response(const std::string &response);
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
   };
 } // namespace mistral::console
 

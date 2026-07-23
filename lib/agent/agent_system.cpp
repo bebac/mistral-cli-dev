@@ -359,7 +359,7 @@ namespace mistral::agent
 
       std::string execute_immediate(const std::string&) override
       {
-        return "Exit (not yet implemented)";
+        return ""; // NOT IMPLEMENTED!
       }
     };
 

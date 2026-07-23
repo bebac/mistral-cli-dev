@@ -7,237 +7,220 @@
 
 #include <dripcore/channel.h>
 #include <dripcore/scheduler.h>
+#include <dripcore/task.h>
+#include <dripcore/task_handle.h>
 
 #include <string>
 #include <thread>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <memory>
 
 namespace
 {
 
-// Test command for AGENT context - defined in anonymous namespace to avoid
-// symbol collision with slash_command_registry_test.cpp
-class executor_test_agent_command : public mistral::console::slash_command
-{
-public:
+  // Test command for AGENT context - defined in anonymous namespace to avoid
+  // symbol collision with slash_command_registry_test.cpp
+  class executor_test_agent_command : public mistral::console::slash_command
+  {
+  public:
     std::string name() const override { return "test_cmd"; }
     std::string description() const override { return "Test command"; }
     mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
 
-    std::string execute_agent(const std::string& args, mistral::agent::agent_system&) override
+    std::string execute_agent(const std::string &args, mistral::agent::agent_system &) override
     {
-        return "Response: " + args;
+      return "Response: " + args;
     }
-};
+  };
 
-// Test command for IMMEDIATE context (should fail in executor)
-class executor_test_immediate_command : public mistral::console::slash_command
-{
-public:
+  // Test command for IMMEDIATE context (should fail in executor)
+  class executor_test_immediate_command : public mistral::console::slash_command
+  {
+  public:
     std::string name() const override { return "immediate_cmd"; }
     std::string description() const override { return "Immediate command"; }
     mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::IMMEDIATE; }
 
-    std::string execute_immediate(const std::string& args) override
+    std::string execute_immediate(const std::string &args) override
     {
-        return "Immediate: " + args;
+      return "Immediate: " + args;
     }
-};
+  };
 
-} // anonymous namespace
-
-namespace
-{
-
-std::string read_length_prefixed(int fd)
-{
-    uint32_t len;
-    ssize_t n = ::read(fd, &len, sizeof(len));
-    if (n != static_cast<ssize_t>(sizeof(len)))
+  // Fixture for slash_command_executor_task tests
+  struct SlashCommandExecutorTestFixture
+  {
+    // A dripcore task that sends a request and collects the response
+    class response_collector_task : public dripcore::task
     {
-        return "";
-    }
-    len = ntohl(len);
-    if (len == 0) return "";
+    public:
+      response_collector_task(
+          std::shared_ptr<dripcore::channel<mistral::console::slash_command_request>> request_ch,
+          std::shared_ptr<dripcore::channel<std::string>> response_ch,
+          mistral::console::slash_command_request req,
+          std::string &out_response)
+          : request_ch_(std::move(request_ch)), response_ch_(std::move(response_ch)), req_(std::move(req)), out_response_(out_response)
+      {
+      }
 
-    std::string response;
-    response.resize(len);
-    ssize_t bytes_read = 0;
-    while (bytes_read < static_cast<ssize_t>(len))
+      dripcore::task_handle execute()
+      {
+        // Send the request
+        request_ch_->try_send(std::move(req_));
+        request_ch_->close();
+
+        // Receive the response
+        auto response = co_await response_ch_->recv();
+        if (response)
+        {
+          out_response_ = std::move(*response);
+        }
+        else
+        {
+          out_response_ = "";
+        }
+
+        co_return;
+      }
+
+    private:
+      std::shared_ptr<dripcore::channel<mistral::console::slash_command_request>> request_ch_;
+      std::shared_ptr<dripcore::channel<std::string>> response_ch_;
+      mistral::console::slash_command_request req_;
+      std::string &out_response_;
+    };
+
+    std::string execute_and_collect_response(
+        std::shared_ptr<dripcore::channel<mistral::console::slash_command_request>> request_ch,
+        std::shared_ptr<dripcore::channel<std::string>> response_ch,
+        mistral::console::slash_command_request req)
     {
-        ssize_t chunk = ::read(fd, response.data() + bytes_read, len - bytes_read);
-        if (chunk <= 0) break;
-        bytes_read += chunk;
+      std::string response;
+      dripcore::scheduler scheduler;
+
+      scheduler.spawn<mistral::console::slash_command_executor_task>(
+          request_ch, response_ch);
+      scheduler.spawn<response_collector_task>(
+          request_ch, response_ch, std::move(req), response);
+
+      scheduler.run();
+      return response;
     }
-    return (bytes_read == static_cast<ssize_t>(len)) ? response : "";
-}
+  };
 
 } // anonymous namespace
 
 TEST_CASE("slash_command_executor_task: execute AGENT command")
 {
-    int fds[2];
-    REQUIRE(::pipe(fds) == 0);
+  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-    auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto &registry = mistral::console::slash_command_registry::instance();
+  registry.register_command(std::make_unique<executor_test_agent_command>());
 
-    mistral::console::slash_command_executor_task executor(request_ch, fds[1]);
+  SlashCommandExecutorTestFixture fixture;
+  mistral::console::slash_command_request req;
+  req.command_name = "test_cmd";
+  req.args = "hello";
 
-    auto& registry = mistral::console::slash_command_registry::instance();
-    registry.register_command(std::make_unique<executor_test_agent_command>());
+  std::string response = fixture.execute_and_collect_response(
+      request_ch, response_ch, std::move(req));
 
-    dripcore::scheduler scheduler;
-    scheduler.spawn<mistral::console::slash_command_executor_task>(executor);
-
-    mistral::console::slash_command_request req;
-    req.command_name = "test_cmd";
-    req.args = "hello";
-    request_ch->try_send(std::move(req));
-    request_ch->close();
-
-    scheduler.run();
-
-    std::string response = read_length_prefixed(fds[0]);
-    CHECK(response == "Response: hello");
-
-    ::close(fds[0]);
-    ::close(fds[1]);
+  CHECK(response == "Response: hello");
 }
 
 TEST_CASE("slash_command_executor_task: unknown command")
 {
-    int fds[2];
-    REQUIRE(::pipe(fds) == 0);
+  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-    auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
-    mistral::console::slash_command_executor_task executor(request_ch, fds[1]);
+  SlashCommandExecutorTestFixture fixture;
+  mistral::console::slash_command_request req;
+  req.command_name = "unknown_cmd";
+  req.args = "";
 
-    dripcore::scheduler scheduler;
-    scheduler.spawn<mistral::console::slash_command_executor_task>(executor);
+  std::string response = fixture.execute_and_collect_response(
+      request_ch, response_ch, std::move(req));
 
-    mistral::console::slash_command_request req;
-    req.command_name = "unknown_cmd";
-    req.args = "";
-    request_ch->try_send(std::move(req));
-    request_ch->close();
-
-    scheduler.run();
-
-    std::string response = read_length_prefixed(fds[0]);
-    CHECK(response.find("Unknown command: /unknown_cmd") != std::string::npos);
-
-    ::close(fds[0]);
-    ::close(fds[1]);
+  CHECK(response.find("Unknown command: /unknown_cmd") != std::string::npos);
 }
 
 TEST_CASE("slash_command_executor_task: IMMEDIATE command in AGENT executor")
 {
-    int fds[2];
-    REQUIRE(::pipe(fds) == 0);
+  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-    auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
-    mistral::console::slash_command_executor_task executor(request_ch, fds[1]);
+  auto &registry = mistral::console::slash_command_registry::instance();
+  registry.register_command(std::make_unique<executor_test_immediate_command>());
 
-    auto& registry = mistral::console::slash_command_registry::instance();
-    registry.register_command(std::make_unique<executor_test_immediate_command>());
+  SlashCommandExecutorTestFixture fixture;
+  mistral::console::slash_command_request req;
+  req.command_name = "immediate_cmd";
+  req.args = "";
 
-    dripcore::scheduler scheduler;
-    scheduler.spawn<mistral::console::slash_command_executor_task>(executor);
+  std::string response = fixture.execute_and_collect_response(
+      request_ch, response_ch, std::move(req));
 
-    mistral::console::slash_command_request req;
-    req.command_name = "immediate_cmd";
-    req.args = "";
-    request_ch->try_send(std::move(req));
-    request_ch->close();
-
-    scheduler.run();
-
-    std::string response = read_length_prefixed(fds[0]);
-    CHECK(response.find("must be executed in IMMEDIATE context") != std::string::npos);
-
-    ::close(fds[0]);
-    ::close(fds[1]);
+  CHECK(response.find("must be executed in IMMEDIATE context") != std::string::npos);
 }
 
 TEST_CASE("slash_command_executor_task: exception handling")
 {
-    int fds[2];
-    REQUIRE(::pipe(fds) == 0);
+  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-    auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
-    mistral::console::slash_command_executor_task executor(request_ch, fds[1]);
-
-    class throwing_command : public mistral::console::slash_command
+  class throwing_command : public mistral::console::slash_command
+  {
+  public:
+    std::string name() const override { return "throw_cmd"; }
+    std::string description() const override { return "Throws"; }
+    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
+    std::string execute_agent(const std::string &, mistral::agent::agent_system &) override
     {
-    public:
-        std::string name() const override { return "throw_cmd"; }
-        std::string description() const override { return "Throws"; }
-        execution_context context() const override { return execution_context::AGENT; }
-        std::string execute_agent(const std::string&, mistral::agent::agent_system&) override
-        {
-            throw std::runtime_error("Test error");
-        }
-    };
+      throw std::runtime_error("Test error");
+    }
+  };
 
-    auto& registry = mistral::console::slash_command_registry::instance();
-    registry.register_command(std::make_unique<throwing_command>());
+  auto &registry = mistral::console::slash_command_registry::instance();
+  registry.register_command(std::make_unique<throwing_command>());
 
-    dripcore::scheduler scheduler;
-    scheduler.spawn<mistral::console::slash_command_executor_task>(executor);
+  SlashCommandExecutorTestFixture fixture;
+  mistral::console::slash_command_request req;
+  req.command_name = "throw_cmd";
+  req.args = "";
 
-    mistral::console::slash_command_request req;
-    req.command_name = "throw_cmd";
-    req.args = "";
-    request_ch->try_send(std::move(req));
-    request_ch->close();
+  std::string response = fixture.execute_and_collect_response(
+      request_ch, response_ch, std::move(req));
 
-    scheduler.run();
-
-    std::string response = read_length_prefixed(fds[0]);
-    CHECK(response.find("Error executing /throw_cmd: Test error") != std::string::npos);
-
-    ::close(fds[0]);
-    ::close(fds[1]);
+  CHECK(response.find("Error executing /throw_cmd: Test error") != std::string::npos);
 }
 
 TEST_CASE("slash_command_executor_task: empty response")
 {
-    int fds[2];
-    REQUIRE(::pipe(fds) == 0);
+  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
+  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-    auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
-    mistral::console::slash_command_executor_task executor(request_ch, fds[1]);
-
-    class empty_command : public mistral::console::slash_command
+  class empty_command : public mistral::console::slash_command
+  {
+  public:
+    std::string name() const override { return "empty_cmd"; }
+    std::string description() const override { return "Empty"; }
+    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
+    std::string execute_agent(const std::string &, mistral::agent::agent_system &) override
     {
-    public:
-        std::string name() const override { return "empty_cmd"; }
-        std::string description() const override { return "Empty"; }
-        execution_context context() const override { return execution_context::AGENT; }
-        std::string execute_agent(const std::string&, mistral::agent::agent_system&) override
-        {
-            return "";
-        }
-    };
+      return "";
+    }
+  };
 
-    auto& registry = mistral::console::slash_command_registry::instance();
-    registry.register_command(std::make_unique<empty_command>());
+  auto &registry = mistral::console::slash_command_registry::instance();
+  registry.register_command(std::make_unique<empty_command>());
 
-    dripcore::scheduler scheduler;
-    scheduler.spawn<mistral::console::slash_command_executor_task>(executor);
+  SlashCommandExecutorTestFixture fixture;
+  mistral::console::slash_command_request req;
+  req.command_name = "empty_cmd";
+  req.args = "";
 
-    mistral::console::slash_command_request req;
-    req.command_name = "empty_cmd";
-    req.args = "";
-    request_ch->try_send(std::move(req));
-    request_ch->close();
+  std::string response = fixture.execute_and_collect_response(
+      request_ch, response_ch, std::move(req));
 
-    scheduler.run();
-
-    std::string response = read_length_prefixed(fds[0]);
-    CHECK(response.empty());
-
-    ::close(fds[0]);
-    ::close(fds[1]);
+  CHECK(response.empty());
 }

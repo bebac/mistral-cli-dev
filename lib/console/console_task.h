@@ -33,7 +33,7 @@ namespace mistral::console
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch = nullptr,
-      int slash_resp_read_fd = -1
+      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr
     );
 
     ~console_task();
@@ -44,7 +44,7 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch_;
-    int slash_resp_read_fd_ = -1;
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
   };
 
 } // namespace mistral::console

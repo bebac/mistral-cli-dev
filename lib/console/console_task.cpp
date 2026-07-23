@@ -23,37 +23,6 @@
 
 namespace mistral::console
 {
-  namespace
-  {
-    // Helper to read a length-prefixed string from a file descriptor
-    static std::string read_length_prefixed(int fd)
-    {
-      uint32_t len;
-      ssize_t n = ::read(fd, &len, sizeof(len));
-      if (n != static_cast<ssize_t>(sizeof(len)))
-      {
-        return "";
-      }
-      len = ntohl(len);
-      if (len == 0) {
-        return "";
-      }
-
-      std::string response;
-      response.resize(len);
-      size_t bytes_read = 0;
-      while (bytes_read < len)
-      {
-        ssize_t chunk = ::read(fd, response.data() + bytes_read, len - bytes_read);
-        if (chunk <= 0) {
-          break;
-        }
-        bytes_read += chunk;
-      }
-      return (bytes_read == len) ? response : "";
-    }
-  }
-
   // Internal state shared between the dripcore coroutine and the isocline thread.
   struct console_state
   {
@@ -73,9 +42,6 @@ namespace mistral::console
     // Pipe: coroutine writes to prompt_write, thread reads from prompt_read.
     int prompt_read  = -1;
     int prompt_write = -1;
-
-    // Pipe: executor task fd for receiving slash command reponse.
-    int slash_resp_read = -1;
 
     // Thread-safe queue for input strings.
     mutable std::mutex mtx;
@@ -300,58 +266,16 @@ namespace mistral::console
 
     while (!state->shutdown.load())
     {
-      // init local copies of pipe fds.
-      int prompt_read_fd, slash_resp_read_fd;
+      // Get prompt read fd.
+      int prompt_read_fd;
       {
         std::lock_guard<std::mutex> lock(state->mtx);
         prompt_read_fd = state->prompt_read;
-        slash_resp_read_fd = state->slash_resp_read;
       }
 
-      // Wait for prompt signal from the coroutine OR slash response from executor task
-      fd_set read_fds;
-      FD_ZERO(&read_fds);
-      if (prompt_read_fd != -1)
-        FD_SET(prompt_read_fd, &read_fds);
-      if (slash_resp_read_fd != -1)
-        FD_SET(slash_resp_read_fd, &read_fds);
-      int max_fd = std::max(prompt_read_fd, slash_resp_read_fd) + 1;
-      int ret = select(max_fd, &read_fds, nullptr, nullptr, nullptr);
-
-      // Handle select() return values
-      if (ret < 0) {
-        if (errno == EINTR) continue;  // Interrupted by signal, retry immediately
-        if (errno == EBADF) break;
-        std::cerr << "select() error in console input thread: " << strerror(errno) << std::endl;
-        continue;
-      }
-      if (ret == 0) {
-        continue;  // Timeout (shouldn't happen with nullptr timeout)
-      }
-
-      if (state->shutdown.load()) {
-        break;
-      }
-
-      // Check if we have a slash command response to display
-      if (slash_resp_read_fd != -1 && FD_ISSET(slash_resp_read_fd, &read_fds)) {
-        std::string response = read_length_prefixed(slash_resp_read_fd);
-        if (!response.empty()) {
-            std::cout << response << std::endl;
-        }
-        // Notify coroutine to show prompt again
-        state->notify_input_ready();
-        continue;
-      }
-
-      // Check for prompt signal (not slash response)
-      if (!FD_ISSET(prompt_read_fd, &read_fds)) {
-        continue;
-      }
-
-      // Read the prompt signal
+      // Wait for prompt signal from the coroutine
       char sig;
-      ssize_t n = ::read(state->prompt_read, &sig, 1);
+      ssize_t n = ::read(prompt_read_fd, &sig, 1);
       if (n <= 0 || state->shutdown.load()) break;
 
       std::string input;
@@ -401,13 +325,15 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch,
-    int slash_resp_read_fd
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch)
+    :
+    prompt_ch_(std::move(prompt_ch)),
+    input_ch_(std::move(input_ch)),
+    slash_cmd_request_ch_(std::move(slash_cmd_request_ch)),
+    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)
   )
-    : prompt_ch_(std::move(prompt_ch))
-    , input_ch_(std::move(input_ch))
-    , slash_cmd_request_ch_(std::move(slash_cmd_request_ch))
-    , slash_resp_read_fd_(slash_resp_read_fd)
-  {}
+  {
+  }
 
   console_task::~console_task() = default;
 
@@ -426,7 +352,6 @@ namespace mistral::console
     state->notify_write = notify_fds[1];
     state->prompt_read  = prompt_fds[0];
     state->prompt_write = prompt_fds[1];
-    state->slash_resp_read = slash_resp_read_fd_;
 
     // Make the notify read end non-blocking for dripcore.
     fcntl(state->notify_read, F_SETFL,
@@ -480,14 +405,17 @@ namespace mistral::console
           slash_cmd_request_ch_->try_send(std::move(*request));
         }
 
-        // Wait for notification from input thread that response has been displayed
-        co_await readable(state->notify_read);
-        char notify_byte;
-        ::read(state->notify_read, &notify_byte, 1);
+        // Wait for response from executor task
+        if (slash_cmd_response_ch_) {
+          auto response = co_await slash_cmd_response_ch_->recv();
+          if (response) {
+            std::cout << *response << std::endl;
+          }
+        }
 
-        // Now go back to wait for next prompt from agent. It's a bit quirky that we rely on the
-        // agent task to resubmit the prompt when it get an empty input (lib/agent/interactive_agent_task.h:50)
-        input_ch_->try_send("");
+        // Slash command has completed. Send prompt to the prompt channel so that we immediately wake up to
+        // redisplay the prompt again.
+        prompt_ch_->try_send(display_prompt);
       }
       else
       {
@@ -506,6 +434,10 @@ namespace mistral::console
       slash_cmd_request_ch_->close();
     }
 
+    if ( slash_cmd_response_ch_ ) {
+      slash_cmd_response_ch_->close();
+    }
+
     state->shutdown.store(true);
 
     // Wake the thread if it's blocked on prompt_read.
@@ -521,13 +453,8 @@ namespace mistral::console
       ::close(state->notify_write);
       ::close(state->prompt_read);
       ::close(state->prompt_write);
-      if (state->slash_resp_read != -1) {
-        ::close(state->slash_resp_read);
-        state->slash_resp_read = -1;
-      }
     }
 
     co_return;
   }
-
 } // namespace mistral::console
