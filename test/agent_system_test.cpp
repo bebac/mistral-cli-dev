@@ -64,6 +64,44 @@ struct AgentSystemTestFixture
     std::ofstream out(config_file);
     out << content.dump(2);
   }
+
+  // Helper to create a standard config with a main agent
+  nlohmann::json create_standard_config(
+      const std::string& model_name = "mistral-medium",
+      const std::string& model_id = "mistral-medium-latest")
+  {
+    return {
+      {"models", {
+        {model_name, {
+          {"provider", "mistral"},
+          {"model_id", model_id},
+          {"api_key_env", "MISTRAL_API_KEY"},
+          {"base_url", "https://api.mistral.ai"},
+          {"api_version", "v1"}
+        }}
+      }},
+      {"agents", {
+        {"main", {
+          {"model", model_name},
+          {"system_prompt", "You are a helpful assistant."},
+          {"tool_policy", "deny"}
+        }}
+      }},
+      {"policy", {
+        {"default", "deny"}
+      }}
+    };
+  }
+
+  // Helper to initialize agent_system with standard config
+  void initialize_agent_system_with_main_agent(
+      const std::string& model_name = "mistral-medium",
+      const std::string& model_id = "mistral-medium-latest")
+  {
+    create_config_file(create_standard_config(model_name, model_id));
+    auto &system = mistral::agent::agent_system::instance();
+    system.initialize(config_file, base_dir, notes_dir, nullptr, nullptr);
+  }
 };
 
 // ============================================================================
@@ -487,6 +525,138 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "response_ch: returns null if not set"
       "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
 
   CHECK(system.response_ch() == nullptr);
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::slash_commands");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after initialization")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+
+  // Check that built-in commands are registered
+  CHECK(registry.has_command("help"));
+  CHECK(registry.has_command("clear"));
+  CHECK(registry.has_command("model"));
+  CHECK(registry.has_command("tools"));
+  CHECK(registry.has_command("exit"));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* help_cmd = registry.get_command("help");
+  REQUIRE(help_cmd != nullptr);
+
+  // Test help with no args (need const_cast because execute_immediate is non-const)
+  std::string result = const_cast<mistral::console::slash_command*>(help_cmd)->execute_immediate("");
+  CHECK(!result.empty());
+  CHECK(result.find("Available slash commands") != std::string::npos);
+  CHECK(result.find("/help") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command requires agent context")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* model_cmd = registry.get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  // Model command should require AGENT context
+  CHECK(model_cmd->context() == mistral::console::slash_command::execution_context::AGENT);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command is immediate")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* clear_cmd = registry.get_command("clear");
+  REQUIRE(clear_cmd != nullptr);
+
+  // Clear command should be IMMEDIATE
+  CHECK(clear_cmd->context() == mistral::console::slash_command::execution_context::IMMEDIATE);
+
+  // Should be executable (need const_cast because execute_immediate is non-const)
+  std::string result = const_cast<mistral::console::slash_command*>(clear_cmd)->execute_immediate("");
+  CHECK(!result.empty());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command is immediate")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* exit_cmd = registry.get_command("exit");
+  REQUIRE(exit_cmd != nullptr);
+
+  // Exit command should be IMMEDIATE
+  CHECK(exit_cmd->context() == mistral::console::slash_command::execution_context::IMMEDIATE);
+
+  // Should return empty string to signal exit (need const_cast because execute_immediate is non-const)
+  std::string result = const_cast<mistral::console::slash_command*>(exit_cmd)->execute_immediate("");
+  CHECK(result.empty());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registry needs_agent_execution works")
+{
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize_from_arguments(
+      "mistral-medium-latest", base_dir, notes_dir, nullptr, nullptr);
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+
+  CHECK(registry.needs_agent_execution("help") == false);
+  CHECK(registry.needs_agent_execution("clear") == false);
+  CHECK(registry.needs_agent_execution("model") == true);
+  CHECK(registry.needs_agent_execution("tools") == true);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command executes with agent_system")
+{
+  initialize_agent_system_with_main_agent();
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* model_cmd = registry.get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  auto &system = mistral::agent::agent_system::instance();
+  // Execute the model command with agent context (need const_cast because execute_agent is non-const)
+  std::string result = const_cast<mistral::console::slash_command*>(model_cmd)->execute_agent("", system);
+  CHECK(!result.empty());
+  CHECK(result.find("mistral-medium-latest") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command executes with agent_system")
+{
+  initialize_agent_system_with_main_agent();
+
+  auto& registry = mistral::console::slash_command_registry::instance();
+  const auto* tools_cmd = registry.get_command("tools");
+  REQUIRE(tools_cmd != nullptr);
+
+  auto &system = mistral::agent::agent_system::instance();
+  // Execute the tools command with agent context (need const_cast because execute_agent is non-const)
+  std::string result = const_cast<mistral::console::slash_command*>(tools_cmd)->execute_agent("", system);
+  CHECK(!result.empty());
+  CHECK(result.find("Available tools") != std::string::npos);
+  CHECK(result.find("ls") != std::string::npos);
 }
 
 TEST_SUITE_END;

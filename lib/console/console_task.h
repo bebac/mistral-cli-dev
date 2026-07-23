@@ -1,6 +1,8 @@
 #ifndef MISTRAL_CONSOLE_TASK_H
 #define MISTRAL_CONSOLE_TASK_H
 
+#include <console/slash_command.h>
+
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
 #include <dripcore/task_handle.h>
@@ -29,7 +31,9 @@ namespace mistral::console
   public:
     console_task(
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
-      std::shared_ptr<dripcore::channel<std::string>> input_ch
+      std::shared_ptr<dripcore::channel<std::string>> input_ch,
+      std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch = nullptr,
+      int slash_resp_read_fd = -1
     );
 
     ~console_task();
@@ -39,6 +43,8 @@ namespace mistral::console
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
+    std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch_;
+    int slash_resp_read_fd_ = -1;
   };
 
 } // namespace mistral::console

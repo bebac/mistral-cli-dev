@@ -5,6 +5,7 @@
 #include "agent/tool_registry.h"
 #include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
+#include "console/slash_command_registry.h"
 
 #include <dripcore/channel.h>
 #include <api/mistral_types.h>
@@ -88,6 +89,9 @@ namespace mistral::agent
 
     // Notes directory
     const std::string& notes_dir() const { return notes_dir_; }
+
+    // Register built-in slash commands
+    void register_slash_commands();
 
   private:
     agent_system() = default;

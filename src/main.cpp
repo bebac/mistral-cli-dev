@@ -7,6 +7,8 @@
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
+#include "console/slash_command_executor_task.h"
+#include "console/slash_command_registry.h"
 #include "trace/trace.h"
 
 #include <dripcore/scheduler.h>
@@ -152,6 +154,14 @@ int main(int argc, char* argv[])
   auto request_ch  = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
   auto response_ch = std::make_shared<dripcore::channel<mistral::api::api_event>>(64);
 
+  // Create slash command channel and response pipe
+  auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(4);
+  int slash_resp_pipe[2];
+  if (::pipe(slash_resp_pipe) != 0) {
+      std::cerr << "Failed to create slash command response pipe" << std::endl;
+      return 1;
+  }
+
   // Initialize agent system with config file or command-line arguments
   auto config_file = std::filesystem::path(base_dir) / "mistral-cli.json";
   auto& agent_system = mistral::agent::agent_system::instance();
@@ -208,10 +218,21 @@ int main(int argc, char* argv[])
   // Create scheduler and spawn tasks.
   dripcore::scheduler sched;
 
-  sched.spawn<mistral::console::console_task>(prompt_ch, input_ch);
+  // Spawn slash command executor task
+  sched.spawn<mistral::console::slash_command_executor_task>(
+      slash_cmd_request_ch, slash_resp_pipe[1]);
+
+  // Spawn console task with slash command response pipe read end
+  sched.spawn<mistral::console::console_task>(
+      prompt_ch, input_ch, slash_cmd_request_ch, slash_resp_pipe[0]);
+
   sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch, response_ch);
   sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, nullptr, prompt_ch);
   sched.run();
+
+  // Cleanup slash response pipe
+  ::close(slash_resp_pipe[0]);
+  ::close(slash_resp_pipe[1]);
 
   return 0;
 }

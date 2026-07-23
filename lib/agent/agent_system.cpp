@@ -48,6 +48,9 @@ namespace mistral::agent
 
     // Build global tool registry
     build_global_tool_registry();
+
+    // Register slash commands
+    register_slash_commands();
   }
 
   // ---- Tool Policy Resolution ----
@@ -149,6 +152,9 @@ namespace mistral::agent
 
     // Build global tool registry
     build_global_tool_registry();
+
+    // Register slash commands
+    register_slash_commands();
   }
 
   // ---- Configuration Loading ----
@@ -255,6 +261,114 @@ namespace mistral::agent
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
     grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
+  }
+
+  void agent_system::register_slash_commands()
+  {
+    namespace console = mistral::console;
+
+    // Register built-in slash commands
+    class help_command : public console::slash_command
+    {
+    public:
+      std::string name() const override { return "help"; }
+      std::string description() const override { return "Show available slash commands"; }
+      std::string usage() const override { return "/help [command]"; }
+      execution_context context() const override { return execution_context::IMMEDIATE; }
+
+      std::string execute_immediate(const std::string& args) override
+      {
+        auto& registry = console::slash_command_registry::instance();
+        auto names = registry.get_command_names();
+
+        if (args.empty()) {
+          std::string result = "Available slash commands:\n";
+          for (const auto& name : names) {
+            const auto* cmd = registry.get_command(name);
+            if (cmd) {
+              result += "  /" + name;
+              if (!cmd->description().empty()) {
+                result += " - " + cmd->description();
+              }
+              result += "\n";
+            }
+          }
+          return result;
+        } else {
+          const auto* cmd = registry.get_command(args);
+          if (!cmd) {
+            return "Unknown command: /" + args;
+          }
+          return "Usage: /" + cmd->usage() + "\n" + cmd->description();
+        }
+      }
+    };
+
+    class clear_command : public console::slash_command
+    {
+    public:
+      std::string name() const override { return "clear"; }
+      std::string description() const override { return "Clear the chat history"; }
+      execution_context context() const override { return execution_context::IMMEDIATE; }
+
+      std::string execute_immediate(const std::string&) override
+      {
+        return "Chat history cleared (not yet implemented)";
+      }
+    };
+
+    class model_command : public console::slash_command
+    {
+    public:
+      std::string name() const override { return "model"; }
+      std::string description() const override { return "Show current model information"; }
+      execution_context context() const override { return execution_context::AGENT; }
+
+      std::string execute_agent(const std::string&, agent_system& sys) override
+      {
+        return "Current model: " + sys.resolve_model_id(sys.get_agent_config("main").model);
+      }
+    };
+
+    class tools_command : public console::slash_command
+    {
+    public:
+      std::string name() const override { return "tools"; }
+      std::string description() const override { return "List available tools"; }
+      execution_context context() const override { return execution_context::AGENT; }
+
+      std::string execute_agent(const std::string&, agent_system& sys) override
+      {
+        auto schema = sys.global_tools().get_schema();
+        std::string result = "Available tools:\n";
+        for (const auto& tool : schema) {
+          if (tool.contains("function") && tool["function"].contains("name")) {
+            result += "  - " + tool["function"]["name"].get<std::string>() + "\n";
+          }
+        }
+        return result;
+      }
+    };
+
+    class exit_command : public console::slash_command
+    {
+    public:
+      std::string name() const override { return "exit"; }
+      std::string description() const override { return "Exit the application"; }
+      execution_context context() const override { return execution_context::IMMEDIATE; }
+
+      std::string execute_immediate(const std::string&) override
+      {
+        return "Exit (not yet implemented)";
+      }
+    };
+
+    auto& registry = console::slash_command_registry::instance();
+    registry.register_command(std::make_unique<help_command>());
+    registry.register_command(std::make_unique<clear_command>());
+    registry.register_command(std::make_unique<model_command>());
+    registry.register_command(std::make_unique<tools_command>());
+    registry.register_command(std::make_unique<exit_command>());
   }
 
   void agent_system::build_global_tool_registry()
