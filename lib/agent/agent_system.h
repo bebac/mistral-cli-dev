@@ -5,6 +5,7 @@
 #include "agent/tool_registry.h"
 #include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
+#include "agent/save_command.h"
 #include "console/slash_command_registry.h"
 
 #include <dripcore/channel.h>
@@ -78,6 +79,10 @@ namespace mistral::agent
     // Notes directory
     const std::string& notes_dir() const { return notes_dir_; }
 
+    // Last AI response access
+    std::string get_last_response() const;
+    void set_last_response(const std::string& response);
+
     // Register built-in slash commands
     void register_slash_commands();
 
@@ -111,6 +116,10 @@ namespace mistral::agent
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
+
+    // Last AI response storage
+    mutable std::mutex last_response_mtx_;
+    std::string last_response_;
   };
 
 } // namespace mistral::agent

@@ -58,6 +58,9 @@ namespace mistral::agent
 
       // Cleanup: close channels.
       request_ch_->close();
+      if (output_ch_) {
+        output_ch_->close();
+      }
       co_return;
     }
 

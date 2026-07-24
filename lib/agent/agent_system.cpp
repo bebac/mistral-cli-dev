@@ -346,6 +346,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<model_command>());
     registry.register_command(std::make_unique<tools_command>());
     registry.register_command(std::make_unique<exit_command>());
+    registry.register_command(std::make_unique<save_command>());
   }
 
   void agent_system::build_global_tool_registry()
@@ -493,6 +494,18 @@ namespace mistral::agent
   std::shared_ptr<dripcore::channel<api::api_event>> agent_system::response_ch() const
   {
     return response_ch_;
+  }
+
+  std::string agent_system::get_last_response() const
+  {
+    std::lock_guard<std::mutex> lock(last_response_mtx_);
+    return last_response_;
+  }
+
+  void agent_system::set_last_response(const std::string& response)
+  {
+    std::lock_guard<std::mutex> lock(last_response_mtx_);
+    last_response_ = response;
   }
 
   std::string agent_system::resolve_system_prompt(

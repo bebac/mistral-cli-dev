@@ -3,6 +3,7 @@
 #include "api/mistral_types.h"
 #include "agent/interactive_agent_task.h"
 #include "agent/agent_system.h"
+#include "agent/agent_system_task.h"
 #include "agent/agent_config.h"
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
@@ -157,6 +158,7 @@ int main(int argc, char* argv[])
   auto prompt_ch   = std::make_shared<dripcore::channel<std::string>>(1);
   auto input_ch    = std::make_shared<dripcore::channel<std::string>>(1);
   auto request_ch  = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
+  auto agent_response_ch = std::make_shared<dripcore::channel<std::string>>(32);
 
   // Create slash command channels
   auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(4);
@@ -215,6 +217,9 @@ int main(int argc, char* argv[])
   // Create scheduler and spawn tasks.
   dripcore::scheduler sched;
 
+  // Spawn agent_system_task to capture responses
+  sched.spawn<mistral::agent::agent_system_task>(agent_response_ch);
+
   // Spawn slash command executor task
   sched.spawn<mistral::console::slash_command_executor_task>(
       slash_cmd_request_ch, slash_cmd_response_ch);
@@ -224,7 +229,7 @@ int main(int argc, char* argv[])
       prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch);
 
   sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
-  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, nullptr, prompt_ch);
+  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, agent_response_ch, prompt_ch);
   sched.run();
 
   return 0;
