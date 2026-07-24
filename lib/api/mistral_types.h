@@ -1,6 +1,7 @@
 #ifndef MISTRAL_API_TYPES_H
 #define MISTRAL_API_TYPES_H
 
+#include <dripcore/channel.h>
 #include <nlohmann/json.hpp>
 
 #include <optional>
@@ -195,12 +196,21 @@ namespace mistral::api
 
   // ---- HTTP-level request/response types (for channel transport) ----
 
+  enum class event_type { data, error, done };
+
+  struct api_event
+  {
+    event_type type;
+    std::string payload;  // JSON string for data, error message for error
+  };
+
   struct api_request
   {
     std::string method = "POST";
     std::string path   = "/v1/chat/completions";
     std::string body;
     bool stream = true;
+    std::shared_ptr<dripcore::channel<api::api_event>> response_ch;
   };
 
   struct api_response
@@ -216,15 +226,6 @@ namespace mistral::api
       done = false;
     }
   };
-
-  enum class event_type { data, error, done };
-
-  struct api_event
-  {
-    event_type type;
-    std::string payload;  // JSON string for data, error message for error
-  };
-
 } // namespace mistral::api
 
 #endif // MISTRAL_API_TYPES_H

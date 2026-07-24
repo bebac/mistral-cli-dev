@@ -34,22 +34,18 @@ namespace mistral::agent
 
     // Initialize the agent system with configuration
     void initialize(
-        const std::string& config_file,
-        const std::string& base_dir,
-        const std::string& notes_dir,
-        std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-        std::shared_ptr<dripcore::channel<api::api_event>> response_ch
+      const std::string& config_file,
+      const std::string& base_dir,
+      const std::string& notes_dir,
+      std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     );
 
     // Initialize from command-line arguments (backward compatibility)
     void initialize_from_arguments(
-        const std::string& model,
-        //const std::string& tool_policy_file,
-        //const std::string& tool_default_policy,
-        const std::string& base_dir,
-        const std::string& notes_dir,
-        std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-        std::shared_ptr<dripcore::channel<api::api_event>> response_ch
+      const std::string& model,
+      const std::string& base_dir,
+      const std::string& notes_dir,
+      std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     );
 
     // Resolve system prompt (handles file:// URLs)

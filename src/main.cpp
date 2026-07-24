@@ -152,7 +152,6 @@ int main(int argc, char* argv[])
   auto prompt_ch   = std::make_shared<dripcore::channel<std::string>>(1);
   auto input_ch    = std::make_shared<dripcore::channel<std::string>>(1);
   auto request_ch  = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
-  auto response_ch = std::make_shared<dripcore::channel<mistral::api::api_event>>(64);
 
   // Create slash command channels
   auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(4);
@@ -167,7 +166,7 @@ int main(int argc, char* argv[])
     std::cout << "Loading configuration from: " << config_file << std::endl;
     try
     {
-      agent_system.initialize(config_file.string(), base_dir, notes_dir, request_ch, response_ch);
+      agent_system.initialize(config_file.string(), base_dir, notes_dir, request_ch);
     }
     catch (const std::exception &e)
     {
@@ -179,7 +178,7 @@ int main(int argc, char* argv[])
   {
     std::cout << "No config file found at " << config_file
               << ", using command-line arguments" << std::endl;
-    agent_system.initialize_from_arguments(model, base_dir, notes_dir, request_ch, response_ch);
+    agent_system.initialize_from_arguments(model, base_dir, notes_dir, request_ch);
   }
 
   // Get agent configuration
@@ -222,7 +221,7 @@ int main(int argc, char* argv[])
   sched.spawn<mistral::console::console_task>(
       prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch);
 
-  sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch, response_ch);
+  sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, nullptr, prompt_ch);
   sched.run();
 

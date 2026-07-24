@@ -39,14 +39,12 @@ namespace mistral::net
       std::string host,
       int port,
       std::string api_key,
-      std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-      std::shared_ptr<dripcore::channel<api::api_event>> response_ch
+      std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     )
       : host_(std::move(host))
       , port_(port)
       , api_key_(std::move(api_key))
       , request_ch_(std::move(request_ch))
-      , response_ch_(std::move(response_ch))
     {
       // Register connection-level callbacks
       client_.on_goaway([this](uint32_t last_stream_id, std::error_code ec) {
@@ -58,7 +56,6 @@ namespace mistral::net
       client_.on_connection_error([this](std::error_code ec) {
         std::cerr << "[http_task] Connection error: " << ec.message() << std::endl;
         connected_ = false;
-        response_ch_->try_send({api::event_type::error, ec.message()});
       });
     }
 
@@ -72,6 +69,13 @@ namespace mistral::net
 
         // No request means we are shutting down.
         if (!req) break;
+
+        auto response_ch = req->response_ch;
+
+        if ( !response_ch ) {
+          std::cerr << "[http_task] response_ch is required!" << std::endl;
+          continue;
+        }
 
         // Reset state for new request.
         response_.reset();
@@ -95,8 +99,8 @@ namespace mistral::net
             catch (const std::exception& e)
             {
               std::cerr << "[http_task] initial connection failed: " << e.what() << std::endl;
-              response_ch_->try_send({api::event_type::error, e.what()});
-              response_ch_->close();
+              response_ch->try_send({api::event_type::error, e.what()});
+              response_ch->close();
               co_return;
             }
           }
@@ -124,7 +128,7 @@ namespace mistral::net
             if (auto err = co_await client_output_task(connected_))
             {
               response_.done = true;
-              response_ch_->try_send({api::event_type::error, *err});
+              response_ch->try_send({api::event_type::error, *err});
             }
 
             if (!connected_)
@@ -158,13 +162,12 @@ namespace mistral::net
 
         // Ensure done event was sent.
         if (req->stream && !response_.done) {
-          response_ch_->try_send({api::event_type::done, {}});
+          response_ch->try_send({api::event_type::done, {}});
         }
       }
 
       std::cerr << "[http_task] closing!" << std::endl;
 
-      response_ch_->close();
       co_return;
     }
 
@@ -285,6 +288,12 @@ namespace mistral::net
     {
       auto stream = client.open_stream();
 
+      if (!req.response_ch)
+      {
+        // This should never happen, as it should have been checked before getting here.
+        throw std::runtime_error("response_ch is required!");
+      }
+
       stream.on_headers(
         [&](const ::http::headers& h) {
           auto status = h.get(":status");
@@ -306,9 +315,9 @@ namespace mistral::net
               data,
               [&](http::sse_event evt) {
                 if (evt.data == "[DONE]") {
-                  response_ch_->try_send({api::event_type::done, {}});
+                  req.response_ch->try_send({api::event_type::done, {}});
                 } else if (!evt.data.empty()) {
-                  response_ch_->try_send({api::event_type::data, std::move(evt.data)});
+                  req.response_ch->try_send({api::event_type::data, std::move(evt.data)});
                 }
               }
             );
@@ -321,15 +330,15 @@ namespace mistral::net
           mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_end status_code='{}', req.stream={}", response_.status_code, req.stream);
           if (response_.status_code < 200 || response_.status_code >= 300)
           {
-            response_ch_->try_send({api::event_type::error,
+            req.response_ch->try_send({api::event_type::error,
               std::format("HTTP {}: {}", response_.status_code, response_.body)});
           }
           else
           {
             if (!req.stream)
             {
-              response_ch_->try_send({api::event_type::data, std::move(response_.body)});
-              response_ch_->try_send({api::event_type::done, {}});
+              req.response_ch->try_send({api::event_type::data, std::move(response_.body)});
+              req.response_ch->try_send({api::event_type::done, {}});
             }
             else
             {
@@ -343,7 +352,7 @@ namespace mistral::net
       stream.on_reset(
         [&](std::error_code ec) {
           mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_reset error_code='{}'", ec.message());
-          response_ch_->try_send({api::event_type::error,
+          req.response_ch->try_send({api::event_type::error,
             std::format("stream reset: {}", ec.message())});
           response_.done = true;
         }
@@ -377,7 +386,6 @@ namespace mistral::net
     bool connected_ = false;
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
-    std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
   };
 } // namespace mistral::net
 

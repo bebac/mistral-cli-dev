@@ -35,9 +35,11 @@ namespace mistral::agent
     auto tool_policy_config = agent_system::instance().resolve_tool_policy(agent_cfg);
     policy_engine_.load_configuration(tool_policy_config);
 
-    // Get shared HTTP channels
+    // Get shared HTTP request channel
     request_ch_ = agent_system::instance().request_ch();
-    response_ch_ = agent_system::instance().response_ch();
+
+    // Create response channel for this agent
+    response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
 
     // Set system message
     if (!system_prompt_.empty())
@@ -58,8 +60,8 @@ namespace mistral::agent
 
       agent_loop_on_sending_chat_request();
 
-      // TODO - try_send can fail, we need ti handle it!
-      request_ch_->try_send({.body = std::move(body), .stream = true});
+      // TODO - try_send can fail, we need to handle it!
+      request_ch_->try_send({.body = std::move(body), .stream = true, .response_ch = response_ch_});
 
       // Consume streaming events.
       std::vector<api::message_content> accumulated_content;

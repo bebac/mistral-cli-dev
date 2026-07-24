@@ -29,16 +29,15 @@ namespace mistral::agent
   // ---- Initialization ----
 
   void agent_system::initialize(
-      const std::string &config_file,
-      const std::string& base_dir,
-      const std::string &notes_dir,
-      std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-      std::shared_ptr<dripcore::channel<api::api_event>> response_ch)
+    const std::string &config_file,
+    const std::string& base_dir,
+    const std::string &notes_dir,
+    std::shared_ptr<dripcore::channel<api::api_request>> request_ch
+  )
   {
     base_dir_ = base_dir;
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
-    response_ch_ = std::move(response_ch);
 
     // Load configuration
     config_ = load_config_from_file(config_file);
@@ -135,17 +134,16 @@ namespace mistral::agent
     return policy_config;
   }
 
-  void agent_system::initialize_from_arguments(
-      const std::string &model,
-      const std::string& base_dir,
-      const std::string &notes_dir,
-      std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-      std::shared_ptr<dripcore::channel<api::api_event>> response_ch)
+void agent_system::initialize_from_arguments(
+    const std::string &model,
+    const std::string& base_dir,
+    const std::string &notes_dir,
+    std::shared_ptr<dripcore::channel<api::api_request>> request_ch
+  )
   {
     base_dir_ = base_dir;
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
-    response_ch_ = std::move(response_ch);
 
     // Initialize tool instances
     initialize_tools(notes_dir_);
