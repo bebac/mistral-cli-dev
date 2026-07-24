@@ -134,27 +134,6 @@ namespace mistral::agent
     return policy_config;
   }
 
-void agent_system::initialize_from_arguments(
-    const std::string &model,
-    const std::string& base_dir,
-    const std::string &notes_dir,
-    std::shared_ptr<dripcore::channel<api::api_request>> request_ch
-  )
-  {
-    base_dir_ = base_dir;
-    notes_dir_ = notes_dir;
-    request_ch_ = std::move(request_ch);
-
-    // Initialize tool instances
-    initialize_tools(notes_dir_);
-
-    // Build global tool registry
-    build_global_tool_registry();
-
-    // Register slash commands
-    register_slash_commands();
-  }
-
   // ---- Configuration Loading ----
 
   full_config agent_system::load_config_from_file(const std::string &config_file) const

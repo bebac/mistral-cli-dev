@@ -40,14 +40,6 @@ namespace mistral::agent
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     );
 
-    // Initialize from command-line arguments (backward compatibility)
-    void initialize_from_arguments(
-      const std::string& model,
-      const std::string& base_dir,
-      const std::string& notes_dir,
-      std::shared_ptr<dripcore::channel<api::api_request>> request_ch
-    );
-
     // Resolve system prompt (handles file:// URLs)
     std::string resolve_system_prompt(
         const agent_config& agent_cfg,

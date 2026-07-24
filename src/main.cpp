@@ -96,18 +96,18 @@ int main(int argc, char* argv[])
   std::set_terminate(terminate_handler);
 
   // Default configuration.
-  std::string model              = "mistral-medium-latest";
   std::string base_dir           = ".mistral-cli";
   std::string notes_dir          = ".mistral-cli/notes";
   std::string host               = "api.mistral.ai";
   int port                       = 443;
   bool system_prompt_show        = false;
+  std::string config_file_path;
   std::string tool_policy_file;
   std::string tool_default_policy = "deny";
 
   // Parse command-line arguments.
   static struct option long_options[] = {
-    {"model",              required_argument, 0, 'm'},
+    {"config-file",        required_argument, 0, 'c'},
     {"notes-dir",          required_argument, 0, 'n'},
     {"host",               required_argument, 0, 'H'},
     {"port",               required_argument, 0, 'p'},
@@ -117,18 +117,18 @@ int main(int argc, char* argv[])
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "m:n:H:p:eP:D:h", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:n:H:p:eP:D:h", long_options, nullptr)) != -1)
   {
     switch (opt) {
-      case 'm': model = optarg; break;
+      case 'c': config_file_path = optarg; break;
       case 'n': notes_dir = optarg; break;
       case 'H': host = optarg; break;
       case 'p': port = std::atoi(optarg); break;
       case 'e': system_prompt_show = true; break;
       case 'h':
         std::cout << "Usage: mistral-cli [OPTIONS]\n"
-                  << "  -m, --model MODEL              Model name (default: mistral-medium-latest)\n"
-                  << "  -n, --notes-dir DIR             Notes directory (default: .mistral-cli/notes)\n"
+                  << "  -c, --config-file FILE         Configuration file path (required)\n"
+                  << "  -n, --notes-dir DIR            Notes directory (default: .mistral-cli/notes)\n"
                   << "  -H, --host HOST                API host (default: api.mistral.ai)\n"
                   << "  -p, --port PORT                API port (default: 443)\n"
                   << "  -e, --system-prompt-show       Show system prompt, then exit\n"
@@ -137,6 +137,11 @@ int main(int argc, char* argv[])
       default:
         return 1;
     }
+  }
+
+  // If config file not provide use default.
+  if (config_file_path.empty()) {
+    config_file_path = std::filesystem::path(base_dir) / "mistral-cli.json";
   }
 
   auto log_filename = std::filesystem::path(base_dir) / "trace.log";
@@ -157,28 +162,25 @@ int main(int argc, char* argv[])
   auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(4);
   auto slash_cmd_response_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
-  // Initialize agent system with config file or command-line arguments
-  auto config_file = std::filesystem::path(base_dir) / "mistral-cli.json";
+  // Initialize agent system with config file
   auto& agent_system = mistral::agent::agent_system::instance();
+  std::filesystem::path config_file(config_file_path);
 
-  if (std::filesystem::exists(config_file))
+  if (!std::filesystem::exists(config_file))
   {
-    std::cout << "Loading configuration from: " << config_file << std::endl;
-    try
-    {
-      agent_system.initialize(config_file.string(), base_dir, notes_dir, request_ch);
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "error loading configuration file: " << e.what() << std::endl;
-      return 1;
-    }
+    std::cerr << "configuration file '" << config_file << "' not found" << std::endl;
+    return 1;
   }
-  else
+
+  std::cout << "Loading configuration from: " << config_file << std::endl;
+  try
   {
-    std::cout << "No config file found at " << config_file
-              << ", using command-line arguments" << std::endl;
-    agent_system.initialize_from_arguments(model, base_dir, notes_dir, request_ch);
+    agent_system.initialize(config_file.string(), base_dir, notes_dir, request_ch);
+  }
+  catch (const std::exception &e)
+  {
+    std::cerr << "error loading configuration file: " << e.what() << std::endl;
+    return 1;
   }
 
   // Get agent configuration
@@ -207,7 +209,7 @@ int main(int argc, char* argv[])
   // Create filtered tool registry based on agent's allowed_tools
   auto tools = agent_system.create_tool_registry(agent_config.available_tools);
 
-  std::cout << "mistral-cli (" << model << ")\n"
+  std::cout << "mistral-cli (" << resolved_model << ")\n"
             << "Type your message, Ctrl-D to exit.\n" << std::endl;
 
   // Create scheduler and spawn tasks.

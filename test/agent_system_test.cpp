@@ -102,6 +102,14 @@ struct AgentSystemTestFixture
     auto &system = mistral::agent::agent_system::instance();
     system.initialize(config_file, base_dir, notes_dir, nullptr);
   }
+
+  // Helper to initialize agent_system with empty config (for tests that don't need config data)
+  void initialize_agent_system_empty()
+  {
+    create_config_file(nlohmann::json({}));
+    auto &system = mistral::agent::agent_system::instance();
+    system.initialize(config_file, base_dir, notes_dir, nullptr);
+  }
 };
 
 // ============================================================================
@@ -312,9 +320,8 @@ TEST_SUITE_BEGIN("agent_system::tool_registry");
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected tools")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   const auto &tools = system.global_tools();
   auto schema = tools.get_schema();
@@ -334,9 +341,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: schema is valid JSON")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   const auto &tools = system.global_tools();
   auto schema = tools.get_schema();
@@ -360,9 +366,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: schema is valid JSON")
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: filters to allowed tools only")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   // Get a filtered registry
   std::vector<std::string> available_tools = {"ls", "read"};
@@ -384,9 +389,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: filters to allo
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: empty available_tools")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   std::vector<std::string> available_tools;
   auto filtered_registry = system.create_tool_registry(available_tools);
@@ -400,9 +404,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: empty available
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildcard")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   std::vector<std::string> available_tools = {"*"};
   auto filtered_registry = system.create_tool_registry(available_tools);
@@ -417,9 +420,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildc
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   const auto &global = system.global_tools();
 
@@ -438,9 +440,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy assignment works")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   const auto &global = system.global_tools();
 
@@ -454,9 +455,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy assignment works"
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy contains all tools")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   const auto &global = system.global_tools();
 
@@ -476,9 +476,8 @@ TEST_SUITE_BEGIN("agent_system::tool_instances");
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_system")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto &file_tools = system.file_tools();
   // Just check that we can access it without crashing
@@ -487,9 +486,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_syst
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_system")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto &note_tools = system.note_tools();
   CHECK(&note_tools != nullptr);
@@ -497,9 +495,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_syst
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "grep_tools: accessible via agent_system")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto &grep_tools = system.grep_tools();
   CHECK(&grep_tools != nullptr);
@@ -511,18 +508,16 @@ TEST_SUITE_BEGIN("agent_system::channels");
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch: returns null if not set")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   CHECK(system.request_ch() == nullptr);
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "response_ch: returns null if not set")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   CHECK(system.response_ch() == nullptr);
 }
@@ -533,9 +528,8 @@ TEST_SUITE_BEGIN("agent_system::slash_commands");
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after initialization")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
 
@@ -549,9 +543,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after init
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
   const auto* help_cmd = registry.get_command("help");
@@ -566,9 +559,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command requires agent context")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
   const auto* model_cmd = registry.get_command("model");
@@ -580,9 +572,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command require
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command is immediate")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
   const auto* clear_cmd = registry.get_command("clear");
@@ -598,9 +589,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command is imme
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command is immediate")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
   const auto* exit_cmd = registry.get_command("exit");
@@ -616,9 +606,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command is immed
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registry needs_agent_execution works")
 {
+  initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
-  system.initialize_from_arguments(
-      "mistral-medium-latest", base_dir, notes_dir, nullptr);
 
   auto& registry = mistral::console::slash_command_registry::instance();
 
