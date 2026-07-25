@@ -100,6 +100,7 @@ namespace mistral::api
     std::string id;
     std::string type = "function";
     tool_call_function function;
+    std::optional<json> extra_content; // google, v1beta/openai reqiures this for thought_signature
   };
 
   inline void to_json(json& j, const tool_call_function& f)
@@ -110,6 +111,9 @@ namespace mistral::api
   inline void to_json(json& j, const tool_call& tc)
   {
     j = {{"id", tc.id}, {"type", tc.type}, {"function", tc.function}};
+    if (tc.extra_content) {
+      j["extra_content"] = *tc.extra_content;
+    }
   }
 
   inline void from_json(const json& j, tool_call_function& f)
@@ -123,6 +127,9 @@ namespace mistral::api
     j.at("id").get_to(tc.id);
     if (j.contains("type")) j.at("type").get_to(tc.type);
     j.at("function").get_to(tc.function);
+    if (j.contains("extra_content")) {
+      tc.extra_content = j["extra_content"];
+    }
   }
 
   // ---- Chat message ----

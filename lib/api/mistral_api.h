@@ -38,11 +38,6 @@ namespace mistral::api
     std::vector<tool_call> tool_calls;
     std::string finish_reason;
   };
-
-#if 0
-  chat_response parse_response(const json& j);
-#endif
-
 } // namespace mistral::api
 
 #endif // MISTRAL_API_H
