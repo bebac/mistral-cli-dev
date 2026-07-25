@@ -92,7 +92,7 @@ namespace mistral::net
             client_.reset();
             try
             {
-              std::cerr << "[http_task] connecting (" << retries << ")..." << std::endl;
+              std::cerr << "[http_task] " << host_ << " connecting (" << retries << ")..." << std::endl;
               client_.connect(host_, port_);
               connected_ = true;
             }
@@ -107,7 +107,7 @@ namespace mistral::net
 
           // --- Process a single HTTP request ---
 
-          std::cout << "[http_task] Sending request of size: " << req->body.size() << std::endl;
+          std::cout << "[http_task] Sending request " << req->path << ", size: " << req->body.size() << std::endl;
 
           // Open a new HTTP stream for this request.
           auto stream = open_stream(client_, *req);

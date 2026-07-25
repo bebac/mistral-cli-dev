@@ -14,6 +14,7 @@
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
+#include <uri.h>
 
 #include <cstdlib>
 #include <fstream>
@@ -188,6 +189,38 @@ int main(int argc, char* argv[])
   // Get agent configuration
   const auto& agent_config = agent_system.get_agent_config("main");
   const auto& model_config = agent_system.get_model_config(agent_config.model);
+
+  // Use base_url from config if command-line host wasn't overridden
+  if (host == "api.mistral.ai" && !model_config.base_url.empty())
+  {
+    auto parse_result = uri::parse(model_config.base_url);
+    if (std::holds_alternative<uri::uri_view>(parse_result))
+    {
+      const auto& parsed_uri = std::get<uri::uri_view>(parse_result);
+
+      auto config_host = parsed_uri.host();
+      auto config_port = 443; // Default to HTTPS port
+
+      // Extract port if present
+      auto port_str = parsed_uri.port();
+      if (!port_str.empty())
+      {
+        try {
+          config_port = std::stoi(std::string(port_str));
+        }
+        catch (...) {
+          // If port parsing fails, keep default
+        }
+      }
+
+      host = config_host;
+
+      if (port == 443)
+      { // Only use config port if command-line didn't override
+        port = config_port;
+      }
+    }
+  }
 
   // Read API key from environment variable specified in model config
   const char* api_key_env = std::getenv(model_config.api_key_env.c_str());

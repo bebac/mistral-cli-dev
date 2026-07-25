@@ -56,6 +56,7 @@ namespace mistral::agent
 
     // Configuration-derived properties
     std::string model_;
+    std::string api_version_;
     std::string system_prompt_;
     tool_registry tools_;
     policy_engine policy_engine_;

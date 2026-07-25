@@ -21,11 +21,12 @@ namespace mistral::agent
   )
   {
     // Load configuration from agent_system
-    const auto &agent_cfg = agent_system::instance().get_agent_config(agent_id_);
-    const auto &model_cfg = agent_system::instance().get_model_config(agent_cfg.model);
+    const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
+    const auto& model_cfg = agent_system::instance().get_model_config(agent_cfg.model);
 
-    // Set model and system prompt
+    // Set model, api_version, and system prompt
     model_ = agent_system::instance().resolve_model_id(agent_cfg.model);
+    api_version_ = model_cfg.api_version;
     system_prompt_ = agent_system::instance().resolve_system_prompt(agent_cfg, model_);
 
     // Create tool registry with filtered tools
@@ -60,8 +61,9 @@ namespace mistral::agent
 
       agent_loop_on_sending_chat_request();
 
-      // TODO - try_send can fail, we need to handle it!
-      request_ch_->try_send({.body = std::move(body), .stream = true, .response_ch = response_ch_});
+      // Build request with path from api_version
+      std::string path = "/" + api_version_ + "/chat/completions";
+      request_ch_->try_send({.path = path, .body = std::move(body), .stream = true, .response_ch = response_ch_});
 
       // Consume streaming events.
       std::vector<api::message_content> accumulated_content;

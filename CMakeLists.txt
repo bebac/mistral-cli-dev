@@ -44,18 +44,14 @@ target_include_directories(dripcore PUBLIC
 # Third-party: stunning-waddle (HTTP/2 library)
 # -----------------------------------------------
 
-add_subdirectory(
-    third_party/stunning-waddle
-)
+add_subdirectory(third_party/stunning-waddle)
+add_subdirectory(third_party/just-a-uri)
 
 # -----------------------------------------------
 # Third-party: isocline (readline library)
 # -----------------------------------------------
 
-add_subdirectory(
-    third_party/isocline
-    isocline-build
-)
+add_subdirectory(third_party/isocline)
 
 # -----------------------------------------------
 # Third-party: OpenSSL
@@ -107,6 +103,7 @@ target_include_directories(mistral-core PUBLIC
 target_link_libraries(mistral-core PUBLIC
     dripcore
     stunning-waddle
+    just-a-uri
     nlohmann_json
     isocline
     OpenSSL::SSL
