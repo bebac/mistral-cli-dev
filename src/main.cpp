@@ -107,6 +107,7 @@ int main(int argc, char* argv[])
   std::string config_file_path;
   std::string tool_policy_file;
   std::string tool_default_policy = "deny";
+  std::string agent_id            = "main";
 
   // Parse command-line arguments.
   static struct option long_options[] = {
@@ -114,19 +115,21 @@ int main(int argc, char* argv[])
     {"notes-dir",          required_argument, 0, 'n'},
     {"host",               required_argument, 0, 'H'},
     {"port",               required_argument, 0, 'p'},
+    {"agent",              required_argument, 0, 'a'},
     {"system-prompt-show", no_argument,       0, 'e'},
     {"help",               no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:n:H:p:eP:D:h", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:eP:D:h", long_options, nullptr)) != -1)
   {
     switch (opt) {
       case 'c': config_file_path = optarg; break;
       case 'n': notes_dir = optarg; break;
       case 'H': host = optarg; break;
       case 'p': port = std::atoi(optarg); break;
+      case 'a': agent_id = optarg; break;
       case 'e': system_prompt_show = true; break;
       case 'h':
         std::cout << "Usage: mistral-cli [OPTIONS]\n"
@@ -134,6 +137,7 @@ int main(int argc, char* argv[])
                   << "  -n, --notes-dir DIR            Notes directory (default: .mistral-cli/notes)\n"
                   << "  -H, --host HOST                API host (default: api.mistral.ai)\n"
                   << "  -p, --port PORT                API port (default: 443)\n"
+                  << "  -a, --agent AGENT              Agent ID to use (default: main)\n"
                   << "  -e, --system-prompt-show       Show system prompt, then exit\n"
                   << "  -h, --help                     Show this help\n";
         return 0;
@@ -187,8 +191,19 @@ int main(int argc, char* argv[])
     return 1;
   }
 
+  // Validate agent exists in configuration
+  if (!agent_system.has_agent_config(agent_id)) {
+    std::cerr << "error: agent '" << agent_id << "' not found in configuration" << std::endl;
+    std::cerr << "Available agents: ";
+    for (const auto& [name, _] : agent_system.get_config().agents) {
+      std::cerr << name << " ";
+    }
+    std::cerr << std::endl;
+    return 1;
+  }
+
   // Get agent configuration
-  const auto& agent_config = agent_system.get_agent_config("main");
+  const auto& agent_config = agent_system.get_agent_config(agent_id);
   const auto& model_config = agent_system.get_model_config(agent_config.model);
 
   // Use base_url from config if command-line host wasn't overridden
@@ -266,7 +281,7 @@ int main(int argc, char* argv[])
       prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch);
 
   sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
-  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, agent_response_ch, prompt_ch);
+  sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch);
   sched.run();
 
   return 0;
