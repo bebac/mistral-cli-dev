@@ -177,6 +177,39 @@ namespace mistral::agent
         model_cfg.api_key_env = model_json.value("api_key_env", "MISTRAL_API_KEY");
         model_cfg.base_url = model_json.value("base_url", "https://api.mistral.ai");
         model_cfg.api_version = model_json.value("api_version", "v1");
+
+        // Parse sampling parameters
+        if (model_json.contains("reasoning_effort") && !model_json["reasoning_effort"].is_null()) {
+          model_cfg.reasoning_effort = model_json["reasoning_effort"].get<std::string>();
+        }
+        if (model_json.contains("temperature") && !model_json["temperature"].is_null()) {
+          model_cfg.temperature = model_json["temperature"].get<float>();
+        }
+        if (model_json.contains("top_p") && !model_json["top_p"].is_null()) {
+          model_cfg.top_p = model_json["top_p"].get<float>();
+        }
+        if (model_json.contains("top_k") && !model_json["top_k"].is_null()) {
+          model_cfg.top_k = model_json["top_k"].get<int>();
+        }
+        if (model_json.contains("max_tokens") && !model_json["max_tokens"].is_null()) {
+          model_cfg.max_tokens = model_json["max_tokens"].get<int>();
+        }
+        if (model_json.contains("frequency_penalty") && !model_json["frequency_penalty"].is_null()) {
+          model_cfg.frequency_penalty = model_json["frequency_penalty"].get<float>();
+        }
+        if (model_json.contains("presence_penalty") && !model_json["presence_penalty"].is_null()) {
+          model_cfg.presence_penalty = model_json["presence_penalty"].get<float>();
+        }
+        if (model_json.contains("seed") && !model_json["seed"].is_null()) {
+          model_cfg.seed = model_json["seed"].get<int>();
+        }
+        if (model_json.contains("safe_prompt") && !model_json["safe_prompt"].is_null()) {
+          model_cfg.safe_prompt = model_json["safe_prompt"].get<bool>();
+        }
+        if (model_json.contains("randomness") && !model_json["randomness"].is_null()) {
+          model_cfg.randomness = model_json["randomness"].get<float>();
+        }
+
         config.models[name] = std::move(model_cfg);
       }
     }
@@ -219,6 +252,38 @@ namespace mistral::agent
           {
             agent_cfg.available_tools.push_back(tool.get<std::string>());
           }
+        }
+
+        // Parse sampling parameters (agent-level overrides)
+        if (agent_json.contains("reasoning_effort") && !agent_json["reasoning_effort"].is_null()) {
+          agent_cfg.reasoning_effort = agent_json["reasoning_effort"].get<std::string>();
+        }
+        if (agent_json.contains("temperature") && !agent_json["temperature"].is_null()) {
+          agent_cfg.temperature = agent_json["temperature"].get<float>();
+        }
+        if (agent_json.contains("top_p") && !agent_json["top_p"].is_null()) {
+          agent_cfg.top_p = agent_json["top_p"].get<float>();
+        }
+        if (agent_json.contains("top_k") && !agent_json["top_k"].is_null()) {
+          agent_cfg.top_k = agent_json["top_k"].get<int>();
+        }
+        if (agent_json.contains("max_tokens") && !agent_json["max_tokens"].is_null()) {
+          agent_cfg.max_tokens = agent_json["max_tokens"].get<int>();
+        }
+        if (agent_json.contains("frequency_penalty") && !agent_json["frequency_penalty"].is_null()) {
+          agent_cfg.frequency_penalty = agent_json["frequency_penalty"].get<float>();
+        }
+        if (agent_json.contains("presence_penalty") && !agent_json["presence_penalty"].is_null()) {
+          agent_cfg.presence_penalty = agent_json["presence_penalty"].get<float>();
+        }
+        if (agent_json.contains("seed") && !agent_json["seed"].is_null()) {
+          agent_cfg.seed = agent_json["seed"].get<int>();
+        }
+        if (agent_json.contains("safe_prompt") && !agent_json["safe_prompt"].is_null()) {
+          agent_cfg.safe_prompt = agent_json["safe_prompt"].get<bool>();
+        }
+        if (agent_json.contains("randomness") && !agent_json["randomness"].is_null()) {
+          agent_cfg.randomness = agent_json["randomness"].get<float>();
         }
 
         config.agents[name] = std::move(agent_cfg);
@@ -448,6 +513,49 @@ namespace mistral::agent
   bool agent_system::has_model_config(const std::string &model_name) const
   {
     return config_.models.find(model_name) != config_.models.end();
+  }
+
+  api::sampling_params agent_system::resolve_sampling_params(const agent_config& agent_cfg) const
+  {
+    api::sampling_params params;
+
+    // Get model defaults if available
+    if (has_model_config(agent_cfg.model))
+    {
+      const auto& model_cfg = get_model_config(agent_cfg.model);
+
+      // Apply model defaults
+      params.reasoning_effort = model_cfg.reasoning_effort.value_or("high");
+      params.temperature = model_cfg.temperature.value_or(0.6f);
+      if (model_cfg.top_p) params.top_p = model_cfg.top_p;
+      if (model_cfg.top_k) params.top_k = model_cfg.top_k;
+      if (model_cfg.max_tokens) params.max_tokens = model_cfg.max_tokens;
+      if (model_cfg.frequency_penalty) params.frequency_penalty = model_cfg.frequency_penalty;
+      if (model_cfg.presence_penalty) params.presence_penalty = model_cfg.presence_penalty;
+      if (model_cfg.seed) params.seed = model_cfg.seed;
+      if (model_cfg.safe_prompt) params.safe_prompt = model_cfg.safe_prompt;
+      if (model_cfg.randomness) params.randomness = model_cfg.randomness;
+    }
+    else
+    {
+      // Default values if no model config
+      params.reasoning_effort = "high";
+      params.temperature = 0.6f;
+    }
+
+    // Apply agent overrides (if specified)
+    if (agent_cfg.reasoning_effort) params.reasoning_effort = *agent_cfg.reasoning_effort;
+    if (agent_cfg.temperature) params.temperature = *agent_cfg.temperature;
+    if (agent_cfg.top_p) params.top_p = *agent_cfg.top_p;
+    if (agent_cfg.top_k) params.top_k = *agent_cfg.top_k;
+    if (agent_cfg.max_tokens) params.max_tokens = *agent_cfg.max_tokens;
+    if (agent_cfg.frequency_penalty) params.frequency_penalty = *agent_cfg.frequency_penalty;
+    if (agent_cfg.presence_penalty) params.presence_penalty = *agent_cfg.presence_penalty;
+    if (agent_cfg.seed) params.seed = *agent_cfg.seed;
+    if (agent_cfg.safe_prompt) params.safe_prompt = *agent_cfg.safe_prompt;
+    if (agent_cfg.randomness) params.randomness = *agent_cfg.randomness;
+
+    return params;
   }
 
   std::string agent_system::resolve_model_id(const std::string &model_name) const

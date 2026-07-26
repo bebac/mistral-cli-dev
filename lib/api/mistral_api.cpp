@@ -7,16 +7,45 @@ namespace mistral::api
     const std::vector<message>& messages,
     const json& tools_schema,
     bool stream,
-    const std::optional<std::string>& prompt_cache_key)
+    const std::optional<std::string>& prompt_cache_key,
+    const sampling_params& params)
   {
     json body;
     body["model"]    = model;
     body["messages"]  = messages;
     body["stream"]    = stream;
-    //body["frequency_penalty"] = -0.02f;
-    body["reasoning_effort"] = "high";
-    //body["max_tokens"] = 5000;
-    //body["temperature"] = 0.9f;
+
+    // Apply sampling parameters if provided
+    if (params.reasoning_effort) {
+      body["reasoning_effort"] = *params.reasoning_effort;
+    }
+    if (params.temperature) {
+      body["temperature"] = *params.temperature;
+    }
+    if (params.top_p) {
+      body["top_p"] = *params.top_p;
+    }
+    if (params.top_k) {
+      body["top_k"] = *params.top_k;
+    }
+    if (params.max_tokens) {
+      body["max_tokens"] = *params.max_tokens;
+    }
+    if (params.frequency_penalty) {
+      body["frequency_penalty"] = *params.frequency_penalty;
+    }
+    if (params.presence_penalty) {
+      body["presence_penalty"] = *params.presence_penalty;
+    }
+    if (params.seed) {
+      body["seed"] = *params.seed;
+    }
+    if (params.safe_prompt) {
+      body["safe_prompt"] = *params.safe_prompt;
+    }
+    if (params.randomness) {
+      body["randomness"] = *params.randomness;
+    }
 
     if (prompt_cache_key) {
       body["prompt_cache_key"] = *prompt_cache_key;

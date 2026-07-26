@@ -9,13 +9,29 @@
 
 namespace mistral::api
 {
+  // Sampling parameters for chat completion requests
+  struct sampling_params
+  {
+    std::optional<std::string> reasoning_effort;
+    std::optional<float> temperature;
+    std::optional<float> top_p;
+    std::optional<int> top_k;
+    std::optional<int> max_tokens;
+    std::optional<float> frequency_penalty;
+    std::optional<float> presence_penalty;
+    std::optional<int> seed;
+    std::optional<bool> safe_prompt;
+    std::optional<float> randomness;
+  };
+
   // Build the JSON body for POST /v1/chat/completions.
   std::string build_chat_request(
     const std::string& model,
     const std::vector<message>& messages,
     const json& tools_schema,
     bool stream = true,
-    const std::optional<std::string>& prompt_cache_key = std::nullopt
+    const std::optional<std::string>& prompt_cache_key = std::nullopt,
+    const sampling_params& params = {}
   );
 
   // Parsed content from a streaming delta chunk.

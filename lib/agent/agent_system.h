@@ -12,6 +12,7 @@
 
 #include <dripcore/channel.h>
 #include <api/mistral_types.h>
+#include <api/mistral_api.h>
 
 #include <string>
 #include <memory>
@@ -58,6 +59,9 @@ namespace mistral::agent
     // Model configuration access
     const model_config& get_model_config(const std::string& model_name) const;
     bool has_model_config(const std::string& model_name) const;
+
+    // Resolve sampling parameters (model defaults + agent overrides)
+    api::sampling_params resolve_sampling_params(const agent_config& agent_cfg) const;
     std::string resolve_model_id(const std::string& model_name) const;
 
     // Get the full configuration

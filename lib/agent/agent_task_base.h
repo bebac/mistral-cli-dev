@@ -58,6 +58,7 @@ namespace mistral::agent
     std::string model_;
     std::string api_version_;
     std::string system_prompt_;
+    api::sampling_params sampling_params_;
     tool_registry tools_;
     policy_engine policy_engine_;
     approval_manager approval_manager_;

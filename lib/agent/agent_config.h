@@ -18,7 +18,17 @@ namespace mistral::agent
     std::string base_url;           // API base URL
     std::string api_version = "v1"; // API version
 
-    // Future: sampling parameters defaults, timeouts, etc.
+    // Sampling parameters (defaults)
+    std::optional<std::string> reasoning_effort;  // e.g., "high", "low", "none"
+    std::optional<float> temperature;             // 0.0 to 1.0
+    std::optional<float> top_p;                   // 0.0 to 1.0
+    std::optional<int> top_k;                     // Mistral-specific
+    std::optional<int> max_tokens;                // Maximum tokens to generate
+    std::optional<float> frequency_penalty;       // -2.0 to 2.0
+    std::optional<float> presence_penalty;        // -2.0 to 2.0
+    std::optional<int> seed;                      // Random seed for deterministic output
+    std::optional<bool> safe_prompt;              // Mistral-specific
+    std::optional<float> randomness;              // Mistral-specific, 0.0 to 1.0
   };
 
   // ---- Agent Configuration ----
@@ -30,7 +40,17 @@ namespace mistral::agent
     std::string tool_policy;        // Can be: "deny", "allow", "require_approval", a JSON object as string, or "file://path/to/policy.json"
     std::vector<std::string> available_tools;
 
-    // Future: sampling parameters override, temperature, top_p, etc.
+    // Sampling parameters (overrides model defaults)
+    std::optional<std::string> reasoning_effort;  // Override model default
+    std::optional<float> temperature;             // Override model default
+    std::optional<float> top_p;                   // Override model default
+    std::optional<int> top_k;                     // Override model default
+    std::optional<int> max_tokens;                // Override model default
+    std::optional<float> frequency_penalty;       // Override model default
+    std::optional<float> presence_penalty;        // Override model default
+    std::optional<int> seed;                      // Override model default
+    std::optional<bool> safe_prompt;              // Override model default
+    std::optional<float> randomness;              // Override model default
   };
 
   // ---- Full Configuration ----

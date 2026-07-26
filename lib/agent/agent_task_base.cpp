@@ -29,6 +29,9 @@ namespace mistral::agent
     api_version_ = model_cfg.api_version;
     system_prompt_ = agent_system::instance().resolve_system_prompt(agent_cfg, model_);
 
+    // Resolve sampling parameters (model defaults + agent overrides)
+    sampling_params_ = agent_system::instance().resolve_sampling_params(agent_cfg);
+
     // Create tool registry with filtered tools
     tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
 
@@ -60,7 +63,7 @@ namespace mistral::agent
     while (!final_answer)
     {
       // Build and send API request.
-      auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_);
+      auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
 
       agent_loop_on_sending_chat_request();
 
