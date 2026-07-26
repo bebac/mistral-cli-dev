@@ -39,6 +39,9 @@ namespace mistral::agent
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
 
+    // Initialize stats channel
+    stats_ch_ = std::make_shared<dripcore::channel<stat_message>>(32);
+
     // Load configuration
     config_ = load_config_from_file(config_file);
 
@@ -347,6 +350,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<tools_command>());
     registry.register_command(std::make_unique<exit_command>());
     registry.register_command(std::make_unique<save_command>());
+    registry.register_command(std::make_unique<usage_command>());
   }
 
   void agent_system::build_global_tool_registry()
@@ -502,10 +506,35 @@ namespace mistral::agent
     return last_response_;
   }
 
-  void agent_system::set_last_response(const std::string& response)
+  void agent_system::set_last_response(const std::string &response)
   {
     std::lock_guard<std::mutex> lock(last_response_mtx_);
     last_response_ = response;
+  }
+
+  // ---- Statistics ----
+
+  std::shared_ptr<dripcore::channel<stat_message>> agent_system::stats_ch() const
+  {
+    return stats_ch_;
+  }
+
+  json agent_system::get_usage_stats() const
+  {
+    std::lock_guard<std::mutex> lock(usage_stats_mtx_);
+    return usage_stats_;
+  }
+
+  void agent_system::update_usage_stats(const json& stats)
+  {
+    std::lock_guard<std::mutex> lock(usage_stats_mtx_);
+    usage_stats_ = stats;
+  }
+
+  void agent_system::reset_usage_stats()
+  {
+    std::lock_guard<std::mutex> lock(usage_stats_mtx_);
+    usage_stats_ = {};
   }
 
   std::string agent_system::resolve_system_prompt(

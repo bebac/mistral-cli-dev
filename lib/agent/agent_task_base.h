@@ -72,6 +72,7 @@ namespace mistral::agent
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
+    std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;
 
     bool in_thinking_ = false;
   };

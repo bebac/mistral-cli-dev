@@ -88,7 +88,9 @@ add_library(mistral-core STATIC
     lib/agent/approval_prompt.cpp
     lib/agent/agent_system.cpp
     lib/agent/agent_system_task.cpp
+    lib/agent/agent_system_stats_task.cpp
     lib/agent/save_command.cpp
+    lib/agent/usage_command.cpp
     lib/common/string_utils.cpp
     lib/trace/trace.cpp
 )

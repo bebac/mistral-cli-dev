@@ -39,6 +39,9 @@ namespace mistral::agent
     // Get shared HTTP request channel
     request_ch_ = agent_system::instance().request_ch();
 
+    // Get stats channel
+    stats_ch_ = agent_system::instance().stats_ch();
+
     // Create response channel for this agent
     response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
 
@@ -89,6 +92,13 @@ namespace mistral::agent
         // Parse SSE data JSON.
         try {
           auto j = api::json::parse(evt->payload);
+
+          if (j.contains("usage")) {
+            if (stats_ch_) {
+              stats_ch_->try_send({stat_id::api_usage, j.at("usage")});
+            }
+          }
+
           auto delta = api::parse_stream_delta(j);
 
           // Handle content

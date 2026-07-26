@@ -6,6 +6,8 @@
 #include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
 #include "agent/save_command.h"
+#include "agent/usage_command.h"
+#include "agent/agent_system_stats_task.h"
 #include "console/slash_command_registry.h"
 
 #include <dripcore/channel.h>
@@ -25,7 +27,6 @@ namespace mistral::tools
 
 namespace mistral::agent
 {
-
   // ---- Agent System Singleton ----
   // Provides shared resources, configuration access, and model management.
   class agent_system
@@ -75,6 +76,7 @@ namespace mistral::agent
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch() const;
+    std::shared_ptr<dripcore::channel<stat_message>> stats_ch() const;
 
     // Notes directory
     const std::string& notes_dir() const { return notes_dir_; }
@@ -82,6 +84,11 @@ namespace mistral::agent
     // Last AI response access
     std::string get_last_response() const;
     void set_last_response(const std::string& response);
+
+    // Get current usage stats
+    json get_usage_stats() const;
+    void update_usage_stats(const json& stats);
+    void reset_usage_stats();
 
     // Register built-in slash commands
     void register_slash_commands();
@@ -120,6 +127,13 @@ namespace mistral::agent
     // Last AI response storage
     mutable std::mutex last_response_mtx_;
     std::string last_response_;
+
+    // Stats channel
+    std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;
+
+    // Usage statistics storage
+    mutable std::mutex usage_stats_mtx_;
+    json usage_stats_;
   };
 
 } // namespace mistral::agent

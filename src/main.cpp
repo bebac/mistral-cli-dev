@@ -4,6 +4,7 @@
 #include "agent/interactive_agent_task.h"
 #include "agent/agent_system.h"
 #include "agent/agent_system_task.h"
+#include "agent/agent_system_stats_task.h"
 #include "agent/agent_config.h"
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
@@ -252,6 +253,9 @@ int main(int argc, char* argv[])
 
   // Spawn agent_system_task to capture responses
   sched.spawn<mistral::agent::agent_system_task>(agent_response_ch);
+
+  // Spawn agent_system_stats_task to capture statistics
+  sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
 
   // Spawn slash command executor task
   sched.spawn<mistral::console::slash_command_executor_task>(
