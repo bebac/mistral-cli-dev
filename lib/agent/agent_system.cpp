@@ -416,6 +416,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<exit_command>());
     registry.register_command(std::make_unique<save_command>());
     registry.register_command(std::make_unique<usage_command>());
+    registry.register_command(std::make_unique<patchset_verify_command>());
   }
 
   void agent_system::build_global_tool_registry()

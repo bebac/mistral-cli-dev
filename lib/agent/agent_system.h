@@ -7,6 +7,7 @@
 #include "agent/approval_manager.h"
 #include "agent/save_command.h"
 #include "agent/usage_command.h"
+#include "agent/patchset_verify_command.h"
 #include "agent/agent_system_stats_task.h"
 #include "console/slash_command_registry.h"
 
