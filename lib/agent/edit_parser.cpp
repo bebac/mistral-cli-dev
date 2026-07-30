@@ -185,13 +185,18 @@ namespace mistral::agent
       }
 
       // Check if next non-empty line starts with code block marker (```)
-      size_t code_block_start = input.find("```", file_path_end);
-      if (code_block_start == std::string::npos)
-      {
-        // No code block after file path, skip
+      // Must be on the immediate next line (or after skipping only whitespace)
+      size_t search_start = file_path_end;
+      // Skip any newlines and whitespace between file path and code block
+      while (search_start < input_len && (input[search_start] == '\n' || input[search_start] == ' ' || input[search_start] == '\t')) {
+        search_start++;
+      }
+      if (search_start + 2 >= input_len || input.substr(search_start, 3) != "```") {
+        // No code block immediately after file path, skip
         pos = file_path_end + 1;
         continue;
       }
+      size_t code_block_start = search_start;
 
       // Find the end of the code block (matching ```)
       // Code block can have optional language specifier: ```cpp or ```cpp\n

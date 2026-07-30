@@ -2,6 +2,8 @@
 #define MISTRAL_SLASH_COMMAND_H
 
 #include <string>
+#include <dripcore/task.h>
+#include <dripcore/awaitable.h>
 
 namespace mistral::agent
 {
@@ -91,12 +93,14 @@ namespace mistral::console
      * This method is called for AGENT context commands.
      * Can block (await) on other dripcore operations.
      *
+     * @param task The task context for spawning sub-tasks.
      * @param args The command arguments (everything after the command name).
      * @param agent_sys Reference to the agent system singleton.
      * @return The response string to display to the user.
      * @throws std::logic_error if the command doesn't support AGENT execution.
      */
-    virtual std::string execute_agent(
+    virtual dripcore::awaitable<std::string> execute_agent(
+      dripcore::task& task,
       const std::string &args,
       agent::agent_system &agent_sys
     )

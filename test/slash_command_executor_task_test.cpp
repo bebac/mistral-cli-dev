@@ -9,6 +9,7 @@
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 #include <dripcore/task_handle.h>
+#include <dripcore/awaitable.h>
 
 #include <string>
 #include <thread>
@@ -26,9 +27,12 @@ namespace
     std::string description() const override { return "Test command"; }
     mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
 
-    std::string execute_agent(const std::string &args, mistral::agent::agent_system &) override
+    dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string &args,
+        mistral::agent::agent_system &) override
     {
-      return "Response: " + args;
+      co_return "Response: " + args;
     }
   };
 
@@ -174,7 +178,11 @@ TEST_CASE("slash_command_executor_task: exception handling")
     std::string name() const override { return "throw_cmd"; }
     std::string description() const override { return "Throws"; }
     mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
-    std::string execute_agent(const std::string &, mistral::agent::agent_system &) override
+
+    dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string &,
+        mistral::agent::agent_system &) override
     {
       throw std::runtime_error("Test error");
     }
@@ -205,9 +213,13 @@ TEST_CASE("slash_command_executor_task: empty response")
     std::string name() const override { return "empty_cmd"; }
     std::string description() const override { return "Empty"; }
     mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
-    std::string execute_agent(const std::string &, mistral::agent::agent_system &) override
+
+    dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string &,
+        mistral::agent::agent_system &) override
     {
-      return "";
+      co_return "";
     }
   };
 

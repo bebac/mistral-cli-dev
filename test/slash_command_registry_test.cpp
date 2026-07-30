@@ -2,6 +2,9 @@
 #include "console/slash_command.h"
 #include "console/slash_command_registry.h"
 
+#include <dripcore/task.h>
+#include <dripcore/awaitable.h>
+
 #include <memory>
 #include <string>
 #include <thread>
@@ -31,9 +34,13 @@ public:
   std::string description() const override { return "Test agent command"; }
   std::string usage() const override { return "/test_agent [args]"; }
   execution_context context() const override { return execution_context::AGENT; }
-  std::string execute_agent(const std::string& args, agent::agent_system&) override
+
+  dripcore::awaitable<std::string> execute_agent(
+      dripcore::task&,
+      const std::string& args,
+      agent::agent_system&) override
   {
-    return "Agent: " + args;
+    co_return "Agent: " + args;
   }
 };
 
@@ -239,7 +246,14 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
     std::string name() const override { return "test_re_register"; }
     std::string description() const override { return "Second"; }
     execution_context context() const override { return execution_context::AGENT; }
-    std::string execute_agent(const std::string&, mistral::agent::agent_system&) override { return "second"; }
+
+    dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "second";
+    }
   };
 
   registry.register_command(std::make_unique<cmd1>());

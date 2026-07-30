@@ -1,11 +1,15 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/subagent_task.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
 #include "template/template_engine.h"
 
 #include <api/mistral_api.h>
+
+#include <dripcore/task.h>
+#include <dripcore/awaitable.h>
 
 #include <fstream>
 #include <filesystem>
@@ -369,9 +373,12 @@ namespace mistral::agent
       std::string description() const override { return "Show current model information"; }
       execution_context context() const override { return execution_context::AGENT; }
 
-      std::string execute_agent(const std::string&, agent_system& sys) override
+      dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string&,
+        agent_system& sys) override
       {
-        return "Current model: " + sys.resolve_model_id(sys.get_agent_config("main").model);
+        co_return "Current model: " + sys.resolve_model_id(sys.get_agent_config("main").model);
       }
     };
 
@@ -382,7 +389,10 @@ namespace mistral::agent
       std::string description() const override { return "List available tools"; }
       execution_context context() const override { return execution_context::AGENT; }
 
-      std::string execute_agent(const std::string&, agent_system& sys) override
+      dripcore::awaitable<std::string> execute_agent(
+        dripcore::task&,
+        const std::string&,
+        agent_system& sys) override
       {
         auto schema = sys.global_tools().get_schema();
         std::string result = "Available tools:\n";
@@ -391,7 +401,7 @@ namespace mistral::agent
             result += "  - " + tool["function"]["name"].get<std::string>() + "\n";
           }
         }
-        return result;
+        co_return result;
       }
     };
 
@@ -414,6 +424,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<model_command>());
     registry.register_command(std::make_unique<tools_command>());
     registry.register_command(std::make_unique<exit_command>());
+    registry.register_command(std::make_unique<load_command>());
     registry.register_command(std::make_unique<save_command>());
     registry.register_command(std::make_unique<usage_command>());
     registry.register_command(std::make_unique<patchset_verify_command>());
@@ -679,5 +690,31 @@ namespace mistral::agent
     }
 
     return system_prompt;
+  }
+
+  dripcore::awaitable<std::string> agent_system::run_subagent(
+    dripcore::task& task,
+    const std::string& agent_id,
+    const std::string& message
+  )
+  {
+    if (!has_agent_config(agent_id)) {
+      co_return "Error: Agent '" + agent_id + "' not found in configuration";
+    }
+
+    auto input_ch = std::make_shared<dripcore::channel<std::string>>(4);
+    auto output_ch = std::make_shared<dripcore::channel<std::string>>(4);
+
+    task.spawn<subagent_task>(agent_id, input_ch, output_ch);
+
+    input_ch->try_send(message);
+    input_ch->close();
+
+    auto response = co_await output_ch->recv();
+    if (!response) {
+      co_return "Error: No response from subagent " + agent_id;
+    }
+
+    co_return *response;
   }
 } // namespace mistral::agent

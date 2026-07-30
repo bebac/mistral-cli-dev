@@ -6,6 +6,9 @@
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
 
+#include <dripcore/scheduler.h>
+#include <dripcore/task.h>
+
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -617,6 +620,33 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registry needs_agent_
   CHECK(registry.needs_agent_execution("tools") == true);
 }
 
+// Helper struct for testing slash commands with AGENT context
+struct slash_command_executor : public dripcore::task {
+  slash_command_executor(
+      mistral::console::slash_command* cmd,
+      dripcore::task& parent_task,
+      const std::string& args,
+      mistral::agent::agent_system& sys,
+      std::string& out_result)
+    : cmd_(cmd), parent_task_(parent_task), args_(args), sys_(sys), out_result_(out_result) {}
+
+  dripcore::task_handle execute() {
+    auto result = co_await cmd_->execute_agent(parent_task_, args_, sys_);
+    out_result_ = result;
+    co_return;
+  }
+
+  mistral::console::slash_command* cmd_;
+  dripcore::task& parent_task_;
+  const std::string& args_;
+  mistral::agent::agent_system& sys_;
+  std::string& out_result_;
+};
+
+struct slash_command_parent_task : public dripcore::task {
+  dripcore::task_handle execute() { co_return; }
+};
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command executes with agent_system")
 {
   initialize_agent_system_with_main_agent();
@@ -625,9 +655,19 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
   const auto* model_cmd = registry.get_command("model");
   REQUIRE(model_cmd != nullptr);
 
+  slash_command_parent_task parent;
   auto &system = mistral::agent::agent_system::instance();
-  // Execute the model command with agent context (need const_cast because execute_agent is non-const)
-  std::string result = const_cast<mistral::console::slash_command*>(model_cmd)->execute_agent("", system);
+  std::string result;
+
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+      const_cast<mistral::console::slash_command*>(model_cmd),
+      parent,
+      "",
+      system,
+      result);
+  sched.run();
+
   CHECK(!result.empty());
   CHECK(result.find("mistral-medium-latest") != std::string::npos);
 }
@@ -640,9 +680,19 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
   const auto* tools_cmd = registry.get_command("tools");
   REQUIRE(tools_cmd != nullptr);
 
+  slash_command_parent_task parent;
   auto &system = mistral::agent::agent_system::instance();
-  // Execute the tools command with agent context (need const_cast because execute_agent is non-const)
-  std::string result = const_cast<mistral::console::slash_command*>(tools_cmd)->execute_agent("", system);
+  std::string result;
+
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+      const_cast<mistral::console::slash_command*>(tools_cmd),
+      parent,
+      "",
+      system,
+      result);
+  sched.run();
+
   CHECK(!result.empty());
   CHECK(result.find("Available tools") != std::string::npos);
   CHECK(result.find("ls") != std::string::npos);

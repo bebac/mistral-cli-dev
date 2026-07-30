@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <dripcore/task.h>
 
 namespace mistral::agent
 {
@@ -26,7 +27,8 @@ namespace mistral::agent
     return execution_context::AGENT;
   }
 
-  std::string save_command::execute_agent(
+  dripcore::awaitable<std::string> save_command::execute_agent(
+    dripcore::task&,
     const std::string &args,
     agent::agent_system &agent_sys)
   {
@@ -35,7 +37,7 @@ namespace mistral::agent
 
     if (response.empty())
     {
-      return "Error: No AI response to save. Have you sent a message yet?";
+      co_return "Error: No AI response to save. Have you sent a message yet?";
     }
 
     // Determine filename
@@ -52,16 +54,16 @@ namespace mistral::agent
     std::ofstream out(filename, std::ios::binary);
     if (!out)
     {
-      return "Error: Could not open file for writing: " + filename;
+      co_return "Error: Could not open file for writing: " + filename;
     }
 
     out << response;
 
     if (!out)
     {
-      return "Error: Failed to write to file: " + filename;
+      co_return "Error: Failed to write to file: " + filename;
     }
 
-    return "Saved last response to: " + filename;
+    co_return "Saved last response to: " + filename;
   }
 } // namespace mistral::console

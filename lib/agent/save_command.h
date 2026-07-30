@@ -2,6 +2,8 @@
 #define MISTRAL_SAVE_COMMAND_H
 
 #include "console/slash_command.h"
+#include <dripcore/task.h>
+#include <dripcore/awaitable.h>
 
 namespace mistral::agent
 {
@@ -21,7 +23,8 @@ namespace mistral::agent
     std::string usage() const override;
     execution_context context() const override;
 
-    std::string execute_agent(
+    dripcore::awaitable<std::string> execute_agent(
+        dripcore::task& task,
         const std::string& args,
         agent::agent_system& agent_sys
     ) override;

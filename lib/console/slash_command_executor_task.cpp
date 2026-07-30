@@ -49,7 +49,8 @@ namespace mistral::console
       {
         // const_cast is safe here because registry stores non-const commands
         slash_command *cmd = const_cast<slash_command *>(const_cmd);
-        response = cmd->execute_agent(
+        response = co_await cmd->execute_agent(
+          *this,
           request->args,
           agent::agent_system::instance()
         );

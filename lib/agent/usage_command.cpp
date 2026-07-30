@@ -26,18 +26,19 @@ namespace mistral::agent
     return execution_context::AGENT;
   }
 
-  std::string usage_command::execute_agent(
+  dripcore::awaitable<std::string> usage_command::execute_agent(
+    dripcore::task&,
     const std::string &args,
     agent::agent_system &agent_sys)
   {
     if (args == "reset")
     {
       agent_sys.reset_usage_stats();
-      return "Usage statistics reset to zero.";
+      co_return "Usage statistics reset to zero.";
     }
 
     auto stats = agent_sys.get_usage_stats();
 
-    return stats.dump(2);
+    co_return stats.dump(2);
   }
 } // namespace mistral::agent

@@ -6,6 +6,7 @@
 #include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
 #include "agent/save_command.h"
+#include "agent/load_command.h"
 #include "agent/usage_command.h"
 #include "agent/patchset_verify_command.h"
 #include "agent/agent_system_stats_task.h"
@@ -97,6 +98,13 @@ namespace mistral::agent
 
     // Register built-in slash commands
     void register_slash_commands();
+
+    // Run a subagent with a message and return its response
+    dripcore::awaitable<std::string> run_subagent(
+      dripcore::task& task,
+      const std::string& agent_id,
+      const std::string& message
+    );
 
   private:
     agent_system() = default;
