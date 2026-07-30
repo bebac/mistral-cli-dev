@@ -118,12 +118,12 @@ namespace mistral::tools
     return p;
   }
 
-  std::string note_tools::list_notes(std::string folder)
+  dripcore::awaitable<std::string> note_tools::list_notes(std::string folder)
   {
     fs::path base = folder.empty() ? fs::path(notes_dir_) : fs::path(notes_dir_) / folder;
 
     if (!fs::exists(base)) {
-      return std::format("error: folder '{}' does not exist", folder);
+      co_return std::format("error: folder '{}' does not exist", folder);
     }
 
     std::ostringstream out;
@@ -159,20 +159,20 @@ namespace mistral::tools
     }
 
     auto result = out.str();
-    return result.empty() ? "no notes found" : result;
+    co_return result.empty() ? "no notes found" : result;
   }
 
-  json note_tools::read_note(std::string path)
+  dripcore::awaitable<json> note_tools::read_note(std::string path)
   {
     auto full = resolve_path(path);
 
     if (!fs::exists(full)) {
-      return {{"error", std::format("note not found: {}", path)}};
+      co_return {{"error", std::format("note not found: {}", path)}};
     }
 
     std::ifstream f(full);
     if (!f) {
-      return {{"error", std::format("cannot open note: {}", path)}};
+      co_return {{"error", std::format("cannot open note: {}", path)}};
     }
 
     std::ostringstream ss;
@@ -194,10 +194,10 @@ namespace mistral::tools
     if (!parsed.front.title.empty()) result["title"] = parsed.front.title;
     if (!parsed.front.tags.empty()) result["tags"] = parsed.front.tags;
     result["content"] = rendered;
-    return result;
+    co_return result;
   }
 
-  json note_tools::write_note(std::string path, std::string content)
+  dripcore::awaitable<json> note_tools::write_note(std::string path, std::string content)
   {
     auto full = resolve_path(path);
 
@@ -206,24 +206,24 @@ namespace mistral::tools
 
       std::ofstream f(full, std::ios::binary);
       if (!f) {
-        return {{"error", std::format("cannot write note: {}", path)}};
+        co_return {{"error", std::format("cannot write note: {}", path)}};
       }
       f << content;
       f.close();
 
-      return {
+      co_return {
         {"status", "ok"},
         {"path", fs::relative(full, notes_dir_).string()}
       };
     } catch (const std::exception& e) {
-      return {{"error", e.what()}};
+      co_return {{"error", e.what()}};
     }
   }
 
-  json note_tools::search_notes(std::string query, std::string tag)
+  dripcore::awaitable<json> note_tools::search_notes(std::string query, std::string tag)
   {
     if (query.empty() && tag.empty()) {
-      return {{"error", "at least one of query or tag must be provided"}};
+      co_return {{"error", "at least one of query or tag must be provided"}};
     }
 
     // Lowercase the query and tag for case-insensitive matching.
@@ -294,7 +294,7 @@ namespace mistral::tools
       results.push_back(std::move(match));
     }
 
-    return results;
+    co_return results;
   }
 
 } // namespace mistral::tools

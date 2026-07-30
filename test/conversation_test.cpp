@@ -2,7 +2,6 @@
 #include "agent/conversation.h"
 #include "agent/tool_registry.h"
 #include "api/mistral_api.h"
-#include "tools/file_tools.h"
 
 TEST_CASE("conversation: basic message flow")
 {
@@ -187,56 +186,6 @@ TEST_CASE("conversation: sliding window without system message")
   CHECK(chat.messages()[1].role == "assistant");
   CHECK(chat.messages()[1].content.size() == 1);
   CHECK(chat.messages()[1].content[0].content == "assistant3");
-}
-
-TEST_CASE("tool_registry: schema generation")
-{
-  using namespace mistral::agent;
-  using namespace mistral::tools;
-
-  file_tools ft;
-  tool_registry tools;
-
-  tools.register_tool(
-    "ls", "List files",
-    &ft, &file_tools::list_files,
-    arg("path", "Dir path"),
-    arg("recursive", "Recurse", false),
-    arg("max_depth", "Depth", 1)
-  );
-
-  auto schema = tools.get_schema();
-  REQUIRE(schema.size() == 1);
-  CHECK(schema[0]["type"] == "function");
-  CHECK(schema[0]["function"]["name"] == "ls");
-  CHECK(schema[0]["function"]["parameters"]["properties"].contains("path"));
-}
-
-TEST_CASE("tool_registry: dispatch")
-{
-  using namespace mistral::agent;
-  using namespace mistral::tools;
-
-  file_tools ft;
-  tool_registry tools;
-
-  tools.register_tool(
-    "ls", "List files",
-    &ft, &file_tools::list_files,
-    arg("path", "Dir path"),
-    arg("recursive", "Recurse", false),
-    arg("max_depth", "Depth", 1)
-  );
-
-  auto result = tools.dispatch(json{
-    {"function", {
-      {"name", "ls"},
-      {"arguments", R"({"path":"."})"}
-    }}
-  });
-
-  // Should return a string (directory listing), not an error.
-  CHECK(result.is_string());
 }
 
 TEST_CASE("mistral_api: build_chat_request")

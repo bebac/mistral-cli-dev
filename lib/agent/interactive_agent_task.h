@@ -257,7 +257,7 @@ namespace mistral::agent
       }
 
       // Execute the tool
-      auto res = execute_tool(tc);
+      auto res = co_await execute_tool(tc);
       chat_.add_tool_result(tc.function.name, tc.id, res);
       std::cout << " → " << (res.size() > 200 ? res.substr(0, 200) + "..." : res) << std::endl;
       co_return;

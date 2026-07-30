@@ -49,7 +49,7 @@ namespace mistral::agent
     // Helper methods
     void accumulate_message_content(std::vector<api::message_content>& accumulated, api::message_content mc);
     void accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
-    auto execute_tool(const api::tool_call& tc) -> std::string;
+    auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
 
     // Agent identifier
     std::string agent_id_;

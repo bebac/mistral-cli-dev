@@ -9,11 +9,11 @@ namespace fs = std::filesystem;
 
 namespace mistral::tools
 {
-  json file_tools::read_file(std::string path, int line_from, int line_to)
+  dripcore::awaitable<json> file_tools::read_file(std::string path, int line_from, int line_to)
   {
     std::ifstream file(path);
     if (!file) {
-      return {{"error", std::format("cannot open file: {}", path)}};
+      co_return {{"error", std::format("cannot open file: {}", path)}};
     }
 
     std::string line;
@@ -32,14 +32,14 @@ namespace mistral::tools
       ++lines_read;
     }
 
-    return {
+    co_return {
       {"path", path},
       {"lines_read", lines_read},
       {"content", content.str()}
     };
   }
 
-  std::string file_tools::list_files(std::string path, bool recursive, int max_depth)
+  dripcore::awaitable<std::string> file_tools::list_files(std::string path, bool recursive, int max_depth)
   {
     std::ostringstream out;
 
@@ -47,11 +47,11 @@ namespace mistral::tools
       fs::path base(path);
 
       if (!fs::exists(base)) {
-        return std::format("error: path '{}' does not exist", path);
+        co_return std::format("error: path '{}' does not exist", path);
       }
 
       if (!fs::is_directory(base)) {
-        return std::format("error: '{}' is not a directory", path);
+        co_return std::format("error: '{}' is not a directory", path);
       }
 
       auto append_entry = [&](const fs::directory_entry& entry, const fs::path& base_path) {
@@ -84,13 +84,13 @@ namespace mistral::tools
         }
       }
     } catch (const std::exception& e) {
-      return std::format("error: {}", e.what());
+      co_return std::format("error: {}", e.what());
     }
 
-    return out.str();
+    co_return out.str();
   }
 
-  json file_tools::write_file(std::string path, std::string content)
+  dripcore::awaitable<json> file_tools::write_file(std::string path, std::string content)
   {
     try {
       // Create parent directories if needed.
@@ -101,18 +101,18 @@ namespace mistral::tools
 
       std::ofstream file(path, std::ios::binary);
       if (!file) {
-        return {{"error", std::format("cannot open file for writing: {}", path)}};
+        co_return {{"error", std::format("cannot open file for writing: {}", path)}};
       }
       file << content;
       file.close();
 
-      return {
+      co_return {
         {"status", "ok"},
         {"path", path},
         {"bytes_written", static_cast<int>(content.size())}
       };
     } catch (const std::exception& e) {
-      return {{"error", e.what()}};
+      co_return {{"error", e.what()}};
     }
   }
 

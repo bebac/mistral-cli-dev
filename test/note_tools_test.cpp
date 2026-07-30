@@ -1,6 +1,9 @@
 #include "doctest/doctest.h"
 #include "tools/note_tools.h"
 
+#include <dripcore/scheduler.h>
+#include <dripcore/task.h>
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -88,6 +91,73 @@ TEST_CASE("parse_frontmatter: tags without brackets")
   CHECK(result.front.tags[1] == "beta");
 }
 
+// ---- Helper for async note operations in tests ----
+namespace {
+  // Helper to extract the value type from an awaitable
+  template <typename T>
+  struct awaitable_value {
+    using type = T;
+  };
+
+  template <typename T>
+  struct awaitable_value<dripcore::awaitable<T>> {
+    using type = T;
+  };
+
+  template <typename T>
+  using awaitable_value_t = typename awaitable_value<T>::type;
+
+  // Result holder that can be set from a task
+  template <typename T>
+  class async_result {
+  public:
+    async_result() : completed_(false) {}
+    void set(T value) { value_ = std::move(value); completed_ = true; }
+    T get() const { return std::move(value_); }
+    bool completed() const { return completed_; }
+  private:
+    T value_;
+    bool completed_;
+  };
+
+  template <typename Func>
+  auto run_async_note_op(Func&& func) {
+    using func_result = decltype(func());
+    using result_type = awaitable_value_t<func_result>;
+
+    async_result<result_type> result_holder;
+
+    class async_note_task : public dripcore::task
+    {
+    public:
+      async_note_task(Func&& f, async_result<result_type>& holder)
+        : func_(std::forward<Func>(f)), holder_(holder) {}
+
+      dripcore::task_handle execute() {
+        if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>) {
+          holder_.set(co_await func_());
+        } else {
+          holder_.set(func_());
+        }
+        co_return;
+      }
+
+    private:
+      Func func_;
+      async_result<result_type>& holder_;
+    };
+
+    dripcore::scheduler scheduler;
+    scheduler.spawn<async_note_task>(std::forward<Func>(func), result_holder);
+    scheduler.run();
+
+    if (result_holder.completed()) {
+      return result_holder.get();
+    }
+    return result_type{};
+  }
+}
+
 // ---- Note CRUD ----
 
 TEST_CASE("note_tools: write and read a note")
@@ -95,10 +165,10 @@ TEST_CASE("note_tools: write and read a note")
   temp_notes_dir tmp;
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto w = notes.write_note("test-note", "---\ntitle: Test\ntags: [demo]\n---\nHello world.\n");
+  auto w = run_async_note_op([&]() { return notes.write_note("test-note", "---\ntitle: Test\ntags: [demo]\n---\nHello world.\n"); });
   CHECK(w["status"] == "ok");
 
-  auto r = notes.read_note("test-note");
+  auto r = run_async_note_op([&]() { return notes.read_note("test-note"); });
   CHECK(r["title"] == "Test");
   CHECK(r["tags"].size() == 1);
   CHECK(r.contains("content"));
@@ -110,7 +180,7 @@ TEST_CASE("note_tools: write creates subdirectories")
   temp_notes_dir tmp;
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto w = notes.write_note("projects/deep/nested", "content");
+  auto w = run_async_note_op([&]() { return notes.write_note("projects/deep/nested", "content"); });
   CHECK(w["status"] == "ok");
   CHECK(fs::exists(tmp.path / "projects" / "deep" / "nested.md"));
 }
@@ -120,7 +190,7 @@ TEST_CASE("note_tools: read nonexistent note")
   temp_notes_dir tmp;
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto r = notes.read_note("no-such-note");
+  auto r = run_async_note_op([&]() { return notes.read_note("no-such-note"); });
   CHECK(r.contains("error"));
 }
 
@@ -131,7 +201,7 @@ TEST_CASE("note_tools: list notes with titles and tags")
   tmp.write("sub/beta.md", "---\ntitle: Beta\n---\nbeta body\n");
 
   mistral::tools::note_tools notes(tmp.path.string());
-  auto listing = notes.list_notes("");
+  auto listing = run_async_note_op([&]() { return notes.list_notes(""); });
 
   CHECK(listing.find("alpha.md") != std::string::npos);
   CHECK(listing.find("Alpha Note") != std::string::npos);
@@ -145,7 +215,7 @@ TEST_CASE("note_tools: list subfolder")
   tmp.write("sub/deep.md", "nested");
 
   mistral::tools::note_tools notes(tmp.path.string());
-  auto listing = notes.list_notes("sub");
+  auto listing = run_async_note_op([&]() { return notes.list_notes("sub"); });
 
   CHECK(listing.find("deep.md") != std::string::npos);
   // top.md should not appear (it's outside the subfolder).
@@ -160,7 +230,7 @@ TEST_CASE("note_tools: search by text")
   tmp.write("b.md", "---\ntitle: Second\n---\nThe lazy dog.\n");
 
   mistral::tools::note_tools notes(tmp.path.string());
-  auto results = notes.search_notes("fox", "");
+  auto results = run_async_note_op([&]() { return notes.search_notes("fox", ""); });
 
   REQUIRE(results.is_array());
   REQUIRE(results.size() == 1);
@@ -176,11 +246,11 @@ TEST_CASE("note_tools: search by tag")
 
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto by_cpp = notes.search_notes("", "cpp");
+  auto by_cpp = run_async_note_op([&]() { return notes.search_notes("", "cpp"); });
   REQUIRE(by_cpp.size() == 1);
   CHECK(by_cpp[0]["title"] == "C++ Stuff");
 
-  auto by_dev = notes.search_notes("", "dev");
+  auto by_dev = run_async_note_op([&]() { return notes.search_notes("", "dev"); });
   CHECK(by_dev.size() == 2);
 }
 
@@ -192,7 +262,7 @@ TEST_CASE("note_tools: search by text + tag combined")
   tmp.write("c.md", "---\ntags: [backend]\n---\nusing React Native\n");
 
   mistral::tools::note_tools notes(tmp.path.string());
-  auto results = notes.search_notes("react", "web");
+  auto results = run_async_note_op([&]() { return notes.search_notes("react", "web"); });
 
   REQUIRE(results.size() == 1);
   CHECK(results[0]["path"] == "a.md");
@@ -205,10 +275,10 @@ TEST_CASE("note_tools: search case insensitive")
 
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto by_tag = notes.search_notes("", "cmake");
+  auto by_tag = run_async_note_op([&]() { return notes.search_notes("", "cmake"); });
   CHECK(by_tag.size() == 1);
 
-  auto by_text = notes.search_notes("cmake_build", "");
+  auto by_text = run_async_note_op([&]() { return notes.search_notes("cmake_build", ""); });
   CHECK(by_text.size() == 1);
 }
 
@@ -221,7 +291,7 @@ TEST_CASE("note_tools: read resolves includes")
   tmp.write("doc.md", "---\ntitle: Doc\n---\nContent.\n{{> _partials/sig}}\n");
 
   mistral::tools::note_tools notes(tmp.path.string());
-  auto r = notes.read_note("doc");
+  auto r = run_async_note_op([&]() { return notes.read_note("doc"); });
 
   auto content = r["content"].get<std::string>();
   CHECK(content.find("-- signed by Bot") != std::string::npos);
@@ -233,7 +303,7 @@ TEST_CASE("note_tools: write preserves include directives literally")
   temp_notes_dir tmp;
   mistral::tools::note_tools notes(tmp.path.string());
 
-  notes.write_note("has-include", "Use this:\n{{> _partials/snippet}}\nDone.\n");
+  run_async_note_op([&]() { return notes.write_note("has-include", "Use this:\n{{> _partials/snippet}}\nDone.\n"); });
 
   // Read the raw file — include directive should be preserved.
   std::ifstream f(tmp.path / "has-include.md");

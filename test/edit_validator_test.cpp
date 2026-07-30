@@ -1,0 +1,442 @@
+#include "agent/edit_validator.h"
+#include "doctest/doctest.h"
+
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+namespace mistral::agent
+{
+  namespace test
+  {
+    TEST_SUITE_BEGIN("edit_validator");
+
+    // Helper to create a temporary file with relative path
+    class temp_file
+    {
+    public:
+      explicit temp_file(const std::string& content = "", int test_line = 0)
+      {
+        // Use a relative path that's valid for the validator
+        // Include test line number to avoid collisions between different test cases
+        std::string filename = "test_file_";
+        if (test_line > 0)
+        {
+          filename += std::to_string(test_line) + "_";
+        }
+        filename += std::to_string(next_id_++) + ".tmp";
+        path_ = filename;
+
+        std::ofstream out(path_);
+        if (!content.empty())
+        {
+          out << content;
+        }
+      }
+
+      ~temp_file()
+      {
+        if (std::filesystem::exists(path_))
+        {
+          std::filesystem::remove(path_);
+        }
+      }
+
+      std::string path() const { return path_; }
+
+      void write(const std::string& content)
+      {
+        std::ofstream out(path_);
+        out << content;
+      }
+
+    private:
+      std::string path_;
+      static inline int next_id_ = 0;
+    };
+
+    TEST_CASE("validate_edit - invalid file paths")
+    {
+      // Absolute path
+      {
+        file_edit_t edit;
+        edit.file_path = "/etc/passwd";
+        edit.search_text = "root:";
+        edit.replace_text = "admin:";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+        CHECK(result.error_message.find("/etc/passwd") != std::string::npos);
+      }
+
+      // Windows drive letter
+      {
+        file_edit_t edit;
+        edit.file_path = "C:\\Windows\\system32";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Path starting with special characters
+      for (char c : {'#', '<', '>', '[', '*', '-'})
+      {
+        file_edit_t edit;
+        edit.file_path = std::string(1, c) + "file.cpp";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Path is exactly "."
+      {
+        file_edit_t edit;
+        edit.file_path = ".";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Path is exactly ".."
+      {
+        file_edit_t edit;
+        edit.file_path = "..";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Path with consecutive slashes
+      {
+        file_edit_t edit;
+        edit.file_path = "path//to//file.cpp";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Path ending with slash
+      {
+        file_edit_t edit;
+        edit.file_path = "path/to/dir/";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+
+      // Empty path
+      {
+        file_edit_t edit;
+        edit.file_path = "";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "invalid_path");
+      }
+    }
+
+    TEST_CASE("validate_edit - valid file path but file does not exist")
+    {
+      file_edit_t edit;
+      edit.file_path = "nonexistent_file_12345.cpp";
+      edit.search_text = "test";
+      edit.replace_text = "test2";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "file_not_found");
+      CHECK(result.error_message.find("nonexistent_file_12345.cpp") != std::string::npos);
+    }
+
+    TEST_CASE("validate_edit - new file creation")
+    {
+      temp_file tf("", __LINE__);
+      std::string path = tf.path();
+
+      // File doesn't exist yet
+      std::filesystem::remove(path);
+
+      file_edit_t edit;
+      edit.file_path = path;
+      edit.search_text = ""; // Empty search text means new file
+      edit.replace_text = "new content";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.match_count == 0);
+      CHECK(result.error_type.empty());
+    }
+
+    TEST_CASE("validate_edit - new file creation but file already exists")
+    {
+      temp_file tf("existing content");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = ""; // Empty search text means new file
+      edit.replace_text = "new content";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "file_exists");
+      CHECK(result.error_message.find(tf.path()) != std::string::npos);
+    }
+
+    TEST_CASE("validate_edit - file overwrite with dot marker")
+    {
+      temp_file tf("existing content");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "."; // Dot means overwrite entire file
+      edit.replace_text = "new content";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.match_count == 0);
+    }
+
+    TEST_CASE("validate_edit - file overwrite with dot marker but file does not exist")
+    {
+      temp_file tf("", __LINE__);
+      std::string path = tf.path();
+      std::filesystem::remove(path);
+
+      file_edit_t edit;
+      edit.file_path = path;
+      edit.search_text = "."; // Dot means overwrite entire file
+      edit.replace_text = "new content";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "file_not_found");
+    }
+
+    TEST_CASE("validate_edit - search text not found")
+    {
+      temp_file tf("some content here");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "not present";
+      edit.replace_text = "replacement";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "search_not_found");
+      CHECK(result.match_count == 0);
+      CHECK(result.is_fixable == true);
+      CHECK(!result.suggestion.empty());
+    }
+
+    TEST_CASE("validate_edit - search text found once")
+    {
+      temp_file tf("hello world");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.match_count == 1);
+      CHECK(result.match_positions.size() == 1);
+      CHECK(result.match_positions[0] == 0);
+    }
+
+    TEST_CASE("validate_edit - search text found multiple times")
+    {
+      temp_file tf("test test test");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "test";
+      edit.replace_text = "replacement";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "multiple_matches");
+      CHECK(result.match_count == 3);
+      CHECK(result.match_positions.size() == 3);
+      CHECK(result.match_positions[0] == 0);
+      CHECK(result.match_positions[1] == 5);
+      CHECK(result.match_positions[2] == 10);
+      CHECK(result.is_fixable == true);
+      CHECK(!result.suggestion.empty());
+    }
+
+    TEST_CASE("validate_edit - search text with special characters")
+    {
+      temp_file tf("line1\nline2\nline3");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "line2\n";
+      edit.replace_text = "replacement\n";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.match_count == 1);
+    }
+
+    TEST_CASE("validate_edit - empty file with empty search text")
+    {
+      temp_file tf("");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = ""; // Empty search text means new file creation
+      edit.replace_text = "new content";
+
+      auto result = validate_edit(edit);
+      // Empty search text in existing file means file already exists
+      CHECK(!result.valid);
+      CHECK(result.error_type == "file_exists");
+      CHECK(result.error_message.find(tf.path()) != std::string::npos);
+    }
+
+    TEST_CASE("validate_edit - multiline search text")
+    {
+      temp_file tf("first line\nsecond line\nthird line");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "first line\nsecond line";
+      edit.replace_text = "replacement";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.match_count == 1);
+      CHECK(result.match_positions[0] == 0);
+    }
+
+    TEST_CASE("validate_edit - file read error")
+    {
+      // Create a directory instead of a file
+      temp_file tf("", __LINE__);
+      std::string path = tf.path();
+      std::filesystem::remove(path);
+      std::filesystem::create_directory(path);
+
+      file_edit_t edit;
+      edit.file_path = path;
+      edit.search_text = "test";
+      edit.replace_text = "test2";
+
+      auto result = validate_edit(edit);
+      // On most systems, trying to read a directory as a file will fail
+      // But behavior may vary, so we just check it's not valid
+      CHECK(!result.valid);
+    }
+
+    TEST_CASE("validate_all_edits - all valid")
+    {
+      temp_file tf1("content1");
+      temp_file tf2("content2");
+
+      std::vector<file_edit_t> edits;
+      edits.push_back({.file_path = tf1.path(), .search_text = "content1", .replace_text = "new1"});
+      edits.push_back({.file_path = tf2.path(), .search_text = "content2", .replace_text = "new2"});
+
+      auto result = validate_all_edits(edits);
+      CHECK(result.all_valid());
+      CHECK(result.validations.size() == 2);
+      CHECK(result.validations[0].valid);
+      CHECK(result.validations[1].valid);
+      CHECK(result.fixable_error_count() == 0);
+      CHECK(result.get_fixable_errors().empty());
+      CHECK(result.get_non_fixable_errors().empty());
+    }
+
+    TEST_CASE("validate_all_edits - mixed valid and invalid")
+    {
+      temp_file tf1("content1");
+      temp_file tf2("content2");
+
+      std::vector<file_edit_t> edits;
+      // Valid edit
+      edits.push_back({.file_path = tf1.path(), .search_text = "content1", .replace_text = "new1"});
+      // Invalid: file not found
+      edits.push_back({.file_path = "nonexistent.cpp", .search_text = "test", .replace_text = "test2"});
+      // Invalid but fixable: search not found
+      edits.push_back({.file_path = tf2.path(), .search_text = "not found", .replace_text = "new2"});
+
+      auto result = validate_all_edits(edits);
+      CHECK(!result.all_valid());
+      CHECK(result.validations.size() == 3);
+      CHECK(result.validations[0].valid);
+      CHECK(!result.validations[1].valid);
+      CHECK(!result.validations[2].valid);
+      CHECK(result.fixable_error_count() == 1); // Only the search_not_found is fixable
+      CHECK(result.get_fixable_errors().size() == 1);
+      CHECK(result.get_non_fixable_errors().size() == 1);
+    }
+
+    TEST_CASE("validate_all_edits - empty edits")
+    {
+      std::vector<file_edit_t> edits;
+
+      auto result = validate_all_edits(edits);
+      CHECK(result.all_valid());
+      CHECK(result.validations.empty());
+      CHECK(result.fixable_error_count() == 0);
+    }
+
+    TEST_CASE("validate_all_edits - all invalid non-fixable")
+    {
+      std::vector<file_edit_t> edits;
+      edits.push_back({.file_path = "/etc/passwd", .search_text = "test", .replace_text = "test2"});
+      edits.push_back({.file_path = "C:\\Windows", .search_text = "test", .replace_text = "test2"});
+      edits.push_back({.file_path = "nonexistent.cpp", .search_text = "test", .replace_text = "test2"});
+
+      auto result = validate_all_edits(edits);
+      CHECK(!result.all_valid());
+      CHECK(result.validations.size() == 3);
+      CHECK(result.fixable_error_count() == 0);
+      CHECK(result.get_fixable_errors().empty());
+      CHECK(result.get_non_fixable_errors().size() == 3);
+    }
+
+    TEST_CASE("validate_all_edits - all invalid fixable")
+    {
+      temp_file tf1("content1");
+      temp_file tf2("content2");
+
+      std::vector<file_edit_t> edits;
+      edits.push_back({.file_path = tf1.path(), .search_text = "not found1", .replace_text = "new1"});
+      edits.push_back({.file_path = tf2.path(), .search_text = "not found2", .replace_text = "new2"});
+
+      auto result = validate_all_edits(edits);
+      CHECK(!result.all_valid());
+      CHECK(result.validations.size() == 2);
+      CHECK(result.fixable_error_count() == 2);
+      CHECK(result.get_fixable_errors().size() == 2);
+      CHECK(result.get_non_fixable_errors().empty());
+    }
+
+    TEST_SUITE_END();
+  } // namespace test
+} // namespace mistral::agent

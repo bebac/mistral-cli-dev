@@ -209,9 +209,9 @@ namespace mistral::agent
     }
   }
 
-  auto agent_task_base::execute_tool(const api::tool_call& tc) -> std::string
+  auto agent_task_base::execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>
   {
-    auto result = tools_.dispatch(
+    auto result = co_await tools_.dispatch(
       api::json{{
         "function", {
           {"name", tc.function.name},
@@ -219,6 +219,6 @@ namespace mistral::agent
         }
       }}
     );
-    return result.dump();
+    co_return result.dump();
   }
 } // namespace mistral::agent

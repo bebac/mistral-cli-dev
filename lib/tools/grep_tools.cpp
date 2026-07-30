@@ -30,18 +30,18 @@ namespace mistral::tools
   return false;
 }
 
-  json grep_tools::grep(std::string pattern, std::string path, bool recursive)
+  dripcore::awaitable<json> grep_tools::grep(std::string pattern, std::string path, bool recursive)
   {
     std::regex regex;
     try {
       regex = std::regex(pattern);
     } catch (const std::regex_error& e) {
-      return {{"error", std::format("invalid regex pattern '{}': {}", pattern, e.what())}};
+      co_return {{"error", std::format("invalid regex pattern '{}': {}", pattern, e.what())}};
     }
 
     fs::path base(path);
     if (!fs::exists(base)) {
-      return {{"error", std::format("path '{}' does not exist", path)}};
+      co_return {{"error", std::format("path '{}' does not exist", path)}};
     }
 
     json results = json::array();
@@ -100,10 +100,10 @@ namespace mistral::tools
     }
     catch (const std::exception &e)
     {
-      return {{"error", std::format("filesystem error: {}", e.what())}};
+      co_return {{"error", std::format("filesystem error: {}", e.what())}};
     }
 
-    return {{"matches", results}, {"count", static_cast<int>(results.size())}};
+    co_return {{"matches", results}, {"count", static_cast<int>(results.size())}};
   }
 
 } // namespace mistral::tools

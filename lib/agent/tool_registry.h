@@ -2,6 +2,7 @@
 #define MISTRAL_TOOL_REGISTRY_H
 
 #include <nlohmann/json.hpp>
+#include <dripcore/awaitable.h>
 
 #include <format>
 #include <functional>
@@ -72,13 +73,23 @@ namespace mistral::agent
     }
   } // namespace detail
 
+  // ---- Helper to detect awaitable types ----
+  template <typename T>
+  struct is_awaitable : std::false_type {};
+
+  template <typename T>
+  struct is_awaitable<dripcore::awaitable<T>> : std::true_type {};
+
+  template <typename T>
+  constexpr bool is_awaitable_v = is_awaitable<T>::value;
+
   // ---- Abstract tool interface ----
 
   class tool_interface
   {
   public:
     virtual ~tool_interface() = default;
-    virtual json execute(const json& args) = 0;
+    virtual dripcore::awaitable<json> execute(const json& args) = 0;
     virtual json get_schema(const std::string& tool_name) = 0;
     virtual std::shared_ptr<tool_interface> clone() const = 0;
   };
@@ -93,9 +104,17 @@ namespace mistral::agent
       : func_(std::move(f)), args_info_(std::move(info)), description_(std::move(desc))
     {}
 
-    json execute(const json& j_args) override
+    dripcore::awaitable<json> execute(const json& j_args) override
     {
-      return call_impl(j_args, std::index_sequence_for<Args...>{});
+      auto result = call_impl(j_args, std::index_sequence_for<Args...>{});
+
+      if constexpr (std::is_same_v<Ret, json>) {
+        co_return result;
+      } else if constexpr (is_awaitable_v<Ret>) {
+        co_return json(co_await result);
+      } else {
+        co_return json(result);
+      }
     }
 
     json get_schema(const std::string& tool_name) override
@@ -220,7 +239,7 @@ namespace mistral::agent
       tools_[name] = std::move(wrapper);
     }
 
-    json dispatch(const json& tool_call)
+    dripcore::awaitable<json> dispatch(const json& tool_call)
     {
       auto name = tool_call["function"]["name"].get<std::string>();
       auto args = json::parse(tool_call["function"]["arguments"].get<std::string>());
@@ -228,12 +247,12 @@ namespace mistral::agent
       auto it = tools_.find(name);
       if (it != tools_.end()) {
         try {
-          return it->second->execute(args);
+          co_return co_await it->second->execute(args);
         } catch (const std::exception& e) {
-          return {{"error", e.what()}};
+          co_return {{"error", e.what()}};
         }
       }
-      return {{"error", std::format("tool '{}' not found", name)}};
+      co_return {{"error", std::format("tool '{}' not found", name)}};
     }
 
     // Get tool definitions array for the API request.

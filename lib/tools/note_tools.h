@@ -1,6 +1,7 @@
 #ifndef MISTRAL_NOTE_TOOLS_H
 #define MISTRAL_NOTE_TOOLS_H
 
+#include <dripcore/awaitable.h>
 #include "template/template_engine.h"
 
 #include <nlohmann/json.hpp>
@@ -40,19 +41,19 @@ namespace mistral::tools
     explicit note_tools(std::string notes_dir);
 
     // List notes in the notes directory, optionally within a subfolder.
-    std::string list_notes(std::string folder);
+    dripcore::awaitable<std::string> list_notes(std::string folder);
 
     // Read a note with {{> }} includes resolved via the template engine.
     // Returns the rendered content plus frontmatter metadata.
-    json read_note(std::string path);
+    dripcore::awaitable<json> read_note(std::string path);
 
     // Create or update a note. Content is written as-is (raw, with literal
     // include directives preserved). Creates parent directories if needed.
-    json write_note(std::string path, std::string content);
+    dripcore::awaitable<json> write_note(std::string path, std::string content);
 
     // Search notes by text query and/or tag. At least one must be non-empty.
     // Returns matching notes with path, title, matching lines (for text), and tags.
-    json search_notes(std::string query, std::string tag);
+    dripcore::awaitable<json> search_notes(std::string query, std::string tag);
 
   private:
     // Resolve a note path relative to the notes directory.
