@@ -118,6 +118,24 @@ namespace mistral::net
         return SSL_pending(ssl_.get()) == 0;
     }
 
+    int shutdown() {
+      // NOTE - Not sure about this. Thing is that dripcore has no really good way to stop
+      // tasks that are waiting on IO. When using CTRL-C to stop, the http_read_task is very
+      // likely to suspended on 'co_await readable(client)' and apparently closing the socket
+      // won't notify it. Doing a shutdwon does seem to wake it up though. I would have expected
+      // SSL_shutdown to also do a shutdown on the fd, but that doesn't seem to work.
+      //return SSL_shutdown(ssl_.get());
+      if (sock_ >= 0) {
+        return ::shutdown(sock_, SHUT_RDWR);
+      }
+      else {
+        return 0;
+      }
+    }
+
+    // Get error details from OpenSSL's error queue (for SSL_ERROR_SSL)
+    static std::pair<std::string, std::error_code> get_ssl_error_details();
+
     ~tls_connection();
 
     tls_connection(tls_connection&&) = default;

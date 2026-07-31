@@ -212,4 +212,24 @@ namespace mistral::net
     }
   }
 
+  std::pair<std::string, std::error_code> tls_connection::get_ssl_error_details()
+  {
+    unsigned long ssl_err = ERR_get_error();
+    if (ssl_err == 0) {
+      // Fallback to errno if no SSL error in queue
+      return {
+        "SSL error (no details)",
+        std::make_error_code(static_cast<std::errc>(errno))
+      };
+    }
+    else {
+      char err_buf[256];
+      ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+      return {
+        std::string("SSL error: ") + err_buf,
+        std::error_code(static_cast<int>(ssl_err), std::system_category())
+      };
+    }
+  }
+
 } // namespace mistral::http

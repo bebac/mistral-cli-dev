@@ -199,10 +199,10 @@ namespace mistral::net
           int err = client_.get_error(n);
 
           if (err == SSL_ERROR_WANT_WRITE) {
-            co_await writable(client_.fd());
+            co_await writable(client_.platform_handle());
           }
           else if (err == SSL_ERROR_WANT_READ) {
-            co_await readable(client_.fd());
+            co_await readable(client_.platform_handle());
           }
           else if (err == SSL_ERROR_SYSCALL) {
             // Connection closed or reset - not a fatal error, allows retry
@@ -252,11 +252,11 @@ namespace mistral::net
         {
           // Only wait on fd if SSL has no pending data.
           if (client_.no_data_pending()) {
-            co_await readable(client_.fd());
+            co_await readable(client_.platform_handle());
           }
         }
         else if (err == SSL_ERROR_WANT_WRITE) {
-          co_await writable(client_.fd());
+          co_await writable(client_.platform_handle());
         }
         else if (err == SSL_ERROR_ZERO_RETURN) {
           // Connection closed gracefully by peer

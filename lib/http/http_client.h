@@ -28,10 +28,13 @@ namespace mistral::net
       context_ = std::make_unique<http::client_context>();
     }
 
-    int fd()
+    // Calling it platform_handle means we can call dripcore readable/writable with a http_client instance.
+    int platform_handle() const
     {
       return conn_->fd();
     }
+
+    bool connected() const { return conn_->connected(); }
 
     void connect(std::string host, int port)
     {
@@ -41,7 +44,12 @@ namespace mistral::net
       conn_->set_non_blocking(true);
     }
 
+    int shutdown() {
+      return conn_->shutdown();
+    }
+
     auto open_stream() { return context_->open_stream(); }
+    auto active_streams() { return context_->active_streams(); }
 
     // Expose connection-level callbacks from stunning-waddle
     void on_goaway(std::function<void(uint32_t, std::error_code)> cb) {
@@ -55,6 +63,7 @@ namespace mistral::net
     void input_end(size_t n) { context_->input_end(n); }
     auto output_begin() { return context_->output_begin(); }
     void output_end(size_t n) { context_->output_end(n); }
+    void on_output_ready(std::function<void()> cb) { context_->on_output_ready(std::move(cb)); }
 
     int read(std::span<std::byte> in) { return conn_->read(in); }
     int write(std::span<const std::byte> out) { return conn_->write(out); }
