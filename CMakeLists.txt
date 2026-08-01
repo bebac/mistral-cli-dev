@@ -79,6 +79,7 @@ add_library(mistral-core STATIC
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
     lib/tools/grep_tools.cpp
+    lib/tools/exec_tools.cpp
     lib/console/console_task.cpp
     lib/console/slash_command_registry.cpp
     lib/console/slash_command_executor_task.cpp

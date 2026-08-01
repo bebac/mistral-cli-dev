@@ -4,6 +4,7 @@
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
+#include "tools/exec_tools.h"
 #include "template/template_engine.h"
 
 #include <api/mistral_api.h>
@@ -310,6 +311,7 @@ namespace mistral::agent
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
     grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
+    exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
   }
 
   void agent_system::register_slash_commands()
@@ -436,6 +438,7 @@ namespace mistral::agent
     auto &file_tools = *file_tools_;
     auto &note_tools = *note_tools_;
     auto &grep_tools = *grep_tools_;
+    auto &exec_tools = *exec_tools_;
 
     global_tools_.register_tool(
         "ls",
@@ -493,6 +496,16 @@ namespace mistral::agent
         &note_tools, &mistral::tools::note_tools::search_notes,
         arg("query", "Text to search for (case-insensitive)", std::string("")),
         arg("tag", "Filter by tag (case-insensitive)", std::string("")));
+
+    global_tools_.register_tool(
+        "exec",
+        "Execute an external command. Uses execvp() directly - no shell involved. "
+        "Returns exit code, stdout, stderr, and command info.",
+        &exec_tools, &mistral::tools::exec_tools::exec,
+        arg("command", "Executable name (e.g., 'git', 'cmake')"),
+        arg("args", "Command arguments as array of strings"),
+        arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
+        arg("timeout_seconds", "Timeout in seconds", 30));
   }
 
   // ---- Configuration Access ----

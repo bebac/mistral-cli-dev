@@ -719,4 +719,758 @@ TEST_CASE("Wildcard tool name matches any tool")
   CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
 }
 
+// ---- Executable Rules (Phase 2A) ----
+
+TEST_CASE("Allow specific executable command")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Allow executable does not allow different command")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--version"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Require approval for specific executable command")
+{
+  mistral::agent::policy_engine engine;
+  engine.require_approval_executable("exec", "git");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("Executable rule with glob pattern")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git*");
+
+  // Should match git
+  mistral::agent::policy_context ctx1{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(ctx1.tool_arguments.is_object());
+  auto result1 = engine.evaluate(ctx1);
+  CHECK(result1.decision == mistral::agent::policy_decision::ALLOW);
+
+  // Should match git-foo
+  mistral::agent::policy_context ctx2{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git-foo"},
+      {"args", {}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(ctx2.tool_arguments.is_object());
+  auto result2 = engine.evaluate(ctx2);
+  CHECK(result2.decision == mistral::agent::policy_decision::ALLOW);
+
+  // Should NOT match cmake
+  mistral::agent::policy_context ctx3{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(ctx3.tool_arguments.is_object());
+  auto result3 = engine.evaluate(ctx3);
+  CHECK(result3.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Executable rule takes precedence over tool rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_tool("exec");  // General: allow all exec
+  engine.require_approval_executable("exec", "git");  // Specific: require approval for git
+
+  // git should require approval (specific rule)
+  mistral::agent::policy_context ctx1{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(ctx1.tool_arguments.is_object());
+  auto result1 = engine.evaluate(ctx1);
+  CHECK(result1.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+
+  // cmake should be allowed (general rule)
+  mistral::agent::policy_context ctx2{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--version"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(ctx2.tool_arguments.is_object());
+  auto result2 = engine.evaluate(ctx2);
+  CHECK(result2.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Parse allow executable DSL")
+{
+  mistral::agent::policy_engine engine;
+  engine.add_rule("allow:exec:command=git");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Parse require executable DSL")
+{
+  mistral::agent::policy_engine engine;
+  engine.add_rule("require:exec:command=git");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("Load executable rule from JSON - allow")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "deny"},
+    {
+      "allow", mistral::agent::json{
+        {
+          {"type", "executable"}, {"tool", "exec"}, {"command", "git"}
+        }
+      }
+    }
+  };
+
+  CHECK(config.is_object());
+
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Load executable rule from JSON - require approval")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "allow"},
+    {
+      "require_approval", mistral::agent::json{
+        {
+          {"type", "executable"}, {"tool", "exec"}, {"command", "git"}
+        }
+      }
+    }
+  };
+
+  CHECK(config.is_object());
+
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  CHECK(ctx.tool_arguments.is_object());
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_SUITE_END();
+
+// ============================================================================
+// Phase 2B: Argument and CWD Constraints for Executable Rules
+// ============================================================================
+
+TEST_SUITE_BEGIN("Phase2B_ExecutableConstraints");
+
+TEST_CASE("Allow executable with specific args - exact match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status", "log", "diff"});
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Allow executable with specific args - multiple args match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status", "log"});
+
+  // Should match because one of the args (status) is in the allowed list
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status", "other"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Allow executable with specific args - no match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status", "log"});
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push", "force"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Allow executable with cwd constraint - exact match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Allow executable with cwd constraint - subdirectory match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  // Should match because "build/debug" starts with "build"
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build/debug"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Allow executable with cwd constraint - no match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "src"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Combined: command + args + cwd all match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {"--build"}, "build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Combined: command matches but cwd does not")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "src"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Combined: command matches but args do not")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status"});
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Executable with args and cwd - both constraints must match")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {"--build"}, "build");
+
+  // cmake with --build in build/ - should match
+  mistral::agent::policy_context ctx1{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+  CHECK(engine.evaluate(ctx1).decision == mistral::agent::policy_decision::ALLOW);
+
+  // cmake with --build but wrong cwd - should not match
+  mistral::agent::policy_context ctx2{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "src"
+  };
+  CHECK(engine.evaluate(ctx2).decision == mistral::agent::policy_decision::DENY);
+
+  // cmake in build/ but wrong args - should not match
+  mistral::agent::policy_context ctx3{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--version"}}
+    },
+    .working_directory = "build"
+  };
+  CHECK(engine.evaluate(ctx3).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Parse DSL with args constraint")
+{
+  mistral::agent::policy_engine engine;
+  engine.add_rule("allow:exec:command=git,args=status,log");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Parse DSL with cwd constraint")
+{
+  mistral::agent::policy_engine engine;
+  engine.add_rule("allow:exec:command=cmake,cwd=build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Parse DSL with both args and cwd constraints")
+{
+  mistral::agent::policy_engine engine;
+  engine.add_rule("allow:exec:command=cmake,args=--build,--version,cwd=build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Load from JSON with args and cwd")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "deny"},
+    {
+      "allow", mistral::agent::json{
+        {
+          {"type", "executable"}, {"tool", "exec"}, {"command", "cmake"}, {"args", mistral::agent::json::array({"--build"})}, {"cwd", "build"}
+        }
+      }
+    }
+  };
+
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Load from JSON with args and cwd - no match on args")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "deny"},
+    {
+      "allow", mistral::agent::json{
+        {
+          {"type", "executable"}, {"tool", "exec"}, {"command", "cmake"}, {"args", mistral::agent::json::array({"--build"})}, {"cwd", "build"}
+        }
+      }
+    }
+  };
+
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--version"}}  // Not in allowed args
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Load from JSON with args and cwd - no match on cwd")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "deny"},
+    {
+      "allow", mistral::agent::json{
+        {
+          {"type", "executable"}, {"tool", "exec"}, {"command", "cmake"}, {"args", mistral::agent::json::array({"--build"})}, {"cwd", "build"}
+        }
+      }
+    }
+  };
+
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "src"  // Not in allowed cwd
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Priority: combined rule overrides command-only rule")
+{
+  mistral::agent::policy_engine engine;
+  // General: allow all cmake commands
+  engine.allow_executable("exec", "cmake");
+  // Specific: require approval for cmake in build/ with --install
+  engine.require_approval_executable("exec", "cmake", {"--install"}, "build");
+
+  // cmake --install in build/ should require approval (specific rule)
+  mistral::agent::policy_context ctx1{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--install"}}
+    },
+    .working_directory = "build"
+  };
+  CHECK(engine.evaluate(ctx1).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+
+  // cmake --build in build/ should be allowed (general rule)
+  mistral::agent::policy_context ctx2{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--build", "."}}
+    },
+    .working_directory = "build"
+  };
+  CHECK(engine.evaluate(ctx2).decision == mistral::agent::policy_decision::ALLOW);
+
+  // cmake --install in src/ should be allowed (general rule, cwd doesn't match specific)
+  mistral::agent::policy_context ctx3{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"--install"}}
+    },
+    .working_directory = "src"
+  };
+  CHECK(engine.evaluate(ctx3).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Glob patterns in args")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status*", "log*"});
+
+  // Should match git status
+  mistral::agent::policy_context ctx1{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(engine.evaluate(ctx1).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Should match git status--short
+  mistral::agent::policy_context ctx2{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status--short"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(engine.evaluate(ctx2).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Should NOT match git push
+  mistral::agent::policy_context ctx3{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"push"}}
+    },
+    .working_directory = "/home/user"
+  };
+  CHECK(engine.evaluate(ctx3).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Empty args in context - rule has args constraint")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status"});
+
+  // Empty args array
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {}}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("No args field in context - rule has args constraint")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status"});
+
+  // No args field at all
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"}
+    },
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Empty args in rule - any args allowed")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  // Any args should be fine as long as cwd matches
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "cmake"},
+      {"args", {"any", "args", "here"}}
+    },
+    .working_directory = "build"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("No cwd in rule - any cwd allowed")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "git", {"status"});
+
+  // Any cwd should be fine as long as args match
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "git"},
+      {"args", {"status"}}
+    },
+    .working_directory = "/any/directory"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
 TEST_SUITE_END();

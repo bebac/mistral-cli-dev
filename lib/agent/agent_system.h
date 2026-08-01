@@ -26,6 +26,7 @@ namespace mistral::tools
   class file_tools;
   class note_tools;
   class grep_tools;
+  class exec_tools;
 }
 
 namespace mistral::agent
@@ -78,6 +79,7 @@ namespace mistral::agent
     mistral::tools::file_tools& file_tools() { return *file_tools_; }
     mistral::tools::note_tools& note_tools() { return *note_tools_; }
     mistral::tools::grep_tools& grep_tools() { return *grep_tools_; }
+    mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -131,6 +133,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::file_tools> file_tools_;
     std::unique_ptr<mistral::tools::note_tools> note_tools_;
     std::unique_ptr<mistral::tools::grep_tools> grep_tools_;
+    std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
 
     tool_registry global_tools_;
 

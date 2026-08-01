@@ -5,6 +5,7 @@
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
+#include "tools/exec_tools.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
@@ -230,6 +231,24 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
   CHECK(system.get_config().models.empty());
   CHECK(system.get_config().agents.empty());
   CHECK(system.get_config().default_policy == "deny");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered")
+{
+  using namespace mistral::agent;
+
+  create_config_file(nlohmann::json({}));
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir, nullptr);
+
+  auto& global_registry = system.global_tools();
+
+  // Check that exec tool is registered
+  CHECK(global_registry.has_tool("exec") == true);
+
+  // Get the tool and verify it exists
+  auto exec_tool = global_registry.get_tool("exec");
+  REQUIRE(exec_tool != nullptr);
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple models and agents")

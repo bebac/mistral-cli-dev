@@ -26,10 +26,15 @@ namespace mistral::agent
     std::string tool_name;
     json tool_arguments;
     std::string working_directory;
-    
+
     // Normalized paths for matching (computed internally)
     std::optional<std::string> normalized_path;
     std::optional<std::string> normalized_cwd;
+
+    // For EXECUTABLE rule type - extracted command name from exec tool arguments
+    std::optional<std::string> command_name;
+    // For EXECUTABLE rule type - extracted command args from exec tool arguments
+    std::optional<std::vector<std::string>> command_args;
   };
 
   // ---- Policy Result ----
@@ -43,7 +48,7 @@ namespace mistral::agent
 
   // ---- Rule Types ----
 
-  enum class rule_type { TOOL, DIRECTORY, PATH_PREFIX, UNKNOWN };
+  enum class rule_type { TOOL, DIRECTORY, PATH_PREFIX, EXECUTABLE, UNKNOWN };
   enum class rule_action { ALLOW, REQUIRE_APPROVAL };
 
   // ---- Policy Rule ----
@@ -59,6 +64,13 @@ namespace mistral::agent
     bool path_negated = false;
     std::string id;
     std::optional<std::string> custom_message;
+
+    // For EXECUTABLE rule type - command name matching
+    std::string command;
+    // For EXECUTABLE rule type - optional args constraint
+    std::vector<std::string> args;
+    // For EXECUTABLE rule type - optional working directory constraint
+    std::optional<std::string> cwd;
   };
 
   // ---- Policy Engine ----
@@ -67,13 +79,13 @@ namespace mistral::agent
   {
   public:
     policy_engine();
-    
+
     // Load configuration from JSON
     void load_configuration(const json& config);
-    
+
     // Add a rule using DSL string
     void add_rule(const std::string& rule_dsl);
-    
+
     // Add rules programmatically
     void allow_tool(const std::string& tool_name);
     void allow_directory(const std::string& tool_name,
@@ -84,51 +96,68 @@ namespace mistral::agent
                                    const std::string& path_pattern);
     void require_approval_path_prefix(const std::string& tool_name,
                                       const std::string& prefix);
-    
+
+    // Executable-specific rules (for exec tool)
+    void allow_executable(const std::string& tool_name, const std::string& command,
+                          const std::vector<std::string>& args = {},
+                          const std::optional<std::string>& cwd = std::nullopt);
+    void require_approval_executable(const std::string& tool_name, const std::string& command,
+                                     const std::vector<std::string>& args = {},
+                                     const std::optional<std::string>& cwd = std::nullopt);
+
     // Set default policy
     void set_default_policy(policy_decision default_policy);
-    
+
     // Set custom rejection message for a rule
     void set_rejection_message(const std::string& rule_id,
                                const std::string& message);
-    
+
     // Evaluate a tool call against policies
     policy_result evaluate(const policy_context& ctx) const;
-    
+
     // Normalize a path for policy matching
     static std::string normalize_path(const std::string& path);
-    
+
     // Get current default policy
     policy_decision get_default_policy() const { return default_policy_; }
-    
+
     // Clear all rules
     void clear_rules();
-    
+
     // Get number of rules loaded
     size_t rule_count() const { return rules_.size(); }
 
   private:
     // Parse a DSL rule string
     policy_rule parse_dsl_rule(const std::string& rule_dsl) const;
-    
-    // Normalize context paths
+
+    // Normalize context paths and extract exec-specific fields
     policy_context normalize_context(const policy_context& ctx) const;
-    
+
     // Check if a rule matches the context
     bool rule_matches(const policy_rule& rule, const policy_context& ctx) const;
-    
+
+    // Check if command matches (supports glob patterns)
+    bool command_matches(const std::string& rule_command, const std::string& test_command) const;
+
     // Check path matching
     bool path_matches(const std::string& rule_path, const std::string& test_path,
                       bool negated, const std::vector<std::string>& exclusions) const;
-    
+
     // Check if path is excluded
     bool is_excluded(const std::string& path, const std::vector<std::string>& exclusions) const;
-    
+
     // Generate rule ID
     std::string generate_rule_id(const policy_rule& rule) const;
-    
+
     // Helper to get or create regex from cache
     const std::regex& get_cached_regex(const std::string& pattern) const;
+
+    // Check if args match
+    bool args_match(const std::vector<std::string>& rule_args, const std::vector<std::string>& test_args) const;
+
+    // Check if cwd matches
+    bool cwd_matches(const std::optional<std::string>& rule_cwd, const std::optional<std::string>& test_cwd) const;
 
   private:
     std::vector<policy_rule> rules_;
