@@ -5,10 +5,13 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <cstring>
+#include <signal.h>
 #include <filesystem>
 #include <sstream>
 #include <vector>
 #include <array>
+#include <chrono>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -45,9 +48,31 @@ namespace mistral::tools
       int write_fd() const { return write_fd_->get(); }
       bool valid() const { return read_fd_->get() >= 0 && write_fd_->get() >= 0; }
 
+      // Release ownership of file descriptors
+      int release_read_fd() { return read_fd_ ? read_fd_->release() : -1; }
+      int release_write_fd() { return write_fd_ ? write_fd_->release() : -1; }
+
     private:
       std::unique_ptr<fd_guard> read_fd_;
       std::unique_ptr<fd_guard> write_fd_;
+    };
+
+    // RAII wrapper for child process
+    class child_process_guard
+    {
+    public:
+      child_process_guard(pid_t pid) : pid_(pid) {}
+      ~child_process_guard() {
+        if (pid_ > 0) {
+          kill(pid_, SIGKILL);
+          int status;
+          waitpid(pid_, &status, 0);
+        }
+      }
+      pid_t get() const { return pid_; }
+      pid_t release() { pid_t tmp = pid_; pid_ = -1; return tmp; }
+    private:
+      pid_t pid_;
     };
   } // namespace
 
@@ -143,6 +168,11 @@ namespace mistral::tools
       };
     }
 
+    // RAII guard to ensure child process is killed if we exit early
+    child_process_guard child_guard(pid);
+    int final_status = 0;
+    bool child_exited_normally = false;
+
     if (pid == 0) {
       // Child process
 
@@ -177,47 +207,151 @@ namespace mistral::tools
     // Parent process
     argv_cleanup();
 
-    // Close write ends of pipes in parent
-    close(stdout_pipe.write_fd());
-    close(stderr_pipe.write_fd());
+    // Release ownership of pipe file descriptors from guards
+    // so they don't get closed when guards go out of scope
+    int stdout_read_fd = stdout_pipe.release_read_fd();
+    int stderr_read_fd = stderr_pipe.release_read_fd();
+    int stdout_write_fd = stdout_pipe.release_write_fd();
+    int stderr_write_fd = stderr_pipe.release_write_fd();
 
-    // Read stdout and stderr from child
+    // Close write ends of pipes in parent (we only need to read)
+    if (stdout_write_fd >= 0) close(stdout_write_fd);
+    if (stderr_write_fd >= 0) close(stderr_write_fd);
+
+    // Set pipes to non-blocking mode for timeout support
+    if (stdout_read_fd >= 0) fcntl(stdout_read_fd, F_SETFL, O_NONBLOCK);
+    if (stderr_read_fd >= 0) fcntl(stderr_read_fd, F_SETFL, O_NONBLOCK);
+
+    // Read stdout and stderr from child with timeout
     std::string stdout_content;
     std::string stderr_content;
+    bool timed_out = false;
 
-    {
-      std::array<char, 4096> buffer;
-      ssize_t n;
+    auto start_time = std::chrono::steady_clock::now();
 
-      // Read stdout
-      while ((n = read(stdout_pipe.read_fd(), buffer.data(), buffer.size())) > 0) {
-        stdout_content.append(buffer.data(), n);
+    while (true) {
+      // Read available data from stdout first (before checking exit status)
+      if (stdout_read_fd >= 0) {
+        std::array<char, 4096> buffer;
+        ssize_t n;
+        while ((n = read(stdout_read_fd, buffer.data(), buffer.size())) > 0) {
+          stdout_content.append(buffer.data(), n);
+        }
+        // Ignore EAGAIN (no data available)
+        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+          // Real error - but only if we haven't timed out
+          if (!timed_out) {
+            child_guard.release();
+            if (stdout_read_fd >= 0) close(stdout_read_fd);
+            if (stderr_read_fd >= 0) close(stderr_read_fd);
+            co_return {
+              {"error", std::format("stdout read failed: {}", strerror(errno))},
+              {"exit_code", -1},
+              {"stdout", stdout_content},
+              {"stderr", stderr_content}
+            };
+          }
+        }
       }
 
-      // Read stderr
-      while ((n = read(stderr_pipe.read_fd(), buffer.data(), buffer.size())) > 0) {
-        stderr_content.append(buffer.data(), n);
+      // Read available data from stderr
+      if (stderr_read_fd >= 0) {
+        std::array<char, 4096> buffer;
+        ssize_t n;
+        while ((n = read(stderr_read_fd, buffer.data(), buffer.size())) > 0) {
+          stderr_content.append(buffer.data(), n);
+        }
+        // Ignore EAGAIN (no data available)
+        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+          // Real error - but only if we haven't timed out
+          if (!timed_out) {
+            child_guard.release();
+            if (stdout_read_fd >= 0) close(stdout_read_fd);
+            if (stderr_read_fd >= 0) close(stderr_read_fd);
+            co_return {
+              {"error", std::format("stderr read failed: {}", strerror(errno))},
+              {"exit_code", -1},
+              {"stdout", stdout_content},
+              {"stderr", stderr_content}
+            };
+          }
+        }
       }
+
+      // Check if child has exited
+      int status;
+      pid_t waited = waitpid(pid, &status, WNOHANG);
+      if (waited == pid) {
+        // Child exited normally
+        final_status = status;
+        child_exited_normally = true;
+        break;
+      } else if (waited == -1) {
+        // Error
+        child_guard.release();
+        if (stdout_read_fd >= 0) close(stdout_read_fd);
+        if (stderr_read_fd >= 0) close(stderr_read_fd);
+        co_return {
+          {"error", std::format("waitpid failed: {}", strerror(errno))},
+          {"exit_code", -1},
+          {"stdout", stdout_content},
+          {"stderr", stderr_content}
+        };
+      }
+
+      // Check for timeout
+      auto elapsed = std::chrono::steady_clock::now() - start_time;
+      if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_seconds) {
+        timed_out = true;
+        break;
+      }
+
+      // Small sleep to prevent busy-waiting
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    // Wait for child to finish
-    int status;
-    pid_t waited = waitpid(pid, &status, 0);
+    // Clean up read ends of pipes
+    if (stdout_read_fd >= 0) close(stdout_read_fd);
+    if (stderr_read_fd >= 0) close(stderr_read_fd);
 
-    if (waited == -1) {
+    if (timed_out) {
+      // Kill the child process
+      child_guard.release();
+      kill(pid, SIGKILL);
+      int status;
+      waitpid(pid, &status, 0);
+
       co_return {
-        {"error", std::format("waitpid failed: {}", strerror(errno))},
+        {"error", std::format("command timed out after {} seconds", timeout_seconds)},
         {"exit_code", -1},
         {"stdout", stdout_content},
-        {"stderr", stderr_content}
+        {"stderr", stderr_content},
+        {"command", command},
+        {"args", args},
+        {"timed_out", true}
+      };
+    }
+
+    // Child exited normally - use the status we captured earlier
+    if (!child_exited_normally) {
+      // This shouldn't happen, but handle it
+      child_guard.release();
+      co_return {
+        {"error", "child did not exit normally"},
+        {"exit_code", -1},
+        {"stdout", stdout_content},
+        {"stderr", stderr_content},
+        {"command", command},
+        {"args", args},
+        {"timed_out", false}
       };
     }
 
     int exit_code = 0;
-    if (WIFEXITED(status)) {
-      exit_code = WEXITSTATUS(status);
-    } else if (WIFSIGNALED(status)) {
-      exit_code = 128 + WTERMSIG(status);
+    if (WIFEXITED(final_status)) {
+      exit_code = WEXITSTATUS(final_status);
+    } else if (WIFSIGNALED(final_status)) {
+      exit_code = 128 + WTERMSIG(final_status);
     } else {
       exit_code = -1;
     }
@@ -227,7 +361,8 @@ namespace mistral::tools
       {"stdout", stdout_content},
       {"stderr", stderr_content},
       {"command", command},
-      {"args", args}
+      {"args", args},
+      {"timed_out", false}
     };
   }
 

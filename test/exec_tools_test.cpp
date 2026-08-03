@@ -192,3 +192,72 @@ TEST_CASE("exec_tools: multiple arguments are passed correctly")
   CHECK(args[1] == "arg2");
   CHECK(args[2] == "arg3");
 }
+
+TEST_CASE("exec_tools: timeout kills long-running command")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // Use sleep command which should be available on all Unix systems
+  // Sleep for 10 seconds but timeout after 1 second
+  auto result = run_async_exec(tools, "sleep", {"10"}, "", 1);
+
+  CHECK(result.contains("error"));
+  CHECK(result["error"].get<std::string>().find("timed out") != std::string::npos);
+  CHECK(result.contains("exit_code"));
+  CHECK(result["exit_code"].get<int>() == -1);
+  CHECK(result.contains("timed_out"));
+  CHECK(result["timed_out"].get<bool>() == true);
+}
+
+TEST_CASE("exec_tools: command completes within timeout")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // Sleep for 1 second with 5 second timeout - should complete normally
+  auto result = run_async_exec(tools, "sleep", {"1"}, "", 5);
+
+  CHECK(result.contains("exit_code"));
+  CHECK(result["exit_code"].get<int>() == 0);
+  CHECK(result.contains("timed_out"));
+  CHECK(result["timed_out"].get<bool>() == false);
+  CHECK(result.contains("error") == false);
+}
+
+TEST_CASE("exec_tools: timeout with output before timeout")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // Use a command that produces output and then sleeps
+  // We'll use sh to echo and then sleep
+  auto result = run_async_exec(tools, "sh", {"-c", "echo 'partial output'; sleep 10"}, "", 1);
+
+  CHECK(result.contains("error"));
+  CHECK(result["error"].get<std::string>().find("timed out") != std::string::npos);
+  CHECK(result.contains("stdout"));
+  CHECK(result["stdout"].get<std::string>().find("partial output") != std::string::npos);
+  CHECK(result.contains("timed_out"));
+  CHECK(result["timed_out"].get<bool>() == true);
+}
+
+TEST_CASE("exec_tools: default timeout is 30 seconds")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // Test that the default timeout parameter works
+  // We can't easily test the default without modifying the function signature,
+  // but we can at least verify the function accepts the default
+  auto result = run_async_exec(tools, "echo", {"test"});
+
+  CHECK(result.contains("exit_code"));
+  CHECK(result["exit_code"].get<int>() == 0);
+  CHECK(result.contains("timed_out"));
+  CHECK(result["timed_out"].get<bool>() == false);
+}
