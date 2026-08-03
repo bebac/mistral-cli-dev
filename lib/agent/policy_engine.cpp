@@ -68,59 +68,7 @@ void policy_engine::load_configuration(const json& config)
     for (const auto& rule_json : config["allow"]) {
       policy_rule rule;
       rule.action = rule_action::ALLOW;
-
-      if (rule_json.contains("type")) {
-        std::string type = rule_json["type"].get<std::string>();
-        if (type == "tool") {
-          rule.type = rule_type::TOOL;
-          rule.tool_name = rule_json["tool"].get<std::string>();
-        } else if (type == "directory") {
-          rule.type = rule_type::DIRECTORY;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "*";
-          rule.path = rule_json["path"].get<std::string>();
-          rule.path_negated = starts_with(rule.path, "!");
-          if (rule.path_negated) {
-            rule.path = normalize_path(rule.path.substr(1));
-          } else {
-            rule.path = normalize_path(rule.path);
-          }
-          if (rule_json.contains("exclude")) {
-            for (const auto& excl : rule_json["exclude"]) {
-              rule.exclusions.push_back(fs::path(rule.path) / excl.get<std::string>());
-            }
-          }
-        } else if (type == "path_prefix") {
-          rule.type = rule_type::PATH_PREFIX;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "*";
-          rule.path_prefix = normalize_path(rule_json["prefix"].get<std::string>());
-        } else if (type == "executable") {
-          rule.type = rule_type::EXECUTABLE;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "exec";
-          rule.command = rule_json["command"].get<std::string>();
-          if (rule_json.contains("args")) {
-            for (const auto& arg : rule_json["args"]) {
-              rule.args.push_back(arg.get<std::string>());
-            }
-          }
-          if (rule_json.contains("cwd")) {
-            rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
-          }
-        }
-      }
-
-      if (rule_json.contains("id")) {
-        rule.id = rule_json["id"].get<std::string>();
-      } else {
-        rule.id = generate_rule_id(rule);
-      }
-
-      if (rule_json.contains("message")) {
-        rule.custom_message = rule_json["message"].get<std::string>();
-      }
-
+      parse_rule_fields(rule, rule_json);
       rules_.push_back(std::move(rule));
     }
   }
@@ -130,61 +78,64 @@ void policy_engine::load_configuration(const json& config)
     for (const auto& rule_json : config["require_approval"]) {
       policy_rule rule;
       rule.action = rule_action::REQUIRE_APPROVAL;
-
-      if (rule_json.contains("type")) {
-        std::string type = rule_json["type"].get<std::string>();
-        if (type == "tool") {
-          rule.type = rule_type::TOOL;
-          rule.tool_name = rule_json["tool"].get<std::string>();
-        } else if (type == "directory") {
-          rule.type = rule_type::DIRECTORY;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "*";
-          rule.path = rule_json["path"].get<std::string>();
-          rule.path_negated = starts_with(rule.path, "!");
-          if (rule.path_negated) {
-            rule.path = normalize_path(rule.path.substr(1));
-          } else {
-            rule.path = normalize_path(rule.path);
-          }
-          if (rule_json.contains("exclude")) {
-            for (const auto& excl : rule_json["exclude"]) {
-              rule.exclusions.push_back(fs::path(rule.path) / excl.get<std::string>());
-            }
-          }
-        } else if (type == "path_prefix") {
-          rule.type = rule_type::PATH_PREFIX;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "*";
-          rule.path_prefix = normalize_path(rule_json["prefix"].get<std::string>());
-        } else if (type == "executable") {
-          rule.type = rule_type::EXECUTABLE;
-          rule.tool_name = rule_json.contains("tool") ?
-                          rule_json["tool"].get<std::string>() : "exec";
-          rule.command = rule_json["command"].get<std::string>();
-          if (rule_json.contains("args")) {
-            for (const auto& arg : rule_json["args"]) {
-              rule.args.push_back(arg.get<std::string>());
-            }
-          }
-          if (rule_json.contains("cwd")) {
-            rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
-          }
-        }
-      }
-
-      if (rule_json.contains("id")) {
-        rule.id = rule_json["id"].get<std::string>();
-      } else {
-        rule.id = generate_rule_id(rule);
-      }
-
-      if (rule_json.contains("message")) {
-        rule.custom_message = rule_json["message"].get<std::string>();
-      }
-
+      parse_rule_fields(rule, rule_json);
       rules_.push_back(std::move(rule));
     }
+  }
+}
+
+void policy_engine::parse_rule_fields(policy_rule& rule, const json& rule_json) const
+{
+  if (rule_json.contains("type")) {
+    std::string type = rule_json["type"].get<std::string>();
+    if (type == "tool") {
+      rule.type = rule_type::TOOL;
+      rule.tool_name = rule_json["tool"].get<std::string>();
+    } else if (type == "directory") {
+      rule.type = rule_type::DIRECTORY;
+      rule.tool_name = rule_json.contains("tool") ?
+                      rule_json["tool"].get<std::string>() : "*";
+      rule.path = rule_json["path"].get<std::string>();
+      rule.path_negated = starts_with(rule.path, "!");
+      if (rule.path_negated) {
+        rule.path = normalize_path(rule.path.substr(1));
+      } else {
+        rule.path = normalize_path(rule.path);
+      }
+      if (rule_json.contains("exclude")) {
+        for (const auto& excl : rule_json["exclude"]) {
+          rule.exclusions.push_back(fs::path(rule.path) / excl.get<std::string>());
+        }
+      }
+    } else if (type == "path_prefix") {
+      rule.type = rule_type::PATH_PREFIX;
+      rule.tool_name = rule_json.contains("tool") ?
+                      rule_json["tool"].get<std::string>() : "*";
+      rule.path_prefix = normalize_path(rule_json["prefix"].get<std::string>());
+    } else if (type == "executable") {
+      rule.type = rule_type::EXECUTABLE;
+      rule.tool_name = rule_json.contains("tool") ?
+                      rule_json["tool"].get<std::string>() : "exec";
+      rule.command = rule_json["command"].get<std::string>();
+      if (rule_json.contains("args")) {
+        for (const auto& arg : rule_json["args"]) {
+          rule.args.push_back(arg.get<std::string>());
+        }
+      }
+      if (rule_json.contains("cwd")) {
+        rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
+      }
+    }
+  }
+
+  if (rule_json.contains("id")) {
+    rule.id = rule_json["id"].get<std::string>();
+  } else {
+    rule.id = generate_rule_id(rule);
+  }
+
+  if (rule_json.contains("message")) {
+    rule.custom_message = rule_json["message"].get<std::string>();
   }
 }
 
@@ -228,7 +179,6 @@ void policy_engine::allow_directory(const std::string& tool_name,
   }
   rule.exclusions = std::move(transformed_exclusions);
 
-  //rule.exclusions = exclude;
   rule.id = generate_rule_id(rule);
   rules_.push_back(std::move(rule));
 }
@@ -603,126 +553,80 @@ policy_rule policy_engine::parse_dsl_rule(const std::string& rule_dsl) const
   policy_rule rule;
   rule.id = rule_dsl; // Default ID is the DSL string itself
 
-  // Parse format: [action]:[selector]=[value]
-  // or: [action]:[type]:[selector]=[value]
-
   std::vector<std::string> parts = split_comma(rule_dsl);
   if (parts.empty()) return rule;
 
   std::string first_part = parts[0];
 
-  // Check for action
   if (starts_with(first_part, "allow:")) {
     rule.action = rule_action::ALLOW;
-    std::string rest = first_part.substr(6);
-
-    if (starts_with(rest, "tool=")) {
-      rule.type = rule_type::TOOL;
-      rule.tool_name = rest.substr(5);
-    } else if (starts_with(rest, "write:dir=") || starts_with(rest, "read:dir=")) {
-      size_t colon_pos = rest.find(':');
-      rule.tool_name = rest.substr(0, colon_pos);
-      std::string dir_part = rest.substr(colon_pos + 1); // "dir=..."
-
-      if (starts_with(dir_part, "dir=")) {
-        rule.type = rule_type::DIRECTORY;
-        std::string path = dir_part.substr(4);
-        rule.path_negated = starts_with(path, "!");
-        if (rule.path_negated) {
-          rule.path = normalize_path(path.substr(1));
-        } else {
-          rule.path = normalize_path(path);
-        }
-      }
-    } else if (starts_with(rest, "write:path_prefix=") ||
-               starts_with(rest, "read:path_prefix=")) {
-      size_t colon_pos = rest.find(':');
-      rule.tool_name = rest.substr(0, colon_pos);
-      std::string prefix_part = rest.substr(colon_pos + 1);
-
-      if (starts_with(prefix_part, "path_prefix=")) {
-        rule.type = rule_type::PATH_PREFIX;
-        rule.path_prefix = normalize_path(prefix_part.substr(12));
-      }
-    } else if (starts_with(rest, "exec:command=")) {
-      rule.type = rule_type::EXECUTABLE;
-      rule.tool_name = "exec";
-      rule.command = rest.substr(13);
-      // Parse additional parts for executable rules
-      for (size_t i = 1; i < parts.size(); ++i) {
-        if (starts_with(parts[i], "args=")) {
-          std::string args_str = parts[i].substr(5);
-          rule.args = split_comma(args_str);
-        } else if (starts_with(parts[i], "cwd=")) {
-          rule.cwd = normalize_path(parts[i].substr(4));
-        }
-      }
-    }
-
-    // Parse additional parts (exclusions, etc.)
-    for (size_t i = 1; i < parts.size(); ++i) {
-      if (starts_with(parts[i], "exclude=")) {
-        std::string excl_str = parts[i].substr(8);
-        for (const auto& excl : split_comma(excl_str)) {
-          rule.exclusions.push_back(fs::path(rule.path) / excl);
-        }
-      }
-    }
-
+    parse_dsl_rule_body(rule, first_part.substr(6), parts);
   } else if (starts_with(first_part, "require:") ||
              starts_with(first_part, "require_approval:")) {
     rule.action = rule_action::REQUIRE_APPROVAL;
-    size_t action_end = first_part.find(':');
-    std::string rest = first_part.substr(action_end + 1);
-
-    if (starts_with(rest, "tool=")) {
-      rule.type = rule_type::TOOL;
-      rule.tool_name = rest.substr(5);
-    } else if (starts_with(rest, "write:dir=") || starts_with(rest, "read:dir=")) {
-      size_t colon_pos = rest.find(':');
-      rule.tool_name = rest.substr(0, colon_pos);
-      std::string dir_part = rest.substr(colon_pos + 1);
-
-      if (starts_with(dir_part, "dir=")) {
-        rule.type = rule_type::DIRECTORY;
-        std::string path = dir_part.substr(4);
-        rule.path_negated = starts_with(path, "!");
-        if (rule.path_negated) {
-          rule.path = normalize_path(path.substr(1));
-        } else {
-          rule.path = normalize_path(path);
-        }
-      }
-    } else if (starts_with(rest, "write:path_prefix=") ||
-               starts_with(rest, "read:path_prefix=")) {
-      size_t colon_pos = rest.find(':');
-      rule.tool_name = rest.substr(0, colon_pos);
-      std::string prefix_part = rest.substr(colon_pos + 1);
-
-      if (starts_with(prefix_part, "path_prefix=")) {
-        rule.type = rule_type::PATH_PREFIX;
-        rule.path_prefix = normalize_path(prefix_part.substr(12));
-      }
-    } else if (starts_with(rest, "exec:command=")) {
-      rule.type = rule_type::EXECUTABLE;
-      rule.tool_name = "exec";
-      rule.command = rest.substr(13);
-      // Parse additional parts for executable rules
-      for (size_t i = 1; i < parts.size(); ++i) {
-        if (starts_with(parts[i], "args=")) {
-          std::string args_str = parts[i].substr(5);
-          rule.args = split_comma(args_str);
-        } else if (starts_with(parts[i], "cwd=")) {
-          rule.cwd = normalize_path(parts[i].substr(4));
-        }
-      }
-    }
+    size_t action_end = first_part.find(':');  // NOLINT
+    parse_dsl_rule_body(rule, first_part.substr(action_end + 1), parts);
   } else if (starts_with(first_part, "default=")) {
     // This is a default policy setting, not a rule
     rule.type = rule_type::UNKNOWN;
   }
 
   return rule;
+}
+
+void policy_engine::parse_dsl_rule_body(policy_rule& rule, const std::string& selector,
+                                       const std::vector<std::string>& parts) const
+{
+  if (starts_with(selector, "tool=")) {
+    rule.type = rule_type::TOOL;
+    rule.tool_name = selector.substr(5);
+  } else if (starts_with(selector, "write:dir=") || starts_with(selector, "read:dir=")) {
+    size_t colon_pos = selector.find(':');  // NOLINT
+    rule.tool_name = selector.substr(0, colon_pos);
+    std::string dir_part = selector.substr(colon_pos + 1); // "dir=..."
+
+    if (starts_with(dir_part, "dir=")) {
+      rule.type = rule_type::DIRECTORY;
+      std::string path = dir_part.substr(4);
+      rule.path_negated = starts_with(path, "!");
+      if (rule.path_negated) {
+        rule.path = normalize_path(path.substr(1));
+      } else {
+        rule.path = normalize_path(path);
+      }
+    }
+  } else if (starts_with(selector, "write:path_prefix=") ||
+             starts_with(selector, "read:path_prefix=")) {
+    size_t colon_pos = selector.find(':');  // NOLINT
+    rule.tool_name = selector.substr(0, colon_pos);
+    std::string prefix_part = selector.substr(colon_pos + 1);
+
+    if (starts_with(prefix_part, "path_prefix=")) {
+      rule.type = rule_type::PATH_PREFIX;
+      rule.path_prefix = normalize_path(prefix_part.substr(12));
+    }
+  } else if (starts_with(selector, "exec:command=")) {
+    rule.type = rule_type::EXECUTABLE;
+    rule.tool_name = "exec";
+    rule.command = selector.substr(13);
+  }
+
+  // Parse additional parts
+  for (size_t i = 1; i < parts.size(); ++i) {
+    if (starts_with(parts[i], "exclude=")) {
+      std::string excl_str = parts[i].substr(8);
+      for (const auto& excl : split_comma(excl_str)) {
+        rule.exclusions.push_back(fs::path(rule.path) / excl);
+      }
+    } else if (rule.type == rule_type::EXECUTABLE) {
+      if (starts_with(parts[i], "args=")) {
+        std::string args_str = parts[i].substr(5);
+        rule.args = split_comma(args_str);
+      } else if (starts_with(parts[i], "cwd=")) {
+        rule.cwd = normalize_path(parts[i].substr(4));
+      }
+    }
+  }
 }
 
 bool policy_engine::rule_matches(const policy_rule& rule, const policy_context& ctx) const
@@ -813,8 +717,7 @@ bool policy_engine::path_matches(const std::string& rule_path,
   }
 
   // Check if test path starts with rule path
-  bool matches = starts_with(norm_test, norm_rule) ||
-                 starts_with(norm_test, norm_rule.substr(0, norm_rule.size() - 1));
+  bool matches = starts_with(norm_test, norm_rule);
 
   if (negated) {
     matches = !matches;
@@ -907,6 +810,7 @@ std::string policy_engine::generate_rule_id(const policy_rule& rule) const
 void policy_engine::clear_rules()
 {
   rules_.clear();
+  rejection_messages_.clear();
   regex_cache_.clear();
 }
 

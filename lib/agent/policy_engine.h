@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 #include <regex>
 
@@ -128,6 +129,13 @@ namespace mistral::agent
     size_t rule_count() const { return rules_.size(); }
 
   private:
+    // Parse rule fields from JSON (used by load_configuration)
+    void parse_rule_fields(policy_rule& rule, const json& rule_json) const;
+
+    // Parse DSL rule body (selector + additional parts)
+    void parse_dsl_rule_body(policy_rule& rule, const std::string& selector,
+                             const std::vector<std::string>& parts) const;
+
     // Parse a DSL rule string
     policy_rule parse_dsl_rule(const std::string& rule_dsl) const;
 
