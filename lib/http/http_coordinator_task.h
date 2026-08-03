@@ -26,6 +26,8 @@
 #include <vector>
 #include <format>
 #include <span>
+#include <iostream>
+#include <functional>
 
 namespace mistral::net
 {
@@ -262,7 +264,7 @@ namespace mistral::net
     {
       std::cerr << "[http_coordinator] GOAWAY received, last_stream_id=" << last_stream_id
                 << ", error=" << ec.message() << " (active_streams=" << client_.active_streams() << ")" << std::endl;
-      client_.reset();
+      client_.shutdown(); // Same reasinong as for coordinator_event_type::shutdown
     }
 
   private:

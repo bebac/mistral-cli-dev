@@ -12,6 +12,10 @@
 
 #include <memory>
 #include <string>
+#include <iostream>
+#include <functional>
+#include <cerrno>
+#include <cstring>
 
 namespace mistral::net
 {
