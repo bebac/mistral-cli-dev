@@ -189,6 +189,21 @@ namespace mistral::agent
       CHECK(result.error_type.empty());
     }
 
+    TEST_CASE("validate_edit - preserves patch_number")
+    {
+      temp_file tf("test content", __LINE__);
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "test";
+      edit.replace_text = "replacement";
+      edit.patch_number = 42; // Set a specific patch number
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+      CHECK(result.patch_number == 42); // Verify it's preserved
+    }
+
     TEST_CASE("validate_edit - new file creation but file already exists")
     {
       temp_file tf("existing content");
@@ -369,6 +384,47 @@ namespace mistral::agent
       CHECK(result.fixable_error_count() == 0);
       CHECK(result.get_fixable_errors().empty());
       CHECK(result.get_non_fixable_errors().empty());
+    }
+
+    TEST_CASE("validate_all_edits - preserves patch_numbers")
+    {
+      temp_file tf1("content1", __LINE__);
+      temp_file tf2("content2", __LINE__);
+
+      std::vector<file_edit_t> edits;
+      edits.push_back({tf1.path(), "content1", "new1", 1});
+      edits.push_back({tf2.path(), "content2", "new2", 2});
+
+      auto result = validate_all_edits(edits);
+      CHECK(result.all_valid());
+      REQUIRE(result.validations.size() == 2);
+      CHECK(result.validations[0].patch_number == 1);
+      CHECK(result.validations[1].patch_number == 2);
+    }
+
+    TEST_CASE("validate_all_edits - error results include patch_numbers")
+    {
+      // Create a temp file
+      temp_file tf("test content", __LINE__);
+
+      std::vector<file_edit_t> edits;
+      // This will fail - search text not found
+      edits.push_back({tf.path(), "not present", "replacement", 1});
+      // This will succeed
+      edits.push_back({tf.path(), "test", "replacement", 2});
+
+      auto result = validate_all_edits(edits);
+      CHECK(!result.all_valid());
+      REQUIRE(result.validations.size() == 2);
+
+      // First edit should have error with patch_number 1
+      CHECK(result.validations[0].patch_number == 1);
+      CHECK(!result.validations[0].valid);
+      CHECK(result.validations[0].error_type == "search_not_found");
+
+      // Second edit should be valid with patch_number 2
+      CHECK(result.validations[1].patch_number == 2);
+      CHECK(result.validations[1].valid);
     }
 
     TEST_CASE("validate_all_edits - mixed valid and invalid")

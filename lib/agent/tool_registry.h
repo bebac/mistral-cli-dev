@@ -46,6 +46,11 @@ namespace mistral::agent
       using inner_type = T;
     };
 
+    template <typename T> struct is_optional : std::false_type {};
+    template <typename T> struct is_optional<std::optional<T>> : std::true_type {
+      using inner_type = T;
+    };
+
     template <typename T>
     json build_type_schema()
     {
@@ -54,6 +59,11 @@ namespace mistral::agent
       if constexpr (is_vector<U>::value) {
         using V = typename is_vector<U>::inner_type;
         return {{"type", "array"}, {"items", build_type_schema<V>()}};
+      }
+      else if constexpr (is_optional<U>::value) {
+        using V = typename is_optional<U>::inner_type;
+        // For optional types, we don't mark as required and use the inner type's schema
+        return build_type_schema<V>();
       }
       else if constexpr (std::is_same_v<U, bool>) {
         return {{"type", "boolean"}};
@@ -162,28 +172,71 @@ namespace mistral::agent
     }
 
   private:
+    // Helper class to avoid template ambiguity with std::optional
+    template <typename T, typename = void>
+    struct from_json_helper
+    {
+      static T get(const json& j, const arg_info& info)
+      {
+        if (!j.contains(info.name) && info.default_value) {
+          return json::parse(*info.default_value).get<T>();
+        }
+        if (!j.contains(info.name)) {
+          throw std::runtime_error("missing required argument: " + info.name);
+        }
+        if constexpr (std::is_same_v<T, bool>) {
+          const auto& v = j[info.name];
+          if (v.is_boolean()) return v.get<bool>();
+          if (v.is_number_integer()) return v.get<int>() != 0;
+          if (v.is_string()) {
+            auto s = v.get<std::string>();
+            return s == "true" || s == "1";
+          }
+          throw std::runtime_error("expected boolean for " + info.name);
+        } else {
+          return j[info.name].get<T>();
+        }
+      }
+    };
+
+    // Partial specialization for std::optional<T>
+    template <typename T>
+    struct from_json_helper<std::optional<T>>
+    {
+      static std::optional<T> get(const json& j, const arg_info& info)
+      {
+        if (!j.contains(info.name)) {
+          // If not provided and has default value, parse it
+          if (info.default_value) {
+            try {
+              auto parsed = json::parse(*info.default_value);
+              if (parsed.is_null()) {
+                return std::nullopt;
+              }
+              return parsed.get<T>();
+            } catch (...) {
+              return std::nullopt;
+            }
+          }
+          // Not provided and no default - return nullopt
+          return std::nullopt;
+        }
+
+        // Provided in JSON
+        const auto& v = j[info.name];
+        if (v.is_null()) {
+          return std::nullopt;
+        }
+        return v.get<T>();
+      }
+    };
+
     template <typename T>
     static T from_json_arg(const json& j, const arg_info& info)
     {
-      if (!j.contains(info.name) && info.default_value) {
-        return json::parse(*info.default_value).get<T>();
-      }
-      if (!j.contains(info.name)) {
-        throw std::runtime_error("missing required argument: " + info.name);
-      }
-      if constexpr (std::is_same_v<T, bool>) {
-        const auto& v = j[info.name];
-        if (v.is_boolean()) return v.get<bool>();
-        if (v.is_number_integer()) return v.get<int>() != 0;
-        if (v.is_string()) {
-          auto s = v.get<std::string>();
-          return s == "true" || s == "1";
-        }
-        throw std::runtime_error("expected boolean for " + info.name);
-      } else {
-        return j[info.name].get<T>();
-      }
+      return from_json_helper<T>::get(j, info);
     }
+
 
     template <size_t... Is>
     Ret call_impl(const json& j_args, std::index_sequence<Is...>)

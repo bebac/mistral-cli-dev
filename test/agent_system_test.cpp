@@ -730,3 +730,133 @@ TEST_CASE("instance: returns same instance")
 }
 
 TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system_patchset_storage");
+
+TEST_CASE("patchset storage - store and retrieve single patchset")
+{
+    auto& agent_sys = mistral::agent::agent_system::instance();
+
+    // Clear any existing patchset
+    agent_sys.remove_patchset();
+    CHECK(!agent_sys.has_patchset());
+
+    // Create test edits
+    std::vector<mistral::agent::file_edit_t> edits;
+    edits.push_back({.file_path = "src/main.cpp", .search_text = "old", .replace_text = "new", .patch_number = 1});
+
+    // Store patchset
+    agent_sys.store_patchset("test-patchset", edits);
+
+    // Verify storage
+    CHECK(agent_sys.has_patchset());
+    auto current_id = agent_sys.get_current_patchset_id();
+    CHECK(current_id.has_value());
+    CHECK(*current_id == "test-patchset");
+
+    // Retrieve patchset
+    auto retrieved = agent_sys.get_patchset("test-patchset");
+    REQUIRE(retrieved.has_value());
+    CHECK(retrieved->patchset_id == "test-patchset");
+    CHECK(retrieved->edits.size() == 1);
+    CHECK(retrieved->edits[0].file_path == "src/main.cpp");
+    CHECK(retrieved->edits[0].patch_number == 1);
+
+    // Clean up
+    agent_sys.remove_patchset();
+    CHECK(!agent_sys.has_patchset());
+}
+
+TEST_CASE("patchset storage - overwrite previous patchset")
+{
+    auto& agent_sys = mistral::agent::agent_system::instance();
+
+    // Store first patchset
+    std::vector<mistral::agent::file_edit_t> edits1;
+    edits1.push_back({.file_path = "file1.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
+    agent_sys.store_patchset("patchset-1", edits1);
+
+    CHECK(agent_sys.get_current_patchset_id() == "patchset-1");
+
+    // Store second patchset - should overwrite
+    std::vector<mistral::agent::file_edit_t> edits2;
+    edits2.push_back({.file_path = "file2.cpp", .search_text = "x", .replace_text = "y", .patch_number = 1});
+    agent_sys.store_patchset("patchset-2", edits2);
+
+    CHECK(agent_sys.get_current_patchset_id() == "patchset-2");
+
+    // First patchset should no longer be retrievable
+    auto old_patchset = agent_sys.get_patchset("patchset-1");
+    CHECK(!old_patchset.has_value());
+
+    // Second patchset should be retrievable
+    auto new_patchset = agent_sys.get_patchset("patchset-2");
+    REQUIRE(new_patchset.has_value());
+    CHECK(new_patchset->edits[0].file_path == "file2.cpp");
+
+    // Clean up
+    agent_sys.remove_patchset();
+}
+
+TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
+{
+    auto& agent_sys = mistral::agent::agent_system::instance();
+
+    // Clear any existing patchset
+    agent_sys.remove_patchset();
+
+    // Try to get non-existent patchset
+    auto result = agent_sys.get_patchset("does-not-exist");
+    CHECK(!result.has_value());
+
+    // Store a patchset
+    std::vector<mistral::agent::file_edit_t> edits;
+    edits.push_back({.file_path = "test.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
+    agent_sys.store_patchset("existing-patchset", edits);
+
+    // Try to get different non-existent patchset
+    result = agent_sys.get_patchset("still-does-not-exist");
+    CHECK(!result.has_value());
+
+    // Clean up
+    agent_sys.remove_patchset();
+}
+
+TEST_CASE("patchset storage - get_current_patchset_id returns nullopt when empty")
+{
+    auto& agent_sys = mistral::agent::agent_system::instance();
+
+    // Clear any existing patchset
+    agent_sys.remove_patchset();
+
+    auto id = agent_sys.get_current_patchset_id();
+    CHECK(!id.has_value());
+}
+
+TEST_CASE("patchset storage - multiple edits in patchset")
+{
+    auto& agent_sys = mistral::agent::agent_system::instance();
+
+    // Clear any existing patchset
+    agent_sys.remove_patchset();
+
+    // Create patchset with multiple edits
+    std::vector<mistral::agent::file_edit_t> edits;
+    edits.push_back({.file_path = "src/main.cpp", .search_text = "old1", .replace_text = "new1", .patch_number = 1});
+    edits.push_back({.file_path = "src/utils.cpp", .search_text = "old2", .replace_text = "new2", .patch_number = 2});
+    edits.push_back({.file_path = "lib/helper.hpp", .search_text = "old3", .replace_text = "new3", .patch_number = 3});
+
+    agent_sys.store_patchset("multi-edit", edits);
+
+    auto retrieved = agent_sys.get_patchset("multi-edit");
+    REQUIRE(retrieved.has_value());
+    CHECK(retrieved->edits.size() == 3);
+    CHECK(retrieved->edits[0].patch_number == 1);
+    CHECK(retrieved->edits[1].patch_number == 2);
+    CHECK(retrieved->edits[2].patch_number == 3);
+
+    // Clean up
+    agent_sys.remove_patchset();
+}
+
+TEST_SUITE_END();

@@ -1,6 +1,7 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "agent/subagent_task.h"
+#include "agent/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
@@ -88,7 +89,7 @@ namespace mistral::agent
           throw std::runtime_error("Failed to open tool policy file: " + file_path);
         }
 
-        json policy_config = json::parse(policy_file);
+        json policy_config = json::parse(policy_file, nullptr, true, true);
 
         // Validate that it has at least a default field
         if (!policy_config.contains("default"))
@@ -110,7 +111,7 @@ namespace mistral::agent
     {
       try
       {
-        json policy_config = json::parse(tool_policy);
+        json policy_config = json::parse(tool_policy, nullptr, true, true);
 
         // If it's a simple string value wrapped in quotes, unwrap it
         if (policy_config.is_string())
@@ -164,7 +165,7 @@ namespace mistral::agent
     json j;
     try
     {
-      j = json::parse(in);
+      j = json::parse(in, nullptr, true, true);
     }
     catch (const std::exception &e)
     {
@@ -312,6 +313,7 @@ namespace mistral::agent
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
     grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
+    patchset_tools_ = std::make_unique<mistral::agent::patchset_tools>(*this);
   }
 
   void agent_system::register_slash_commands()
@@ -436,77 +438,124 @@ namespace mistral::agent
   void agent_system::build_global_tool_registry()
   {
     // Register all available tools
-    auto &file_tools = *file_tools_;
-    auto &note_tools = *note_tools_;
-    auto &grep_tools = *grep_tools_;
-    auto &exec_tools = *exec_tools_;
+    auto& file_tools = *file_tools_;
+    auto& note_tools = *note_tools_;
+    auto& grep_tools = *grep_tools_;
+    auto& exec_tools = *exec_tools_;
+    auto& patchset_tools = *patchset_tools_;
 
     global_tools_.register_tool(
-        "ls",
-        "List files and directories. Returns entries with type indicator (f=file, d=directory, l=symlink), "
-        "size for files, and relative path.",
-        &file_tools, &mistral::tools::file_tools::list_files,
-        arg("path", "Directory path to list"),
-        arg("recursive", "Whether to list subdirectories recursively", false),
-        arg("max_depth", "Maximum recursion depth (0 for unlimited)", 1));
+      "ls",
+      "List files and directories. Returns entries with type indicator (f=file, d=directory, l=symlink), "
+      "size for files, and relative path.",
+      &file_tools, &mistral::tools::file_tools::list_files,
+      arg("path", "Directory path to list"),
+      arg("recursive", "Whether to list subdirectories recursively", false),
+      arg("max_depth", "Maximum recursion depth (0 for unlimited)", 1)
+    );
 
     global_tools_.register_tool(
-        "read",
-        "Read file contents. Use line_from and line_to for specific ranges. "
-        "Set both to 0 to read entire file. Lines are 1-indexed.",
-        &file_tools, &mistral::tools::file_tools::read_file,
-        arg("path", "File path to read"),
-        arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
-        arg("line_to", "Last line to read (inclusive, 0 = until end)", 0));
+      "read",
+      "Read file contents. Use line_from and line_to for specific ranges. "
+      "Set both to 0 to read entire file. Lines are 1-indexed.",
+      &file_tools, &mistral::tools::file_tools::read_file,
+      arg("path", "File path to read"),
+      arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
+      arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
+    );
 
     global_tools_.register_tool(
-        "grep",
-        "Search for a regular expression pattern in files. Returns matching lines with filename and line number.",
-        &grep_tools, &mistral::tools::grep_tools::grep,
-        arg("pattern", "Regular expression pattern to search for"),
-        arg("path", "Path to search (file or directory)", std::string(".")),
-        arg("recursive", "Search recursively in directories", false));
+      "grep",
+      "Search for a regular expression pattern in files. Returns matching lines with filename and line number.",
+      &grep_tools, &mistral::tools::grep_tools::grep,
+      arg("pattern", "Regular expression pattern to search for"),
+      arg("path", "Path to search (file or directory)", std::string(".")),
+      arg("recursive", "Search recursively in directories", false)
+    );
 
     global_tools_.register_tool(
-        "note_list",
-        "List notes in the notes directory. Shows path, title, and tags for each note. "
-        "Pass an empty string to list all notes, or a subfolder name to filter.",
-        &note_tools, &mistral::tools::note_tools::list_notes,
-        arg("folder", "Subfolder to list (empty for all)", std::string("")));
+      "note_list",
+      "List notes in the notes directory. Shows path, title, and tags for each note. "
+      "Pass an empty string to list all notes, or a subfolder name to filter.",
+      &note_tools, &mistral::tools::note_tools::list_notes,
+      arg("folder", "Subfolder to list (empty for all)", std::string(""))
+    );
 
     global_tools_.register_tool(
-        "note_read",
-        "Read a note from the notes directory. Resolves {{> path}} include directives. "
-        "Returns title, tags, and rendered content. The .md extension is optional.",
-        &note_tools, &mistral::tools::note_tools::read_note,
-        arg("path", "Note path relative to notes directory"));
+      "note_read",
+      "Read a note from the notes directory. Resolves {{> path}} include directives. "
+      "Returns title, tags, and rendered content. The .md extension is optional.",
+      &note_tools, &mistral::tools::note_tools::read_note,
+      arg("path", "Note path relative to notes directory")
+    );
 
     global_tools_.register_tool(
-        "note_write",
-        "Create or update a note. Use YAML frontmatter for title and tags:\n"
-        "---\ntitle: My Note\ntags: [tag1, tag2]\n---\n"
-        "Use {{> path}} to include other notes (partials). Put reusable snippets in _partials/.",
-        &note_tools, &mistral::tools::note_tools::write_note,
-        arg("path", "Note path relative to notes directory"),
-        arg("content", "Note content (with optional frontmatter)"));
+      "note_write",
+      "Create or update a note. Use YAML frontmatter for title and tags:\n"
+      "---\ntitle: My Note\ntags: [tag1, tag2]\n---\n"
+      "Use {{> path}} to include other notes (partials). Put reusable snippets in _partials/.",
+      &note_tools, &mistral::tools::note_tools::write_note,
+      arg("path", "Note path relative to notes directory"),
+      arg("content", "Note content (with optional frontmatter)")
+    );
 
     global_tools_.register_tool(
-        "note_search",
-        "Search notes by text content and/or tag. At least one must be provided. "
-        "Returns matching notes with path, title, tags, and matching line context.",
-        &note_tools, &mistral::tools::note_tools::search_notes,
-        arg("query", "Text to search for (case-insensitive)", std::string("")),
-        arg("tag", "Filter by tag (case-insensitive)", std::string("")));
+      "note_search",
+      "Search notes by text content and/or tag. At least one must be provided. "
+      "Returns matching notes with path, title, tags, and matching line context.",
+      &note_tools, &mistral::tools::note_tools::search_notes,
+      arg("query", "Text to search for (case-insensitive)", std::string("")),
+      arg("tag", "Filter by tag (case-insensitive)", std::string(""))
+    );
 
     global_tools_.register_tool(
-        "exec",
-        "Execute an external command. Uses execvp() directly - no shell involved. "
-        "Returns exit code, stdout, stderr, and command info.",
-        &exec_tools, &mistral::tools::exec_tools::exec,
-        arg("command", "Executable name (e.g., 'git', 'cmake')"),
-        arg("args", "Command arguments as array of strings"),
-        arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
-        arg("timeout_seconds", "Timeout in seconds", 30));
+      "exec",
+      "Execute an external command. Uses execvp() directly - no shell involved. "
+      "Returns exit code, stdout, stderr, and command info.",
+      &exec_tools, &mistral::tools::exec_tools::exec,
+      arg("command", "Executable name (e.g., 'git', 'cmake')"),
+      arg("args", "Command arguments as array of strings"),
+      arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
+      arg("timeout_seconds", "Timeout in seconds", 30)
+    );
+
+    global_tools_.register_tool(
+      "patchset_apply",
+      "Apply a stored patchset of file edits by its ID. Automatically attempts correction via patchfixer subagent if validation fails with fixable errors.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_apply,
+      arg("patchset_id", "The unique identifier of the patchset to apply")
+    );
+
+    global_tools_.register_tool(
+      "patchset_get",
+      "Get details of a stored patchset including all numbered edits.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_get,
+      arg("patchset_id", "The unique identifier of the patchset")
+    );
+
+    global_tools_.register_tool(
+      "patchset_validate",
+      "Validate a stored patchset without applying (dry run). Returns detailed validation results.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_validate,
+      arg("patchset_id", "The unique identifier of the patchset to validate")
+    );
+
+    global_tools_.register_tool(
+      "patchset_update",
+      "Update a single edit in a stored patchset. At least one of search_text or replace_text must be provided.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_update,
+      arg("patchset_id", "The unique identifier of the patchset"),
+      arg("patch_number", "The 1-indexed number of the patch to update"),
+      arg("file_path", "The file path for the edit"),
+      arg("search_text", "The search text (optional, keeps existing if not provided)"),
+      arg("replace_text", "The replace text (optional, keeps existing if not provided)")
+    );
+
+    global_tools_.register_tool(
+      "patchset_clear",
+      "Clear the current stored patchset.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_clear
+    );
   }
 
   // ---- Configuration Access ----
@@ -730,5 +779,43 @@ namespace mistral::agent
     }
 
     co_return *response;
+  }
+
+  // ---- Patchset Storage ----
+
+  // Store a patchset, overwriting any previous one
+  void agent_system::store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits)
+  {
+    current_patchset_ = patchset_t{patchset_id, edits};
+  }
+
+  // Retrieve a stored patchset by ID
+  std::optional<patchset_t> agent_system::get_patchset(const std::string& patchset_id) const
+  {
+    if (current_patchset_ && current_patchset_->patchset_id == patchset_id) {
+      return current_patchset_;
+    }
+    return std::nullopt;
+  }
+
+  // Get the ID of the currently stored patchset
+  std::optional<std::string> agent_system::get_current_patchset_id() const
+  {
+    if (current_patchset_) {
+      return current_patchset_->patchset_id;
+    }
+    return std::nullopt;
+  }
+
+  // Clear the current patchset
+  void agent_system::remove_patchset()
+  {
+    current_patchset_.reset();
+  }
+
+  // Check if a patchset is currently stored
+  bool agent_system::has_patchset() const
+  {
+    return current_patchset_.has_value();
   }
 } // namespace mistral::agent

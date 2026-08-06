@@ -3,23 +3,24 @@
 
 #include <cctype>
 #include <algorithm>
+#include <string_view>
 #include <vector>
 
 namespace mistral::agent
 {
   namespace
   {
-    const std::string SEARCH_MARKER = "<<<<<<< SEARCH";
-    const std::string SEPARATOR_MARKER = "=======";
-    const std::string REPLACE_MARKER = ">>>>>>> REPLACE";
+    constexpr std::string_view SEARCH_MARKER = "<<<<<<< SEARCH";
+    constexpr std::string_view SEPARATOR_MARKER = "=======";
+    constexpr std::string_view REPLACE_MARKER = ">>>>>>> REPLACE";
 
     // Find a marker in content starting from position
-    // Returns the position of the marker or std::string::npos if not found
-    size_t find_marker(const std::string &content, const std::string &marker, size_t start_pos = 0)
+    // Returns the position of the marker or std::string_view::npos if not found
+    size_t find_marker(std::string_view content, std::string_view marker, size_t start_pos = 0)
     {
       size_t pos = content.find(marker, start_pos);
       // Ensure the marker is at the start of a line (or at position 0)
-      while (pos != std::string::npos)
+      while (pos != std::string_view::npos)
       {
         if (pos == 0 || content[pos - 1] == '\n')
         {
@@ -32,12 +33,21 @@ namespace mistral::agent
         }
         pos = content.find(marker, pos + 1);
       }
-      return std::string::npos;
+      return std::string_view::npos;
+    }
+
+    // Check if there's a code fence marker (```) at the given position
+    bool is_fence_marker(std::string_view content, size_t pos)
+    {
+      return pos + 2 < content.length() &&
+             content[pos] == '`' &&
+             content[pos + 1] == '`' &&
+             content[pos + 2] == '`';
     }
 
     // Extract text between start_marker_end and end_marker_start
     // Handles empty content (for new file creation)
-    std::string extract_between_markers(size_t start_pos, size_t end_pos, const std::string &content)
+    std::string extract_between_markers(size_t start_pos, size_t end_pos, std::string_view content)
     {
       if (start_pos >= end_pos) {
         return "";
@@ -57,26 +67,26 @@ namespace mistral::agent
       if (actual_start >= actual_end) {
         return "";
       }
-      return content.substr(actual_start, actual_end - actual_start);
+      return std::string(content.substr(actual_start, actual_end - actual_start));
     }
 
   } // namespace
 
-  std::optional<std::string> extract_patchset_id(const std::string &input)
+  std::optional<std::string> extract_patchset_id(std::string_view input)
   {
-    const std::string prefix = "(patchset: ";
+    constexpr std::string_view prefix = "(patchset: ";
     size_t start = input.find(prefix);
-    if (start == std::string::npos) {
+    if (start == std::string_view::npos) {
       return std::nullopt;
     }
     start += prefix.length();
 
     size_t end = input.find(')', start);
-    if (end == std::string::npos) {
+    if (end == std::string_view::npos) {
       return std::nullopt;
     }
 
-    std::string id = mistral::utils::trim(input.substr(start, end - start));
+    std::string id = mistral::utils::trim(std::string(input.substr(start, end - start)));
 
     // Validate ID format: alphanumeric, hyphens, underscores only, no spaces
     if (id.empty()) {
@@ -93,22 +103,22 @@ namespace mistral::agent
     return id;
   }
 
-  std::optional<file_edit_t> parse_edit_block(const std::string &file_path,
-                                           const std::string &code_block_content)
+  std::optional<file_edit_t> parse_edit_block(std::string_view file_path,
+                                           std::string_view code_block_content)
   {
     // Find all markers
     size_t search_start = find_marker(code_block_content, SEARCH_MARKER);
-    if (search_start == std::string::npos) {
+    if (search_start == std::string_view::npos) {
       return std::nullopt;
     }
 
     size_t separator_pos = find_marker(code_block_content, SEPARATOR_MARKER, search_start);
-    if (separator_pos == std::string::npos) {
+    if (separator_pos == std::string_view::npos) {
       return std::nullopt;
     }
 
     size_t replace_start = find_marker(code_block_content, REPLACE_MARKER, separator_pos);
-    if (replace_start == std::string::npos) {
+    if (replace_start == std::string_view::npos) {
       return std::nullopt;
     }
 
@@ -131,14 +141,14 @@ namespace mistral::agent
     // For overwrite, search_text is "." (but we'll keep it as is for now)
 
     return file_edit_t{
-      .file_path = file_path,
+      .file_path = std::string(file_path),
       .search_text = search_text,
       .replace_text = replace_text
     };
   }
 
   std::optional<std::pair<std::string, std::vector<file_edit_t>>>
-  parse_edits_with_patchset(const std::string &input)
+  parse_edits_with_patchset(std::string_view input)
   {
     // Extract patchset ID
     auto patchset_id = extract_patchset_id(input);
@@ -155,7 +165,7 @@ namespace mistral::agent
     {
       // Find file path: should be on its own line, possibly with whitespace
       size_t line_start = input.find('\n', pos);
-      if (line_start == std::string::npos) {
+      if (line_start == std::string_view::npos) {
         break;
       }
       line_start++; // Move past the newline
@@ -170,12 +180,12 @@ namespace mistral::agent
 
       // Find end of file path line
       size_t file_path_end = input.find('\n', line_start);
-      if (file_path_end == std::string::npos) {
+      if (file_path_end == std::string_view::npos) {
         file_path_end = input_len;
       }
 
       std::string file_path = mistral::utils::trim(
-          input.substr(line_start, file_path_end - line_start));
+          std::string(input.substr(line_start, file_path_end - line_start)));
 
       // Skip empty file paths
       if (file_path.empty())
@@ -191,7 +201,7 @@ namespace mistral::agent
       while (search_start < input_len && (input[search_start] == '\n' || input[search_start] == ' ' || input[search_start] == '\t')) {
         search_start++;
       }
-      if (search_start + 2 >= input_len || input.substr(search_start, 3) != "```") {
+      if (!is_fence_marker(input, search_start)) {
         // No code block immediately after file path, skip
         pos = file_path_end + 1;
         continue;
@@ -199,11 +209,18 @@ namespace mistral::agent
       size_t code_block_start = search_start;
 
       // Find the end of the code block (matching ```)
-      // Code block can have optional language specifier: ```cpp or ```cpp\n
-      size_t code_block_end = input.find("```", code_block_start + 3);
-      if (code_block_end == std::string::npos)
+      // Code block can have optional language specifier: ```cpp or ```cpp\n      // To handle nested markdown code blocks, find the closing ``` AFTER the REPLACE marker
+      size_t replace_marker_pos = find_marker(input, REPLACE_MARKER, code_block_start);
+      if (replace_marker_pos == std::string_view::npos) {
+        // No REPLACE marker found - invalid edit block, skip
+        pos = file_path_end + 1;
+        continue;
+      }
+
+      size_t code_block_end = input.find("```", replace_marker_pos + REPLACE_MARKER.length());
+      if (code_block_end == std::string_view::npos)
       {
-        // No closing code block marker, skip
+        // No closing code block marker after REPLACE, skip
         pos = file_path_end + 1;
         continue;
       }
@@ -214,20 +231,22 @@ namespace mistral::agent
       if (content_start < code_block_end)
       {
         size_t first_newline = input.find('\n', content_start);
-        if (first_newline != std::string::npos && first_newline < code_block_end) {
+        if (first_newline != std::string_view::npos && first_newline < code_block_end) {
           content_start = first_newline + 1;
         }
       }
 
-      std::string code_content = input.substr(content_start, code_block_end - content_start);
+      std::string_view code_content = input.substr(content_start, code_block_end - content_start);
 
       // Trim trailing newline from code content
       if (!code_content.empty() && code_content.back() == '\n') {
-        code_content.pop_back();
+        code_content = code_content.substr(0, code_content.length() - 1);
       }
 
       // Parse the edit block
       if (auto edit = parse_edit_block(file_path, code_content)) {
+        // Assign patch number (1-indexed)
+        edit->patch_number = edits.size() + 1;
         edits.push_back(*edit);
       }
 

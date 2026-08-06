@@ -13,6 +13,7 @@ namespace mistral::agent
     std::string file_path;
     std::string search_text; // Empty for new file creation
     std::string replace_text;
+    size_t patch_number = 0; // 1-indexed position in patchset
   };
 
   // Result of validating a single file_edit_t
@@ -27,6 +28,14 @@ namespace mistral::agent
     std::vector<size_t> match_positions;
     bool is_fixable = false; // Can patchfixer fix this?
     std::string suggestion;  // Hint for patchfixer
+    size_t patch_number = 0; // for error reporting
+  };
+
+  // Patchset container struct
+  struct patchset_t
+  {
+    std::string patchset_id;
+    std::vector<file_edit_t> edits;
   };
 
   // Result of validating multiple file_edit_t objects

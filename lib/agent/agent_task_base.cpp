@@ -133,6 +133,9 @@ namespace mistral::agent
 
       if (!accumulated_tool_calls.empty())
       {
+        // PARSE AND STORE PATCHSET FROM accumulated_content BEFORE tool execution
+        try_parse_and_store_patchset(accumulated_content);
+
         // Add assistant message with accumulated content and tool calls.
         chat_.add_assistant_message(
           std::move(accumulated_content),
@@ -148,6 +151,9 @@ namespace mistral::agent
       {
         // Final text response.
         if (!accumulated_content.empty()) {
+          // PARSE AND STORE PATCHSET FROM accumulated_content
+          try_parse_and_store_patchset(accumulated_content);
+
           chat_.add_assistant_message(std::move(accumulated_content));
         }
         agent_loop_on_completed(accumulated_content);
@@ -175,6 +181,36 @@ namespace mistral::agent
   }
 
   // Helper methods
+  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+  agent_task_base::try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content)
+  {
+    // Pre-allocate string to avoid reallocations
+    size_t total_size = 0;
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        total_size += mc.content.size();
+      }
+    }
+
+    std::string accumulated_text;
+    accumulated_text.reserve(total_size);
+
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        accumulated_text += mc.content;
+      }
+    }
+
+    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    if (parse_result) {
+      agent_system::instance().store_patchset(
+        parse_result->first,
+        parse_result->second
+      );
+    }
+    return parse_result;
+  }
+
   void agent_task_base::accumulate_message_content(std::vector<api::message_content> &accumulated, api::message_content mc)
   {
     for (auto &acc_mc : accumulated)

@@ -11,6 +11,7 @@
 #include "agent/patchset_verify_command.h"
 #include "agent/tool_command.h"
 #include "agent/agent_system_stats_task.h"
+#include "agent/edit_types.h"
 #include "console/slash_command_registry.h"
 
 #include <dripcore/channel.h>
@@ -28,6 +29,11 @@ namespace mistral::tools
   class note_tools;
   class grep_tools;
   class exec_tools;
+}
+
+namespace mistral::agent
+{
+  class patchset_tools;
 }
 
 namespace mistral::agent
@@ -81,6 +87,7 @@ namespace mistral::agent
     mistral::tools::note_tools& note_tools() { return *note_tools_; }
     mistral::tools::grep_tools& grep_tools() { return *grep_tools_; }
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
+    mistral::agent::patchset_tools& patchset_tools() { return *patchset_tools_; }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -98,6 +105,13 @@ namespace mistral::agent
     json get_usage_stats() const;
     void update_usage_stats(const json& stats);
     void reset_usage_stats();
+
+    // Patchset storage - only one at a time (the latest)
+    void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits);
+    std::optional<patchset_t> get_patchset(const std::string& patchset_id) const;
+    std::optional<std::string> get_current_patchset_id() const;
+    void remove_patchset();
+    bool has_patchset() const;
 
     // Register built-in slash commands
     void register_slash_commands();
@@ -135,6 +149,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::note_tools> note_tools_;
     std::unique_ptr<mistral::tools::grep_tools> grep_tools_;
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
+    std::unique_ptr<mistral::agent::patchset_tools> patchset_tools_;
 
     tool_registry global_tools_;
 
@@ -151,6 +166,9 @@ namespace mistral::agent
     // Usage statistics storage
     mutable std::mutex usage_stats_mtx_;
     json usage_stats_;
+
+    // Patchset storage - only one at a time (the latest)
+    std::optional<patchset_t> current_patchset_;
   };
 
 } // namespace mistral::agent

@@ -239,6 +239,7 @@ namespace mistral::agent
       CHECK(result->second[0].file_path == "src/main.cpp");
       CHECK(result->second[0].search_text == "#include <iostream>");
       CHECK(result->second[0].replace_text == "#include <iostream>\n#include <vector>");
+      CHECK(result->second[0].patch_number == 1); // Check patch number
     }
 
     TEST_CASE("parse_edits_with_patchset - multiple edits")
@@ -271,6 +272,8 @@ namespace mistral::agent
       REQUIRE(result->second.size() == 2);
       CHECK(result->second[0].file_path == "src/main.cpp");
       CHECK(result->second[1].file_path == "lib/utils.cpp");
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[1].patch_number == 2);
     }
 
     TEST_CASE("parse_edits_with_patchset - no patchset ID")
@@ -324,6 +327,7 @@ namespace mistral::agent
       CHECK(result->second[0].file_path == "new_file.cpp");
       CHECK(result->second[0].search_text == "");
       CHECK(result->second[0].replace_text == "// New file content\nint main() { return 0; }");
+      CHECK(result->second[0].patch_number == 1);
     }
 
     TEST_CASE("parse_edits_with_patchset - file path with spaces")
@@ -345,6 +349,7 @@ namespace mistral::agent
       CHECK(result->first == "spaced-path");
       REQUIRE(result->second.size() == 1);
       CHECK(result->second[0].file_path == "src/my file.cpp");
+      CHECK(result->second[0].patch_number == 1);
     }
 
     TEST_CASE("parse_edits_with_patchset - without language specifier")
@@ -368,6 +373,7 @@ namespace mistral::agent
       REQUIRE(result->second.size() == 1);
       CHECK(result->second[0].file_path == "src/main.cpp");
       CHECK(result->second[0].search_text == "#include <iostream>");
+      CHECK(result->second[0].patch_number == 1);
     }
 
     TEST_CASE("parse_edit_block - markers at line start in content are treated as literal text")
@@ -386,6 +392,93 @@ namespace mistral::agent
       REQUIRE(result.has_value());
       CHECK(result->search_text == "<<<<<<< SEARCH");
       CHECK(result->replace_text == "=======");
+    }
+
+    TEST_CASE("parse_edit_block - with nested code blocks")
+    {
+      // edit blocks can contain nested markdown code blocks
+      std::string input =
+        "Here are the changes (patchset: nested-fence-patches):\n"
+        "\n"
+        "README.md\n"
+        "```markdown\n"
+        "<<<<<<< SEARCH\n"
+        "```sh\n"
+        "x = 1;\n"
+        "```\n"
+        "=======\n"
+        "```sh\n"
+        "x = 2;\n"
+        "```\n"
+        "\n"
+        "y = 0;\n"
+        ">>>>>>> REPLACE\n"
+        "```";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "nested-fence-patches");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[0].search_text == "```sh\nx = 1;\n```");
+      CHECK(result->second[0].replace_text == "```sh\nx = 2;\n```\n\ny = 0;");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - patch numbers are assigned")
+    {
+      std::string input =
+        "Here are the changes (patchset: numbered-patches):\n"
+        "\n"
+        "src/main.cpp\n"
+        "```cpp\n"
+        "<<<<<<< SEARCH\n"
+        "#include <iostream>\n"
+        "=======\n"
+        "#include <iostream>\n"
+        "#include <vector>\n"
+        ">>>>>>> REPLACE\n"
+        "```\n"
+        "\n"
+        "src/utils.cpp\n"
+        "```cpp\n"
+        "<<<<<<< SEARCH\n"
+        "helper()\n"
+        "=======\n"
+        "fixed_helper()\n"
+        ">>>>>>> REPLACE\n"
+        "```";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "numbered-patches");
+      REQUIRE(result->second.size() == 2);
+
+      // Check patch numbers are 1-indexed
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[0].file_path == "src/main.cpp");
+
+      CHECK(result->second[1].patch_number == 2);
+      CHECK(result->second[1].file_path == "src/utils.cpp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - single edit gets patch number 1")
+    {
+      std::string input =
+        "Here are the changes (patchset: single-edit):\n"
+        "\n"
+        "src/main.cpp\n"
+        "```cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "```";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].patch_number == 1);
     }
 
     TEST_SUITE_END();

@@ -53,6 +53,7 @@ namespace mistral::agent
     result.error_type = "";
     result.error_message = "";
     result.suggestion = "";
+    result.patch_number = edit.patch_number; // Preserve patch number
 
     // Check file path validity
     if (!is_valid_file_path(edit.file_path))

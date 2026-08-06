@@ -7,6 +7,7 @@
 #include "agent/approval_manager.h"
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/edit_parser.h"
 #include "api/mistral_api.h"
 #include "api/mistral_types.h"
 
@@ -47,6 +48,8 @@ namespace mistral::agent
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
 
     // Helper methods
+    std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+      try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content);
     void accumulate_message_content(std::vector<api::message_content>& accumulated, api::message_content mc);
     void accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
     auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
