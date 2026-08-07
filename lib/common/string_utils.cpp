@@ -47,17 +47,6 @@ namespace mistral::utils
     return result;
   }
 
-  // Check if string starts with prefix
-  bool starts_with(const std::string& s, const std::string& prefix)
-  {
-    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
-  }
-
-  // Check if string ends with suffix
-  bool ends_with(const std::string& s, const std::string& suffix)
-  {
-    return s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix;
-  }
 
   // Escape special regex characters
   std::string escape_regex(const std::string& s)

@@ -17,12 +17,6 @@ namespace mistral::utils
   // Convert to lowercase
   std::string to_lower(const std::string& s);
 
-  // Check if string starts with prefix
-  bool starts_with(const std::string& s, const std::string& prefix);
-
-  // Check if string ends with suffix
-  bool ends_with(const std::string& s, const std::string& suffix);
-
   // Escape special regex characters
   std::string escape_regex(const std::string& s);
 
