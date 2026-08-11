@@ -36,13 +36,12 @@ namespace mistral::agent
       return std::string_view::npos;
     }
 
-    // Check if there's a code fence marker (```) at the given position
+    // Check if there's a code fence marker at the given position
+    // Edit blocks use 5 backticks to allow nested 3-backtick code blocks
+    constexpr std::string_view CODE_FENCE = "`````";
     bool is_fence_marker(std::string_view content, size_t pos)
     {
-      return pos + 2 < content.length() &&
-             content[pos] == '`' &&
-             content[pos + 1] == '`' &&
-             content[pos + 2] == '`';
+      return content.compare(pos, CODE_FENCE.length(), CODE_FENCE) == 0;
     }
 
     // Extract text between start_marker_end and end_marker_start
@@ -117,7 +116,7 @@ namespace mistral::agent
       return std::nullopt;
     }
 
-    size_t replace_start = find_marker(code_block_content, REPLACE_MARKER, separator_pos);
+    size_t replace_start = code_block_content.rfind(REPLACE_MARKER);
     if (replace_start == std::string_view::npos) {
       return std::nullopt;
     }
@@ -194,7 +193,7 @@ namespace mistral::agent
         continue;
       }
 
-      // Check if next non-empty line starts with code block marker (```)
+      // Check if next non-empty line starts with code block marker
       // Must be on the immediate next line (or after skipping only whitespace)
       size_t search_start = file_path_end;
       // Skip any newlines and whitespace between file path and code block
@@ -208,16 +207,9 @@ namespace mistral::agent
       }
       size_t code_block_start = search_start;
 
-      // Find the end of the code block (matching ```)
-      // Code block can have optional language specifier: ```cpp or ```cpp\n      // To handle nested markdown code blocks, find the closing ``` AFTER the REPLACE marker
-      size_t replace_marker_pos = find_marker(input, REPLACE_MARKER, code_block_start);
-      if (replace_marker_pos == std::string_view::npos) {
-        // No REPLACE marker found - invalid edit block, skip
-        pos = file_path_end + 1;
-        continue;
-      }
-
-      size_t code_block_end = input.find("```", replace_marker_pos + REPLACE_MARKER.length());
+      // Find the end of the code block (matching fence)
+      // Edit blocks use 5 backticks, so we look for the next occurrence
+      size_t code_block_end = input.find(CODE_FENCE, code_block_start + CODE_FENCE.length());
       if (code_block_end == std::string_view::npos)
       {
         // No closing code block marker after REPLACE, skip
@@ -225,8 +217,8 @@ namespace mistral::agent
         continue;
       }
 
-      // Extract code block content (between the opening and closing ```)
-      size_t content_start = code_block_start + 3; // Skip opening ```
+      // Extract code block content (between the opening and closing fence)
+      size_t content_start = code_block_start + CODE_FENCE.length(); // Skip opening fence
       // Skip language specifier if present
       if (content_start < code_block_end)
       {

@@ -25,13 +25,13 @@ TEST_CASE("patchset parsing - patchset with tool call")
         "Here are the changes (patchset: test-patchset):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "old_code\n"
         "=======\n"
         "new_code\n"
         ">>>>>>> REPLACE\n"
-        "```\n"
+        "`````\n"
         "\n"
         "patchset_validate(patchset_id=\"test-patchset\")";
 
@@ -68,23 +68,23 @@ TEST_CASE("patchset parsing - multiple edits with tool call")
         "Here are the changes (patchset: multi-edit):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```\n"
+        "`````\n"
         "\n"
         "src/utils.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "helper()\n"
         "=======\n"
         "fixed_helper()\n"
         ">>>>>>> REPLACE\n"
-        "```\n"
+        "`````\n"
         "\n"
         "patchset_apply(patchset_id=\"multi-edit\")";
 
@@ -133,13 +133,13 @@ TEST_CASE("patchset parsing - patchset without tool call")
         "Here are the changes (patchset: final-answer):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "old\n"
         "=======\n"
         "new\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
     auto parse_result = parse_edits_with_patchset(accumulated_text);
     REQUIRE(parse_result.has_value());

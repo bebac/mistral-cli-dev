@@ -223,14 +223,14 @@ namespace mistral::agent
         "Here are the changes (patchset: my-patchset-id):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -248,23 +248,23 @@ namespace mistral::agent
         "Here are the changes (patchset: multi-edit):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```\n"
+        "`````\n"
         "\n"
         "lib/utils.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "void foo() {}\n"
         "=======\n"
         "void foo() { return 42; }\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -282,14 +282,14 @@ namespace mistral::agent
         "Here are the changes:\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       CHECK(!result.has_value());
@@ -312,13 +312,13 @@ namespace mistral::agent
         "Here are the changes (patchset: new-file):\n"
         "\n"
         "new_file.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "=======\n"
         "// New file content\n"
         "int main() { return 0; }\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -336,13 +336,13 @@ namespace mistral::agent
         "Here are the changes (patchset: spaced-path):\n"
         "\n"
         "src/my file.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "old\n"
         "=======\n"
         "new\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -358,14 +358,14 @@ namespace mistral::agent
         "Here are the changes (patchset: no-lang):\n"
         "\n"
         "src/main.cpp\n"
-        "```\n"
+        "`````\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -391,7 +391,7 @@ namespace mistral::agent
       auto result = parse_edit_block("src/main.cpp", content);
       REQUIRE(result.has_value());
       CHECK(result->search_text == "<<<<<<< SEARCH");
-      CHECK(result->replace_text == "=======");
+      CHECK(result->replace_text == "=======\n>>>>>>> REPLACE");
     }
 
     TEST_CASE("parse_edit_block - with nested code blocks")
@@ -401,7 +401,7 @@ namespace mistral::agent
         "Here are the changes (patchset: nested-fence-patches):\n"
         "\n"
         "README.md\n"
-        "```markdown\n"
+        "`````markdown\n"
         "<<<<<<< SEARCH\n"
         "```sh\n"
         "x = 1;\n"
@@ -413,7 +413,7 @@ namespace mistral::agent
         "\n"
         "y = 0;\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -430,23 +430,23 @@ namespace mistral::agent
         "Here are the changes (patchset: numbered-patches):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "#include <iostream>\n"
         "=======\n"
         "#include <iostream>\n"
         "#include <vector>\n"
         ">>>>>>> REPLACE\n"
-        "```\n"
+        "`````\n"
         "\n"
         "src/utils.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "helper()\n"
         "=======\n"
         "fixed_helper()\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
@@ -467,18 +467,43 @@ namespace mistral::agent
         "Here are the changes (patchset: single-edit):\n"
         "\n"
         "src/main.cpp\n"
-        "```cpp\n"
+        "`````cpp\n"
         "<<<<<<< SEARCH\n"
         "old\n"
         "=======\n"
         "new\n"
         ">>>>>>> REPLACE\n"
-        "```";
+        "`````";
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());
       REQUIRE(result->second.size() == 1);
       CHECK(result->second[0].patch_number == 1);
+    }
+
+    TEST_CASE("parse_edits_with_patchset - nested replace markers")
+    {
+      std::string input =
+        "Here are the changes (patchset: nested-replace-markers):\n"
+        "\n"
+        "src/main.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        ".\n"
+        "=======\n"
+        "```\n"
+        ">>>>>>> REPLACE\n"
+        "```\n"
+        "test\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[0].search_text == ".");
+      CHECK(result->second[0].replace_text == "```\n>>>>>>> REPLACE\n```\ntest");
     }
 
     TEST_SUITE_END();
