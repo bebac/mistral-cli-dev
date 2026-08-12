@@ -11,7 +11,7 @@
 #include <vector>
 #include <array>
 #include <chrono>
-#include <thread>
+#include <dripcore/sleep_awaiter.h>
 
 namespace fs = std::filesystem;
 
@@ -65,8 +65,12 @@ namespace mistral::tools
       ~child_process_guard() {
         if (pid_ > 0) {
           kill(pid_, SIGKILL);
+          // Non-blocking reap attempt. If the child doesn't die immediately
+          // (e.g., stuck in uninterruptible I/O / D-state), we leave it
+          // rather than blocking the event loop. It will be reaped by init
+          // eventually.
           int status;
-          waitpid(pid_, &status, 0);
+          waitpid(pid_, &status, WNOHANG);
         }
       }
       pid_t get() const { return pid_; }
@@ -285,6 +289,9 @@ namespace mistral::tools
         // Child exited normally
         final_status = status;
         child_exited_normally = true;
+        // Child is already reaped — release the guard so the destructor
+        // doesn't send SIGKILL to a potentially recycled pid.
+        child_guard.release();
         break;
       } else if (waited == -1) {
         // Error
@@ -306,8 +313,13 @@ namespace mistral::tools
         break;
       }
 
-      // Small sleep to prevent busy-waiting
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      // Yield to the event loop for 10ms to prevent busy-waiting
+      // without blocking other dripcore tasks.
+      co_await dripcore::sleep_awaiter{
+        dripcore::executor::current(),
+        nullptr,
+        std::chrono::milliseconds(10)
+      };
     }
 
     // Clean up read ends of pipes
