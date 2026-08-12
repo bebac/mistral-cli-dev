@@ -44,6 +44,95 @@ namespace mistral::agent
       return content.compare(pos, CODE_FENCE.length(), CODE_FENCE) == 0;
     }
 
+    // Find the last occurrence of a marker at line start, searching backwards
+    // from end_pos. Returns the position or std::string_view::npos if not found.
+    size_t rfind_marker(std::string_view content, std::string_view marker, size_t end_pos)
+    {
+      if (end_pos > content.length()) {
+        end_pos = content.length();
+      }
+      size_t pos = content.rfind(marker, end_pos);
+      while (pos != std::string_view::npos)
+      {
+        if (pos == 0 || content[pos - 1] == '\n')
+        {
+          size_t marker_end = pos + marker.length();
+          if (marker_end == content.length() || content[marker_end] == '\n')
+          {
+            return pos;
+          }
+        }
+        if (pos == 0) {
+          break;
+        }
+        pos = content.rfind(marker, pos - 1);
+      }
+      return std::string_view::npos;
+    }
+
+    // Find the closing code fence for an edit block starting at code_block_start.
+    // The closing fence is a CODE_FENCE at line start that is immediately preceded
+    // (ignoring whitespace/newlines) by a REPLACE_MARKER at line start, where that
+    // REPLACE_MARKER is not inside a nested CODE_FENCE block.
+    // This correctly handles both nested 5-backtick fences and literal REPLACE markers
+    // inside the search/replace content.
+    size_t find_closing_fence(std::string_view input, size_t code_block_start)
+    {
+      size_t search_from = code_block_start + CODE_FENCE.length();
+      while (true)
+      {
+        size_t fence_pos = input.find(CODE_FENCE, search_from);
+        if (fence_pos == std::string_view::npos) {
+          return std::string_view::npos;
+        }
+        // Check that the fence is at line start
+        if (fence_pos == 0 || input[fence_pos - 1] == '\n')
+        {
+          // Search backwards for the last REPLACE marker at line start before this fence
+          size_t replace_pos = rfind_marker(input, REPLACE_MARKER, fence_pos);
+          if (replace_pos != std::string_view::npos && replace_pos > code_block_start)
+          {
+            // Check that there's only whitespace/newlines between REPLACE and the fence
+            size_t after_replace = replace_pos + REPLACE_MARKER.length();
+            bool only_whitespace = true;
+            for (size_t i = after_replace; i < fence_pos; ++i)
+            {
+              if (input[i] != '\n' && input[i] != ' ' && input[i] != '\t' && input[i] != '\r')
+              {
+                only_whitespace = false;
+                break;
+              }
+            }
+            if (only_whitespace)
+            {
+              // Verify this REPLACE is not inside a nested CODE_FENCE block.
+              // Count CODE_FENCE markers at line start between the opening fence and REPLACE.
+              // If odd, the REPLACE is inside a nested block and should be skipped.
+              int fence_depth = 0;
+              size_t scan = code_block_start + CODE_FENCE.length();
+              while (scan < replace_pos)
+              {
+                size_t nf = input.find(CODE_FENCE, scan);
+                if (nf == std::string_view::npos || nf >= replace_pos) {
+                  break;
+                }
+                if (nf == 0 || input[nf - 1] == '\n')
+                {
+                  fence_depth++;
+                }
+                scan = nf + CODE_FENCE.length();
+              }
+              if (fence_depth % 2 == 0)
+              {
+                return fence_pos;
+              }
+            }
+          }
+        }
+        search_from = fence_pos + CODE_FENCE.length();
+      }
+    }
+
     // Extract text between start_marker_end and end_marker_start
     // Handles empty content (for new file creation)
     std::string extract_between_markers(size_t start_pos, size_t end_pos, std::string_view content)
@@ -207,12 +296,13 @@ namespace mistral::agent
       }
       size_t code_block_start = search_start;
 
-      // Find the end of the code block (matching fence)
-      // Edit blocks use 5 backticks, so we look for the next occurrence
-      size_t code_block_end = input.find(CODE_FENCE, code_block_start + CODE_FENCE.length());
+      // Find the closing code fence for this edit block.
+      // This handles nested code fences inside the search/replace content
+      // (e.g., when editing a markdown file that itself documents patchset format).
+      size_t code_block_end = find_closing_fence(input, code_block_start);
       if (code_block_end == std::string_view::npos)
       {
-        // No closing code block marker after REPLACE, skip
+        // No closing code block marker found, skip
         pos = file_path_end + 1;
         continue;
       }
@@ -243,7 +333,7 @@ namespace mistral::agent
       }
 
       // Move past this code block
-      pos = code_block_end + 3;
+      pos = code_block_end + CODE_FENCE.length();
     }
 
     if (edits.empty()) {

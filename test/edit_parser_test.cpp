@@ -506,6 +506,55 @@ namespace mistral::agent
       CHECK(result->second[0].replace_text == "```\n>>>>>>> REPLACE\n```\ntest");
     }
 
+    TEST_CASE("parse_edits_with_patchset - nested 5-backtick fences in replace text")
+    {
+      // When the replace text contains 5-backtick code fences (e.g., editing
+      // a markdown file that documents patchset format), the parser must find
+      // the real closing fence after the REPLACE marker, not a nested one.
+      std::string input =
+        "Here are the changes (patchset: nested-fences):\n"
+        "\n"
+        "doc/examples.md\n"
+        "`````markdown\n"
+        "<<<<<<< SEARCH\n"
+        "### Edit Types\n"
+        "- old line\n"
+        "=======\n"
+        "### Edit Types\n"
+        "\n"
+        "**1. Edit existing file**:\n"
+        "\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "`````\n"
+        "\n"
+        "**2. Create new file**:\n"
+        "\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "=======\n"
+        "new content\n"
+        ">>>>>>> REPLACE\n"
+        "`````\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "nested-fences");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "doc/examples.md");
+      CHECK(result->second[0].search_text == "### Edit Types\n- old line");
+      // The replace text should contain all the nested content including
+      // the 5-backtick fences and inner SEARCH/REPLACE markers
+      CHECK(result->second[0].replace_text.find("**1. Edit existing file**") != std::string::npos);
+      CHECK(result->second[0].replace_text.find("**2. Create new file**") != std::string::npos);
+    }
+
     TEST_SUITE_END();
   } // namespace test
 } // namespace mistral::agent
