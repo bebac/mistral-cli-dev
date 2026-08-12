@@ -557,8 +557,9 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_clear",
-      "Clear the current stored patchset.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_clear
+      "Clear a stored patchset.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_clear,
+      arg("patchset_id", "The unique identifier of the patchset to clear")
     );
   }
 
@@ -811,10 +812,22 @@ namespace mistral::agent
     return std::nullopt;
   }
 
-  // Clear the current patchset
-  void agent_system::remove_patchset()
+  // Remove a stored patchset by ID
+  void agent_system::remove_patchset(const std::string& patchset_id)
   {
-    current_patchset_.reset();
+    if (current_patchset_ && current_patchset_->patchset_id == patchset_id)
+    {
+      current_patchset_.reset();
+    }
+  }
+
+  // Mark a patchset as applied
+  void agent_system::mark_applied(const std::string& patchset_id)
+  {
+    if (current_patchset_ && current_patchset_->patchset_id == patchset_id)
+    {
+      current_patchset_->applied = true;
+    }
   }
 
   // Check if a patchset is currently stored

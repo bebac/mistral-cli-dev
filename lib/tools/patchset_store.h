@@ -18,7 +18,8 @@ namespace mistral::agent
 
     virtual void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits) = 0;
     virtual std::optional<patchset_t> get_patchset(const std::string& patchset_id) const = 0;
-    virtual void remove_patchset() = 0;
+    virtual void remove_patchset(const std::string& patchset_id) = 0;
+    virtual void mark_applied(const std::string& patchset_id) = 0;
   };
 } // namespace mistral::agent
 

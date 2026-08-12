@@ -28,23 +28,40 @@ namespace mistral::agent
       );
     }
 
-    // 2. Validate all edits (dry run)
+    // 2. Check if already applied
+    if (patchset->applied)
+    {
+      return make_error_response(
+        "already_applied",
+        "Patchset '" + patchset_id + "' has already been applied"
+      );
+    }
+
+    // 3. Validate all edits (dry run)
     auto validation_result = validate_all_edits(patchset->edits);
 
     if (validation_result.all_valid())
     {
-      // 3. All valid - apply all edits
-      return apply_validated_edits(patchset->edits);
+      // 4. All valid - apply all edits
+      auto result = apply_validated_edits(patchset->edits);
+
+      // 5. Mark patchset as applied if all edits succeeded
+      if (result["status"] == "success" && result["failed"].get<int>() == 0)
+      {
+        store_.mark_applied(patchset_id);
+      }
+
+      return result;
     }
 
-    // 4. Validation failed
+    // 6. Validation failed
     if (validation_result.fixable_error_count() > 0)
     {
       // Try automatic correction via patchfixer subagent
       return attempt_automatic_correction(patchset_id, patchset->edits, validation_result);
     }
 
-    // 5. Non-fixable errors - return validation failure
+    // 7. Non-fixable errors - return validation failure
     return make_validation_failure_response(patchset_id, validation_result);
   }
 
@@ -134,6 +151,15 @@ namespace mistral::agent
       );
     }
 
+    // Check if already applied
+    if (patchset->applied)
+    {
+      return make_error_response(
+        "already_applied",
+        "Patchset '" + patchset_id + "' has already been applied"
+      );
+    }
+
     // Find the edit with the matching patch_number
     for (auto &edit : patchset->edits)
     {
@@ -167,9 +193,18 @@ namespace mistral::agent
     );
   }
 
-  json patchset_tools::patchset_clear()
+  json patchset_tools::patchset_clear(std::string patchset_id)
   {
-    store_.remove_patchset();
+    auto patchset = store_.get_patchset(patchset_id);
+    if (!patchset)
+    {
+      return make_error_response(
+        "patchset_not_found",
+        "No patchset with ID: " + patchset_id
+      );
+    }
+
+    store_.remove_patchset(patchset_id);
     return json{{"status", "success"}};
   }
 

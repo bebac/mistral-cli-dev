@@ -36,6 +36,7 @@ namespace mistral::agent
   {
     std::string patchset_id;
     std::vector<file_edit_t> edits;
+    bool applied = false;
   };
 
   // Result of validating multiple file_edit_t objects

@@ -38,8 +38,8 @@ namespace mistral::agent
       std::optional<std::string> replace_text = std::nullopt
     );
 
-    // Clear the current patchset
-    json patchset_clear();
+    // Clear a stored patchset
+    json patchset_clear(std::string patchset_id);
 
   private:
     // Helper methods

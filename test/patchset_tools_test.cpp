@@ -30,9 +30,20 @@ namespace mistral::agent
         return std::nullopt;
       }
 
-      void remove_patchset() override
+      void remove_patchset(const std::string& patchset_id) override
       {
-        stored_.reset();
+        if (stored_ && stored_->patchset_id == patchset_id)
+        {
+          stored_.reset();
+        }
+      }
+
+      void mark_applied(const std::string& patchset_id) override
+      {
+        if (stored_ && stored_->patchset_id == patchset_id)
+        {
+          stored_->applied = true;
+        }
       }
 
       bool has_patchset() const
@@ -485,7 +496,7 @@ namespace mistral::agent
     store.store_patchset("clear1", {edit});
     CHECK(store.has_patchset());
 
-    auto result = tools.patchset_clear();
+    auto result = tools.patchset_clear("clear1");
     CHECK(result["status"] == "success");
     CHECK(!store.has_patchset());
   }
@@ -499,11 +510,66 @@ namespace mistral::agent
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("clear2", {edit});
 
-    tools.patchset_clear();
+    tools.patchset_clear("clear2");
 
     auto result = tools.patchset_get("clear2");
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "patchset_not_found");
+  }
+
+  TEST_CASE("patchset_clear - non-existing patchset")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    auto result = tools.patchset_clear("nonexistent");
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "patchset_not_found");
+  }
+
+  // ---- patchset_apply already_applied guard ----
+
+  TEST_CASE("patchset_apply - already applied returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("applied1", {edit});
+
+    // First apply should succeed
+    auto result1 = tools.patchset_apply("applied1");
+    CHECK(result1["status"] == "success");
+    CHECK(result1["applied"] == 1);
+
+    // Second apply should fail with already_applied
+    auto result2 = tools.patchset_apply("applied1");
+    CHECK(result2["status"] == "error");
+    CHECK(result2["error_type"] == "already_applied");
+  }
+
+  // ---- patchset_update already_applied guard ----
+
+  TEST_CASE("patchset_update - already applied returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("applied2", {edit});
+
+    // Apply the patchset first
+    auto apply_result = tools.patchset_apply("applied2");
+    CHECK(apply_result["status"] == "success");
+
+    // Attempt to update should fail with already_applied
+    auto result = tools.patchset_update("applied2", 1, f.path(),
+      std::optional<std::string>("new_search"),
+      std::nullopt);
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "already_applied");
   }
 
   TEST_SUITE_END();

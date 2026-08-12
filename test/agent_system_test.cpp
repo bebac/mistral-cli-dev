@@ -736,7 +736,7 @@ TEST_CASE("patchset storage - store and retrieve single patchset")
     auto& agent_sys = mistral::agent::agent_system::instance();
 
     // Clear any existing patchset
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("test-patchset");
     CHECK(!agent_sys.has_patchset());
 
     // Create test edits
@@ -761,7 +761,7 @@ TEST_CASE("patchset storage - store and retrieve single patchset")
     CHECK(retrieved->edits[0].patch_number == 1);
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("test-patchset");
     CHECK(!agent_sys.has_patchset());
 }
 
@@ -793,7 +793,7 @@ TEST_CASE("patchset storage - overwrite previous patchset")
     CHECK(new_patchset->edits[0].file_path == "file2.cpp");
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("patchset-2");
 }
 
 TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
@@ -801,7 +801,7 @@ TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
     auto& agent_sys = mistral::agent::agent_system::instance();
 
     // Clear any existing patchset
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("existing-patchset");
 
     // Try to get non-existent patchset
     auto result = agent_sys.get_patchset("does-not-exist");
@@ -817,7 +817,7 @@ TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
     CHECK(!result.has_value());
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("existing-patchset");
 }
 
 TEST_CASE("patchset storage - get_current_patchset_id returns nullopt when empty")
@@ -825,7 +825,7 @@ TEST_CASE("patchset storage - get_current_patchset_id returns nullopt when empty
     auto& agent_sys = mistral::agent::agent_system::instance();
 
     // Clear any existing patchset
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("clear-empty");
 
     auto id = agent_sys.get_current_patchset_id();
     CHECK(!id.has_value());
@@ -836,7 +836,7 @@ TEST_CASE("patchset storage - multiple edits in patchset")
     auto& agent_sys = mistral::agent::agent_system::instance();
 
     // Clear any existing patchset
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("multi-edit");
 
     // Create patchset with multiple edits
     std::vector<mistral::agent::file_edit_t> edits;
@@ -854,7 +854,7 @@ TEST_CASE("patchset storage - multiple edits in patchset")
     CHECK(retrieved->edits[2].patch_number == 3);
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("multi-edit");
 }
 
 TEST_SUITE_END();

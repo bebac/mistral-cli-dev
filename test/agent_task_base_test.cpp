@@ -44,7 +44,7 @@ TEST_CASE("patchset parsing - patchset with tool call")
 
     // Store in agent_system
     auto& agent_sys = agent_system::instance();
-    agent_sys.remove_patchset(); // Clear first
+    agent_sys.remove_patchset("test-patchset"); // Clear first
     agent_sys.store_patchset(parse_result->first, parse_result->second);
 
     // Verify it's stored
@@ -59,7 +59,7 @@ TEST_CASE("patchset parsing - patchset with tool call")
     CHECK(retrieved->edits[0].file_path == "src/main.cpp");
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("test-patchset");
 }
 
 TEST_CASE("patchset parsing - multiple edits with tool call")
@@ -97,7 +97,7 @@ TEST_CASE("patchset parsing - multiple edits with tool call")
 
     // Store and verify
     auto& agent_sys = agent_system::instance();
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("multi-edit");
     agent_sys.store_patchset(parse_result->first, parse_result->second);
 
     auto retrieved = agent_sys.get_patchset("multi-edit");
@@ -107,7 +107,7 @@ TEST_CASE("patchset parsing - multiple edits with tool call")
     CHECK(retrieved->edits[1].file_path == "src/utils.cpp");
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("multi-edit");
 }
 
 TEST_CASE("patchset parsing - no patchset in response")
@@ -122,7 +122,7 @@ TEST_CASE("patchset parsing - no patchset in response")
 
     // agent_system should not have a patchset
     auto& agent_sys = agent_system::instance();
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("no-patchset");
     CHECK(!agent_sys.has_patchset());
 }
 
@@ -147,16 +147,15 @@ TEST_CASE("patchset parsing - patchset without tool call")
 
     // Store and verify
     auto& agent_sys = agent_system::instance();
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("final-answer");
     agent_sys.store_patchset(parse_result->first, parse_result->second);
 
     CHECK(agent_sys.has_patchset());
     CHECK(agent_sys.get_current_patchset_id() == "final-answer");
 
     // Clean up
-    agent_sys.remove_patchset();
+    agent_sys.remove_patchset("final-answer");
 }
 
 TEST_SUITE_END;
-
 } // namespace mistral::agent::test
