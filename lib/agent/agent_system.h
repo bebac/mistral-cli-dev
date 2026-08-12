@@ -11,6 +11,7 @@
 #include "agent/patchset_verify_command.h"
 #include "agent/tool_command.h"
 #include "agent/agent_system_stats_task.h"
+#include "tools/patchset_store.h"
 #include "agent/edit_types.h"
 #include "console/slash_command_registry.h"
 
@@ -40,7 +41,7 @@ namespace mistral::agent
 {
   // ---- Agent System Singleton ----
   // Provides shared resources, configuration access, and model management.
-  class agent_system
+  class agent_system : public patchset_store
   {
   public:
     static agent_system& instance();
@@ -107,10 +108,10 @@ namespace mistral::agent
     void reset_usage_stats();
 
     // Patchset storage - only one at a time (the latest)
-    void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits);
-    std::optional<patchset_t> get_patchset(const std::string& patchset_id) const;
+    void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override;
+    std::optional<patchset_t> get_patchset(const std::string& patchset_id) const override;
     std::optional<std::string> get_current_patchset_id() const;
-    void remove_patchset();
+    void remove_patchset() override;
     bool has_patchset() const;
 
     // Register built-in slash commands

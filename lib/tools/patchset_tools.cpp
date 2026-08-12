@@ -1,5 +1,4 @@
-#include "agent/patchset_tools.h"
-#include "agent/agent_system.h"
+#include "tools/patchset_tools.h"
 #include "agent/edit_validator.h"
 #include "agent/edit_parser.h"
 #include "agent/edit_types.h"
@@ -14,13 +13,13 @@ namespace mistral::agent
 {
   using json = nlohmann::ordered_json;
 
-  patchset_tools::patchset_tools(agent_system &agent_sys)
-    : agent_sys_(agent_sys) {}
+  patchset_tools::patchset_tools(patchset_store &store)
+    : store_(store) {}
 
   json patchset_tools::patchset_apply(std::string patchset_id)
   {
     // 1. Retrieve patchset from agent_system
-    auto patchset = agent_sys_.get_patchset(patchset_id);
+    auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
       return make_error_response(
@@ -51,7 +50,7 @@ namespace mistral::agent
 
   json patchset_tools::patchset_get(std::string patchset_id)
   {
-    auto patchset = agent_sys_.get_patchset(patchset_id);
+    auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
       return make_error_response(
@@ -81,7 +80,7 @@ namespace mistral::agent
 
   json patchset_tools::patchset_validate(std::string patchset_id)
   {
-    auto patchset = agent_sys_.get_patchset(patchset_id);
+    auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
       return make_error_response(
@@ -126,7 +125,7 @@ namespace mistral::agent
     std::optional<std::string> search_text,
     std::optional<std::string> replace_text)
   {
-    auto patchset = agent_sys_.get_patchset(patchset_id);
+    auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
       return make_error_response(
@@ -153,7 +152,7 @@ namespace mistral::agent
         // The edit's file_path remains unchanged
 
         // Re-store the updated patchset
-        agent_sys_.store_patchset(patchset_id, patchset->edits);
+        store_.store_patchset(patchset_id, patchset->edits);
         return json{
           {"status", "success"},
           {"patchset_id", patchset_id},
@@ -170,7 +169,7 @@ namespace mistral::agent
 
   json patchset_tools::patchset_clear()
   {
-    agent_sys_.remove_patchset();
+    store_.remove_patchset();
     return json{{"status", "success"}};
   }
 

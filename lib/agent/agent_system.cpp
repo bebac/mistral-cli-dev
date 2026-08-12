@@ -1,7 +1,7 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "agent/subagent_task.h"
-#include "agent/patchset_tools.h"
+#include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"

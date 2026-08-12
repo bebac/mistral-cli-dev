@@ -1,25 +1,22 @@
 #pragma once
 
+#include "tools/patchset_store.h"
+#include "agent/edit_types.h"
+
+#include <nlohmann/json.hpp>
+
 #include <string>
 #include <vector>
 #include <optional>
-
-#include <nlohmann/json.hpp>
 
 namespace mistral::agent
 {
   using json = nlohmann::ordered_json;
 
-  class agent_system;
-
-  struct file_edit_t;
-  struct patchset_t;
-  struct validation_result_t;
-
   class patchset_tools
   {
   public:
-    explicit patchset_tools(agent_system &agent_sys);
+    explicit patchset_tools(patchset_store &store);
 
     // Apply a stored patchset after validation
     // Automatically attempts correction via patchfixer subagent if validation fails with fixable errors
@@ -59,6 +56,6 @@ namespace mistral::agent
       const validation_result_t &validation
     );
 
-    agent_system &agent_sys_;
+    patchset_store &store_;
   };
 } // namespace mistral::agent
