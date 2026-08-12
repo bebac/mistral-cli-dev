@@ -50,6 +50,13 @@ namespace mistral::agent
     // Helper methods
     std::optional<std::pair<std::string, std::vector<file_edit_t>>>
       try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content);
+
+    // Parse edit blocks from accumulated content and append them to an
+    // ongoing (non-applied) patchset. Returns the patchset ID and full
+    // edit list if edits were appended, or std::nullopt if no edits
+    // were found or no ongoing patchset exists.
+    std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+      try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content);
     void accumulate_message_content(std::vector<api::message_content>& accumulated, api::message_content mc);
     void accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
     auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;

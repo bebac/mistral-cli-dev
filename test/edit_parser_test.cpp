@@ -555,6 +555,93 @@ namespace mistral::agent
       CHECK(result->second[0].replace_text.find("**2. Create new file**") != std::string::npos);
     }
 
+    TEST_CASE("parse_edit_blocks - basic case without patchset ID")
+    {
+      std::string input =
+        "Now I need to update the test files.\n"
+        "\n"
+        "src/main.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edit_blocks(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->size() == 1);
+      CHECK((*result)[0].file_path == "src/main.cpp");
+      CHECK((*result)[0].search_text == "old");
+      CHECK((*result)[0].replace_text == "new");
+      CHECK((*result)[0].patch_number == 1);
+    }
+
+    TEST_CASE("parse_edit_blocks - multiple edits without patchset ID")
+    {
+      std::string input =
+        "Here are the remaining changes.\n"
+        "\n"
+        "src/main.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old1\n"
+        "=======\n"
+        "new1\n"
+        ">>>>>>> REPLACE\n"
+        "`````\n"
+        "\n"
+        "src/utils.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old2\n"
+        "=======\n"
+        "new2\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edit_blocks(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->size() == 2);
+      CHECK((*result)[0].file_path == "src/main.cpp");
+      CHECK((*result)[0].patch_number == 1);
+      CHECK((*result)[1].file_path == "src/utils.cpp");
+      CHECK((*result)[1].patch_number == 2);
+    }
+
+    TEST_CASE("parse_edit_blocks - no edit blocks returns nullopt")
+    {
+      std::string input =
+        "This is just a regular response without any edit blocks.\n"
+        "Nothing to see here.";
+
+      auto result = parse_edit_blocks(input);
+      CHECK(!result.has_value());
+    }
+
+    TEST_CASE("parse_edit_blocks - works with patchset ID present")
+    {
+      // parse_edit_blocks should also work when a patchset ID is present,
+      // it simply ignores the marker and parses the edit blocks.
+      std::string input =
+        "Here are the changes (patchset: my-id):\n"
+        "\n"
+        "src/main.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edit_blocks(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->size() == 1);
+      CHECK((*result)[0].file_path == "src/main.cpp");
+    }
+
     TEST_SUITE_END();
   } // namespace test
 } // namespace mistral::agent

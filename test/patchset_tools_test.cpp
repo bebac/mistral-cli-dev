@@ -21,6 +21,24 @@ namespace mistral::agent
         stored_ = patchset_t{patchset_id, edits};
       }
 
+      void append_edits(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override
+      {
+        if (stored_ && stored_->patchset_id == patchset_id && !stored_->applied)
+        {
+          size_t next_patch_number = stored_->edits.size();
+          for (const auto& edit : edits)
+          {
+            auto numbered_edit = edit;
+            numbered_edit.patch_number = ++next_patch_number;
+            stored_->edits.push_back(numbered_edit);
+          }
+        }
+        else
+        {
+          stored_ = patchset_t{patchset_id, edits};
+        }
+      }
+
       std::optional<patchset_t> get_patchset(const std::string& patchset_id) const override
       {
         if (stored_ && stored_->patchset_id == patchset_id)
@@ -570,6 +588,99 @@ namespace mistral::agent
       std::nullopt);
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "already_applied");
+  }
+
+  // ---- append_edits ----
+
+  TEST_CASE("append_edits - appends to existing non-applied patchset")
+  {
+    mock_patchset_store store;
+    temp_file f1("hello world");
+    temp_file f2("foo bar");
+    auto edit1 = make_edit(f1.path(), "hello", "goodbye", 1);
+    auto edit2 = make_edit(f2.path(), "foo", "baz", 2);
+
+    store.store_patchset("append-test", {edit1});
+
+    // Append second edit
+    store.append_edits("append-test", {edit2});
+
+    auto retrieved = store.get_patchset("append-test");
+    REQUIRE(retrieved.has_value());
+    CHECK(retrieved->edits.size() == 2);
+    CHECK(retrieved->edits[0].patch_number == 1);
+    CHECK(retrieved->edits[1].patch_number == 2);
+    CHECK(retrieved->edits[1].file_path == f2.path());
+  }
+
+  TEST_CASE("append_edits - creates new patchset when ID does not match")
+  {
+    mock_patchset_store store;
+    temp_file f1("hello world");
+    temp_file f2("foo bar");
+    auto edit1 = make_edit(f1.path(), "hello", "goodbye", 1);
+    auto edit2 = make_edit(f2.path(), "foo", "baz", 2);
+
+    store.store_patchset("original", {edit1});
+
+    // Append with different ID should create new patchset
+    store.append_edits("different-id", {edit2});
+
+    // Original should be replaced
+    CHECK(!store.get_patchset("original").has_value());
+    auto retrieved = store.get_patchset("different-id");
+    REQUIRE(retrieved.has_value());
+    CHECK(retrieved->edits.size() == 1);
+    CHECK(retrieved->edits[0].file_path == f2.path());
+  }
+
+  TEST_CASE("append_edits - does not append to applied patchset")
+  {
+    mock_patchset_store store;
+    temp_file f1("hello world");
+    temp_file f2("foo bar");
+    auto edit1 = make_edit(f1.path(), "hello", "goodbye", 1);
+    auto edit2 = make_edit(f2.path(), "foo", "baz", 2);
+
+    store.store_patchset("applied-test", {edit1});
+    store.mark_applied("applied-test");
+
+    // Append should create new patchset since existing is applied
+    store.append_edits("applied-test", {edit2});
+
+    auto retrieved = store.get_patchset("applied-test");
+    REQUIRE(retrieved.has_value());
+    // Should have been overwritten, not appended
+    CHECK(retrieved->edits.size() == 1);
+    CHECK(retrieved->edits[0].file_path == f2.path());
+    CHECK(!retrieved->applied);
+  }
+
+  TEST_CASE("append_edits - continues patch numbering correctly")
+  {
+    mock_patchset_store store;
+    temp_file f1("a");
+    temp_file f2("b");
+    temp_file f3("c");
+
+    auto edit1 = make_edit(f1.path(), "a", "x", 1);
+    auto edit2 = make_edit(f2.path(), "b", "y", 2);
+    auto edit3 = make_edit(f3.path(), "c", "z", 3);
+
+    // Store with 2 edits
+    store.store_patchset("numbering", {edit1, edit2});
+
+    // Append 1 more edit (patch_number in the input doesn't matter,
+    // append_edits should renumber)
+    store.append_edits("numbering", {edit3});
+
+    auto retrieved = store.get_patchset("numbering");
+    REQUIRE(retrieved.has_value());
+    CHECK(retrieved->edits.size() == 3);
+    CHECK(retrieved->edits[0].patch_number == 1);
+    CHECK(retrieved->edits[1].patch_number == 2);
+    CHECK(retrieved->edits[2].patch_number == 3);
+    CHECK(retrieved->edits[2].file_path == f3.path());
   }
 
   TEST_SUITE_END();

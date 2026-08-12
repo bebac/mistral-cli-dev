@@ -794,6 +794,26 @@ namespace mistral::agent
     current_patchset_ = patchset_t{patchset_id, edits};
   }
 
+  // Append edits to an existing non-applied patchset with matching ID.
+  // If no matching patchset exists, stores as a new patchset.
+  void agent_system::append_edits(const std::string& patchset_id, const std::vector<file_edit_t>& edits)
+  {
+    if (current_patchset_ && current_patchset_->patchset_id == patchset_id && !current_patchset_->applied)
+    {
+      size_t next_patch_number = current_patchset_->edits.size();
+      for (const auto& edit : edits)
+      {
+        auto numbered_edit = edit;
+        numbered_edit.patch_number = ++next_patch_number;
+        current_patchset_->edits.push_back(numbered_edit);
+      }
+    }
+    else
+    {
+      store_patchset(patchset_id, edits);
+    }
+  }
+
   // Retrieve a stored patchset by ID
   std::optional<patchset_t> agent_system::get_patchset(const std::string& patchset_id) const
   {

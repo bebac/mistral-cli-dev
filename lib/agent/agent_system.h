@@ -109,6 +109,7 @@ namespace mistral::agent
 
     // Patchset storage - only one at a time (the latest)
     void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override;
+    void append_edits(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override;
     std::optional<patchset_t> get_patchset(const std::string& patchset_id) const override;
     std::optional<std::string> get_current_patchset_id() const;
     void remove_patchset(const std::string& patchset_id) override;

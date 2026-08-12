@@ -235,15 +235,9 @@ namespace mistral::agent
     };
   }
 
-  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
-  parse_edits_with_patchset(std::string_view input)
+  std::optional<std::vector<file_edit_t>>
+  parse_edit_blocks(std::string_view input)
   {
-    // Extract patchset ID
-    auto patchset_id = extract_patchset_id(input);
-    if (!patchset_id) {
-      return std::nullopt;
-    }
-
     std::vector<file_edit_t> edits;
     size_t pos = 0;
     size_t input_len = input.length();
@@ -340,6 +334,23 @@ namespace mistral::agent
       return std::nullopt;
     }
 
-    return std::make_pair(*patchset_id, edits);
+    return edits;
+  }
+
+  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+  parse_edits_with_patchset(std::string_view input)
+  {
+    // Extract patchset ID
+    auto patchset_id = extract_patchset_id(input);
+    if (!patchset_id) {
+      return std::nullopt;
+    }
+
+    auto edits = parse_edit_blocks(input);
+    if (!edits) {
+      return std::nullopt;
+    }
+
+    return std::make_pair(*patchset_id, std::move(*edits));
   }
 } // namespace mistral::agent

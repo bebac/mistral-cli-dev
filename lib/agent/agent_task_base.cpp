@@ -134,7 +134,12 @@ namespace mistral::agent
       if (!accumulated_tool_calls.empty())
       {
         // PARSE AND STORE PATCHSET FROM accumulated_content BEFORE tool execution
-        try_parse_and_store_patchset(accumulated_content);
+        if (!try_parse_and_store_patchset(accumulated_content))
+        {
+          // No patchset ID marker found — try to parse edit blocks and
+          // append to an ongoing patchset (supports interleaved tool calls).
+          try_parse_and_append_edits(accumulated_content);
+        }
 
         // Add assistant message with accumulated content and tool calls.
         chat_.add_assistant_message(
@@ -152,7 +157,12 @@ namespace mistral::agent
         // Final text response.
         if (!accumulated_content.empty()) {
           // PARSE AND STORE PATCHSET FROM accumulated_content
-          try_parse_and_store_patchset(accumulated_content);
+          if (!try_parse_and_store_patchset(accumulated_content))
+          {
+            // No patchset ID marker found — try to parse edit blocks and
+            // append to an ongoing patchset (supports interleaved tool calls).
+            try_parse_and_append_edits(accumulated_content);
+          }
 
           chat_.add_assistant_message(std::move(accumulated_content));
         }
@@ -203,12 +213,74 @@ namespace mistral::agent
 
     auto parse_result = parse_edits_with_patchset(accumulated_text);
     if (parse_result) {
-      agent_system::instance().store_patchset(
-        parse_result->first,
-        parse_result->second
-      );
+      auto& sys = agent_system::instance();
+      // If a non-applied patchset with the same ID already exists, append
+      // to it instead of overwriting. This supports interleaved tool calls
+      // during patchset emission.
+      auto existing = sys.get_patchset(parse_result->first);
+      if (existing && !existing->applied)
+      {
+        sys.append_edits(parse_result->first, parse_result->second);
+        // Return the full merged edit list
+        auto merged = sys.get_patchset(parse_result->first);
+        if (merged) {
+          return std::make_pair(merged->patchset_id, merged->edits);
+        }
+      }
+      else
+      {
+        sys.store_patchset(parse_result->first, parse_result->second);
+      }
     }
     return parse_result;
+  }
+
+  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+  agent_task_base::try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content)
+  {
+    // Pre-allocate string to avoid reallocations
+    size_t total_size = 0;
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        total_size += mc.content.size();
+      }
+    }
+
+    std::string accumulated_text;
+    accumulated_text.reserve(total_size);
+
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        accumulated_text += mc.content;
+      }
+    }
+
+    // Try to parse edit blocks without requiring a patchset ID marker
+    auto edits = parse_edit_blocks(accumulated_text);
+    if (!edits) {
+      return std::nullopt;
+    }
+
+    // Only append if there's an ongoing non-applied patchset
+    auto& sys = agent_system::instance();
+    auto current_id = sys.get_current_patchset_id();
+    if (!current_id) {
+      return std::nullopt;
+    }
+
+    auto existing = sys.get_patchset(*current_id);
+    if (!existing || existing->applied) {
+      return std::nullopt;
+    }
+
+    sys.append_edits(*current_id, *edits);
+
+    // Return the full merged edit list
+    auto merged = sys.get_patchset(*current_id);
+    if (merged) {
+      return std::make_pair(merged->patchset_id, merged->edits);
+    }
+    return std::nullopt;
   }
 
   void agent_task_base::accumulate_message_content(std::vector<api::message_content> &accumulated, api::message_content mc)

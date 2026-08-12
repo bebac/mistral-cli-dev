@@ -23,6 +23,11 @@ namespace mistral::agent
     std::string_view code_block_content
   );
 
+  // Parse edit blocks from text without requiring a patchset ID marker.
+  // Returns parsed edits or std::nullopt if no edit blocks are found.
+  std::optional<std::vector<file_edit_t>>
+    parse_edit_blocks(std::string_view input);
+
   // Parse AI response containing edit blocks and patchset ID
   // Returns pair of (patchset_id, vector<file_edit_t>) or std::nullopt if parsing fails
   std::optional<std::pair<std::string, std::vector<file_edit_t>>>
