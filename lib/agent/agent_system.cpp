@@ -773,7 +773,7 @@ namespace mistral::agent
     input_ch->try_send(message);
     input_ch->close();
 
-    auto response = co_await output_ch->recv();
+    auto response = co_await output_ch->recv(&task);
     if (!response) {
       co_return "Error: No response from subagent " + agent_id;
     }

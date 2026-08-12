@@ -6,6 +6,7 @@
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
+#include <dripcore/cancelled.h>
 
 #include <memory>
 
@@ -27,23 +28,34 @@ namespace mistral::net
   public:
     dripcore::task_handle execute()
     {
-      while (true) {
-        auto req = co_await request_ch_->recv();
+      try {
+        while (true) {
+          auto req = co_await request_ch_->recv(this);
 
-        // No request means we are shutting down
-        if (!req) {
-          event_ch_->try_send({coordinator_event_type::shutdown});
-          break;
+          // No request means we are shutting down
+          if (!req) {
+            event_ch_->try_send({coordinator_event_type::shutdown});
+            break;
+          }
+
+          // Create a completion channel for this request
+          auto completion_ch = std::make_shared<dripcore::channel<bool>>(1);
+
+          // Forward the request to the coordinator with completion notification
+          event_ch_->try_send({coordinator_event_type::new_request, std::move(req), {}, 0, completion_ch});
+
+          // Wait for the request to complete before accepting the next one
+          co_await completion_ch->recv(this);
         }
-
-        // Create a completion channel for this request
-        auto completion_ch = std::make_shared<dripcore::channel<bool>>(1);
-
-        // Forward the request to the coordinator with completion notification
-        event_ch_->try_send({coordinator_event_type::new_request, std::move(req), {}, 0, completion_ch});
-
-        // Wait for the request to complete before accepting the next one
-        co_await completion_ch->recv();
+      }
+      catch (const dripcore::cancelled&) {
+        // Task was cancelled, signal shutdown
+        std::cerr << "[http_request] task cancelled, shutting down" << std::endl;
+        event_ch_->try_send({coordinator_event_type::shutdown});
+      }
+      catch (const std::exception& e) {
+        std::cerr << "[http_request] exception: " << e.what() << std::endl;
+        event_ch_->try_send({coordinator_event_type::shutdown});
       }
 
       co_return;

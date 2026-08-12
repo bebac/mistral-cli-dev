@@ -23,7 +23,7 @@ namespace mistral::console
   {
     while (true)
     {
-      auto request = co_await cmd_request_ch_->recv();
+      auto request = co_await cmd_request_ch_->recv(this);
 
       if (!request) {
         break;

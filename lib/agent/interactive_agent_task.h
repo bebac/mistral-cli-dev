@@ -43,7 +43,7 @@ namespace mistral::agent
         }
 
         // Wait for user input.
-        auto input = co_await input_ch_->recv();
+        auto input = co_await input_ch_->recv(this);
 
         if (!input || input->empty()) {
           if (!input) break;  // Channel closed (EOF).
@@ -174,7 +174,7 @@ namespace mistral::agent
           }
 
           // Wait for single-character response
-          auto response = co_await input_ch_->recv();
+          auto response = co_await input_ch_->recv(this);
           if (!response) {
             // Handle EOF or channel closed
             std::cout << " → [CANCELLED] Approval prompt cancelled" << std::endl;
@@ -194,7 +194,7 @@ namespace mistral::agent
             }
 
             // Wait for next response
-            response = co_await input_ch_->recv();
+            response = co_await input_ch_->recv(this);
             if (!response) {
               std::cout << " → [CANCELLED] Approval prompt cancelled" << std::endl;
               co_return;
@@ -216,7 +216,7 @@ namespace mistral::agent
               prompt_ch_->try_send(message_prompt);
             }
 
-            auto message_response = co_await input_ch_->recv();
+            auto message_response = co_await input_ch_->recv(this);
             if (message_response && !message_response->empty()) {
               custom_message = *message_response;
             } else if (policy_result.rejection_message) {

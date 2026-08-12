@@ -65,7 +65,7 @@ namespace mistral::net
       // Process requests until channel closes.
       while (true)
       {
-        auto req = co_await request_ch_->recv();
+        auto req = co_await request_ch_->recv(this);
 
         // No request means we are shutting down.
         if (!req) break;

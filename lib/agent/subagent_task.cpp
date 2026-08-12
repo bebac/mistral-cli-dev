@@ -10,7 +10,7 @@ namespace mistral::agent
   {
     while (true)
     {
-      auto input = co_await input_ch_->recv();
+      auto input = co_await input_ch_->recv(this);
       if (!input) break;
 
       chat_.add_user_message(*input);

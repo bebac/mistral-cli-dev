@@ -13,6 +13,8 @@
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
 #include <dripcore/task_handle.h>
+#include <dripcore/cancelled.h>
+#include <dripcore/task_control.h>
 
 #include <http/headers.h>
 #include <http/stream.h>
@@ -57,36 +59,44 @@ namespace mistral::net
       spawn<http_request_task>(request_ch_, event_ch_);
 
       // Main event loop
-      while (true) {
-        auto evt = co_await event_ch_->recv();
-        if (!evt) break;  // Channel closed
+      try {
+        while (true) {
+          auto evt = co_await event_ch_->recv(this);
+          if (!evt) break;  // Channel closed
 
-        switch (evt->type) {
-          case coordinator_event_type::new_request:
-            handle_new_request(*evt->request, evt->completion_ch);
-            break;
+          switch (evt->type) {
+            case coordinator_event_type::new_request:
+              handle_new_request(*evt->request, evt->completion_ch);
+              break;
 
-          case coordinator_event_type::connection_closed:
-            handle_connection_closed();
-            break;
+            case coordinator_event_type::connection_closed:
+              handle_connection_closed();
+              break;
 
-          case coordinator_event_type::connection_error:
-            handle_connection_error(evt->error);
-            break;
+            case coordinator_event_type::connection_error:
+              handle_connection_error(evt->error);
+              break;
 
-          case coordinator_event_type::goaway_received:
-            handle_goaway(evt->last_stream_id, evt->error);
-            break;
+            case coordinator_event_type::goaway_received:
+              handle_goaway(evt->last_stream_id, evt->error);
+              break;
 
-          case coordinator_event_type::shutdown:
-            output_ready_ch_->close();
-            // Do a shutdown, this is currently the only way to wakeup http_read_task. Just
-            // doing a client_.reset() is not working as just closing the socket does not
-            // seem to produce a readable event (at least not on MacOS)
-            client_.shutdown();
-            co_return;
+            case coordinator_event_type::shutdown:
+              handle_shutdown();
+              co_return;
+          }
         }
       }
+      catch (const dripcore::cancelled&) {
+        // Task was cancelled, clean up gracefully
+        std::cerr << "[http_coordinator] task cancelled, shutting down" << std::endl;
+        handle_shutdown();
+      }
+      catch (const std::exception& e) {
+        std::cerr << "[http_coordinator] exception: " << e.what() << std::endl;
+        handle_shutdown();
+      }
+
       co_return;
     }
 
@@ -126,8 +136,8 @@ namespace mistral::net
           });
 
           // Spawn the I/O tasks only after connection is established
-          spawn<http_read_task>(std::ref(client_), event_ch_);
-          spawn<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
+          reader_task_ = spawn<http_read_task>(std::ref(client_), event_ch_);
+          writer_task_ = spawn<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
         }
         catch (const std::exception& e) {
           std::cerr << "[http_coordinator] connection failed: " << e.what() << std::endl;
@@ -267,12 +277,21 @@ namespace mistral::net
       client_.shutdown(); // Same reasinong as for coordinator_event_type::shutdown
     }
 
+    void handle_shutdown()
+    {
+      reader_task_.cancel();
+      writer_task_.cancel();
+    }
+
   private:
     std::string host_;
     int port_;
     std::string api_key_;
 
     http_client client_;
+
+    dripcore::task_control reader_task_;
+    dripcore::task_control writer_task_;
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<coordinator_event>> event_ch_;

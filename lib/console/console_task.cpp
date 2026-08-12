@@ -363,7 +363,7 @@ namespace mistral::console
     // Main loop: wait for prompt requests, relay input.
     while (true)
     {
-      auto prompt = co_await prompt_ch_->recv();
+      auto prompt = co_await prompt_ch_->recv(this);
       if (!prompt) break;  // Agent closed the prompt channel.
 
       // Check for approval marker
@@ -407,7 +407,7 @@ namespace mistral::console
 
         // Wait for response from executor task
         if (slash_cmd_response_ch_) {
-          auto response = co_await slash_cmd_response_ch_->recv();
+          auto response = co_await slash_cmd_response_ch_->recv(this);
           if (response) {
             std::cout << *response << std::endl;
           }

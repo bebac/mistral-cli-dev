@@ -13,7 +13,7 @@ namespace mistral::agent
   {
     while (true)
     {
-      auto msg = co_await stats_ch_->recv();
+      auto msg = co_await stats_ch_->recv(this);
       if (!msg)
       {
         break;

@@ -77,7 +77,7 @@ namespace mistral::agent
 
       while (true)
       {
-        auto evt = co_await response_ch_->recv();
+        auto evt = co_await response_ch_->recv(this);
 
         if (!evt) {
           final_answer = true;

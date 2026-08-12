@@ -9,6 +9,7 @@
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/cancelled.h>
 
 #include <openssl/err.h>
 
@@ -39,72 +40,90 @@ namespace mistral::net
     {
       auto& client = client_.get();
 
-      while (client.connected()) {
-        auto in = client.input_begin();
+      try {
+        while (client.connected()) {
+          auto in = client.input_begin();
 
-        if (in.empty()) {
-          // No input buffer available, wait for readable
-          co_await readable(client);
-          continue;
-        }
+          if (in.empty()) {
+            // No input buffer available, wait for readable
+            co_await readable(client);
+            continue;
+          }
 
-        int n = client.read(in);
+          int n = client.read(in);
 
-        if (n > 0) {
-          mistral::trace::logger::instance().trace(mistral::trace::category::data, "read {}", in.subspan(0, n));
-          client.input_end(n);  // Processes HTTP/2 frames, fires callbacks
-          co_await yield();
-        }
-        else {
-          int err = client.get_error(n);
+          if (n > 0) {
+            mistral::trace::logger::instance().trace(mistral::trace::category::data, "read {}", in.subspan(0, n));
+            client.input_end(n);  // Processes HTTP/2 frames, fires callbacks
+            co_await yield();
+          }
+          else {
+            int err = client.get_error(n);
 
-          if (err == SSL_ERROR_WANT_READ) {
-            // Only wait on fd if SSL has no pending data
-            if (client.no_data_pending()) {
-              co_await readable(client);
+            if (err == SSL_ERROR_WANT_READ) {
+              // Only wait on fd if SSL has no pending data
+              if (client.no_data_pending()) {
+                co_await readable(client);
+              }
             }
-          }
-          else if (err == SSL_ERROR_WANT_WRITE) {
-            co_await writable(client);
-          }
-          else if (err == SSL_ERROR_ZERO_RETURN) {
-            // Connection closed gracefully by peer
-            event_ch_->try_send({coordinator_event_type::connection_closed});
-            break;
-          }
-          else if (err == SSL_ERROR_SYSCALL) {
-            if (errno == 0 || errno == ECONNRESET) {
+            else if (err == SSL_ERROR_WANT_WRITE) {
+              co_await writable(client);
+            }
+            else if (err == SSL_ERROR_ZERO_RETURN) {
+              // Connection closed gracefully by peer
               event_ch_->try_send({coordinator_event_type::connection_closed});
               break;
             }
-            else {
-              std::cerr << "[http_read] connection error(1) fd=" << client.platform_handle() << std::endl;
+            else if (err == SSL_ERROR_SYSCALL) {
+              if (errno == 0 || errno == ECONNRESET) {
+                event_ch_->try_send({coordinator_event_type::connection_closed});
+                break;
+              }
+              else {
+                std::cerr << "[http_read] connection error(1) fd=" << client.platform_handle() << std::endl;
+                event_ch_->try_send({
+                  coordinator_event_type::connection_error,
+                  {},
+                  std::make_error_code(static_cast<std::errc>(errno))
+                });
+                break;
+              }
+            }
+            else if (err == SSL_ERROR_SSL) {
+              auto [msg, ec] = tls_connection::get_ssl_error_details();
+              std::cerr << "[http_read] " << msg << " fd=" << client.platform_handle() << std::endl;
               event_ch_->try_send({
                 coordinator_event_type::connection_error,
                 {},
-                std::make_error_code(static_cast<std::errc>(errno))});
+                ec
+              });
+              break;
+            }
+            else {
+              std::cerr << "[http_read] connection error(2) fd=" << client.platform_handle() << std::endl;
+              // For any other SSL error, use errno as fallback
+              event_ch_->try_send({
+                coordinator_event_type::connection_error,
+                {},
+                std::make_error_code(static_cast<std::errc>(errno))
+              });
               break;
             }
           }
-          else if (err == SSL_ERROR_SSL) {
-            auto [msg, ec] = tls_connection::get_ssl_error_details();
-            std::cerr << "[http_read] " << msg << " fd=" << client.platform_handle() << std::endl;
-            event_ch_->try_send({
-              coordinator_event_type::connection_error,
-              {},
-              ec});
-            break;
-          }
-          else {
-            std::cerr << "[http_read] connection error(2) fd=" << client.platform_handle() << std::endl;
-            // For any other SSL error, use errno as fallback
-            event_ch_->try_send({
-              coordinator_event_type::connection_error,
-              {},
-              std::make_error_code(static_cast<std::errc>(errno))});
-            break;
-          }
         }
+      }
+      catch (const dripcore::cancelled&) {
+        // Task was cancelled, clean up gracefully
+        std::cerr << "[http_read] task cancelled, shutting down" << std::endl;
+        event_ch_->try_send({coordinator_event_type::connection_closed});
+      }
+      catch (const std::exception& e) {
+        std::cerr << "[http_read] exception: " << e.what() << std::endl;
+        event_ch_->try_send({
+          coordinator_event_type::connection_error,
+          {},
+          std::make_error_code(std::errc::io_error)
+        });
       }
 
       co_return;

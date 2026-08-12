@@ -73,7 +73,7 @@ namespace
         request_ch_->close();
 
         // Receive the response
-        auto response = co_await response_ch_->recv();
+        auto response = co_await response_ch_->recv(this);
         if (response)
         {
           out_response_ = std::move(*response);

@@ -12,7 +12,7 @@ namespace mistral::agent
   {
     while (true)
     {
-      auto response = co_await agent_response_ch_->recv();
+      auto response = co_await agent_response_ch_->recv(this);
       if (!response)
       {
         // Channel closed, task is done
