@@ -8,14 +8,13 @@
 
 namespace mistral::console
 {
-
   slash_command_executor_task::slash_command_executor_task(
-      std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch,
-      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch)
-      :
-      cmd_request_ch_(std::move(cmd_request_ch)),
-      slash_cmd_response_ch_(std::move(slash_cmd_response_ch)
-    )
+    std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch,
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch)
+    :
+    cmd_request_ch_(std::move(cmd_request_ch)),
+    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)
+  )
   {
   }
 
@@ -38,18 +37,12 @@ namespace mistral::console
         continue;
       }
 
-      if (const_cmd->context() != slash_command::execution_context::AGENT)
-      {
-        slash_cmd_response_ch_->try_send("Command /" + request->command_name + " must be executed in IMMEDIATE context");
-        continue;
-      }
-
       std::string response;
       try
       {
         // const_cast is safe here because registry stores non-const commands
         slash_command *cmd = const_cast<slash_command *>(const_cmd);
-        response = co_await cmd->execute_agent(
+        response = co_await cmd->execute(
           *this,
           request->args,
           agent::agent_system::instance()

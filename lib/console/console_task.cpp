@@ -199,21 +199,10 @@ namespace mistral::console
     // Add to history
     ic_history_add(input.c_str());
 
-    if (cmd->context() == slash_command::execution_context::IMMEDIATE)
-    {
-      std::string response = const_cast<slash_command *>(cmd)->execute_immediate(args);
-      std::cout << response << std::endl;
-      // Notify coroutine to show prompt again
-      state->notify_input_ready();
-    }
-    else
-    {
-      // AGENT context: queue the request for the coroutine to forward
-      // We cannot call try_send() from this std::thread context
-      state->set_pending_slash_command({command, args});
-      // Signal the coroutine with a special value for slash commands
-      state->notify_slash_cmd_pending();
-    }
+    // Queue the request for the coroutine to forward to the executor task
+    state->set_pending_slash_command({command, args});
+    // Signal the coroutine with a special value for slash commands
+    state->notify_slash_cmd_pending();
   }
 
   // Reads a single character in raw mode for approval prompts

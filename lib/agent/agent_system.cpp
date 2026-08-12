@@ -327,9 +327,11 @@ namespace mistral::agent
       std::string name() const override { return "help"; }
       std::string description() const override { return "Show available slash commands"; }
       std::string usage() const override { return "/help [command]"; }
-      execution_context context() const override { return execution_context::IMMEDIATE; }
 
-      std::string execute_immediate(const std::string& args) override
+      dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string& args,
+        agent::agent_system&) override
       {
         auto& registry = console::slash_command_registry::instance();
         auto names = registry.get_command_names();
@@ -346,13 +348,13 @@ namespace mistral::agent
               result += "\n";
             }
           }
-          return result;
+          co_return result;
         } else {
           const auto* cmd = registry.get_command(args);
           if (!cmd) {
-            return "Unknown command: /" + args;
+            co_return "Unknown command: /" + args;
           }
-          return "Usage: /" + cmd->usage() + "\n" + cmd->description();
+          co_return "Usage: /" + cmd->usage() + "\n" + cmd->description();
         }
       }
     };
@@ -362,11 +364,13 @@ namespace mistral::agent
     public:
       std::string name() const override { return "clear"; }
       std::string description() const override { return "Clear the chat history"; }
-      execution_context context() const override { return execution_context::IMMEDIATE; }
 
-      std::string execute_immediate(const std::string&) override
+      dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        agent::agent_system&) override
       {
-        return "Chat history cleared (not yet implemented)";
+        co_return "Chat history cleared (not yet implemented)";
       }
     };
 
@@ -375,9 +379,8 @@ namespace mistral::agent
     public:
       std::string name() const override { return "model"; }
       std::string description() const override { return "Show current model information"; }
-      execution_context context() const override { return execution_context::AGENT; }
 
-      dripcore::awaitable<std::string> execute_agent(
+      dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string&,
         agent_system& sys) override
@@ -391,9 +394,8 @@ namespace mistral::agent
     public:
       std::string name() const override { return "tools"; }
       std::string description() const override { return "List available tools"; }
-      execution_context context() const override { return execution_context::AGENT; }
 
-      dripcore::awaitable<std::string> execute_agent(
+      dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string&,
         agent_system& sys) override
@@ -414,11 +416,13 @@ namespace mistral::agent
     public:
       std::string name() const override { return "exit"; }
       std::string description() const override { return "Exit the application"; }
-      execution_context context() const override { return execution_context::IMMEDIATE; }
 
-      std::string execute_immediate(const std::string&) override
+      dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        agent::agent_system&) override
       {
-        return ""; // NOT IMPLEMENTED!
+        co_return ""; // NOT IMPLEMENTED!
       }
     };
 

@@ -19,9 +19,8 @@ namespace mistral::console
    * @brief Base class for all slash commands.
    *
    * Slash commands are prefixed with '/' and provide special functionality
-   * beyond regular chat input. Commands can execute either immediately in
-   * the input thread (for simple operations) or in a dedicated executor task
-   * (for operations requiring agent state access).
+   * beyond regular chat input. All commands execute in a dedicated executor
+   * task with full access to the agent system.
    */
   class slash_command
   {
@@ -51,62 +50,24 @@ namespace mistral::console
       return name();
     }
 
-    // --- Execution Context ---
-
-    /**
-     * @brief Execution context for slash commands.
-     */
-    enum class execution_context
-    {
-      IMMEDIATE, // Execute synchronously in input thread (no agent access)
-      AGENT      // Execute in slash_cmd_executor_task (full agent access)
-    };
-
-    /**
-     * @brief Get the execution context for this command.
-     * @return The execution context.
-     */
-    virtual execution_context context() const = 0;
-
-    // --- IMMEDIATE Commands ---
-
-    /**
-     * @brief Execute the command immediately in the input thread.
-     *
-     * This method is called for IMMEDIATE context commands.
-     * Must be thread-safe and non-blocking.
-     *
-     * @param args The command arguments (everything after the command name).
-     * @return The response string to display to the user.
-     * @throws std::logic_error if the command doesn't support IMMEDIATE execution.
-     */
-    virtual std::string execute_immediate(const std::string &args)
-    {
-      throw std::logic_error("Command does not support IMMEDIATE execution");
-    }
-
-    // --- AGENT Commands ---
+    // --- Execution ---
 
     /**
      * @brief Execute the command in the slash command executor task.
      *
-     * This method is called for AGENT context commands.
-     * Can block (await) on other dripcore operations.
+     * Can block (await) on dripcore operations and has full access to the
+     * agent system.
      *
      * @param task The task context for spawning sub-tasks.
      * @param args The command arguments (everything after the command name).
      * @param agent_sys Reference to the agent system singleton.
      * @return The response string to display to the user.
-     * @throws std::logic_error if the command doesn't support AGENT execution.
      */
-    virtual dripcore::awaitable<std::string> execute_agent(
+    virtual dripcore::awaitable<std::string> execute(
       dripcore::task& task,
       const std::string &args,
       agent::agent_system &agent_sys
-    )
-    {
-      throw std::logic_error("Command does not support AGENT execution");
-    }
+    ) = 0;
   };
 
   /**

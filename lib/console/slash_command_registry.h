@@ -31,9 +31,6 @@ namespace mistral::console
     // Get all command names (for completion)
     std::vector<std::string> get_command_names() const;
 
-    // Check if a command requires agent execution
-    bool needs_agent_execution(const std::string &name) const;
-
     // Get usage string for help
     std::string get_usage(const std::string &name) const;
 

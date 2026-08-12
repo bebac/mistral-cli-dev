@@ -548,6 +548,33 @@ TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::slash_commands");
 
+// Helper struct for testing slash commands
+struct slash_command_executor : public dripcore::task {
+  slash_command_executor(
+      mistral::console::slash_command* cmd,
+      dripcore::task& parent_task,
+      const std::string& args,
+      mistral::agent::agent_system& sys,
+      std::string& out_result)
+    : cmd_(cmd), parent_task_(parent_task), args_(args), sys_(sys), out_result_(out_result) {}
+
+  dripcore::task_handle execute() {
+    auto result = co_await cmd_->execute(parent_task_, args_, sys_);
+    out_result_ = result;
+    co_return;
+  }
+
+  mistral::console::slash_command* cmd_;
+  dripcore::task& parent_task_;
+  const std::string& args_;
+  mistral::agent::agent_system& sys_;
+  std::string& out_result_;
+};
+
+struct slash_command_parent_task : public dripcore::task {
+  dripcore::task_handle execute() { co_return; }
+};
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after initialization")
 {
   initialize_agent_system_empty();
@@ -572,27 +599,24 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
   const auto* help_cmd = registry.get_command("help");
   REQUIRE(help_cmd != nullptr);
 
-  // Test help with no args (need const_cast because execute_immediate is non-const)
-  std::string result = const_cast<mistral::console::slash_command*>(help_cmd)->execute_immediate("");
+  slash_command_parent_task parent;
+  std::string result;
+
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+      const_cast<mistral::console::slash_command*>(help_cmd),
+      parent,
+      "",
+      system,
+      result);
+  sched.run();
+
   CHECK(!result.empty());
   CHECK(result.find("Available slash commands") != std::string::npos);
   CHECK(result.find("/help") != std::string::npos);
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command requires agent context")
-{
-  initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
-
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* model_cmd = registry.get_command("model");
-  REQUIRE(model_cmd != nullptr);
-
-  // Model command should require AGENT context
-  CHECK(model_cmd->context() == mistral::console::slash_command::execution_context::AGENT);
-}
-
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command is immediate")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
 {
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
@@ -601,15 +625,22 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command is imme
   const auto* clear_cmd = registry.get_command("clear");
   REQUIRE(clear_cmd != nullptr);
 
-  // Clear command should be IMMEDIATE
-  CHECK(clear_cmd->context() == mistral::console::slash_command::execution_context::IMMEDIATE);
+  slash_command_parent_task parent;
+  std::string result;
 
-  // Should be executable (need const_cast because execute_immediate is non-const)
-  std::string result = const_cast<mistral::console::slash_command*>(clear_cmd)->execute_immediate("");
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+      const_cast<mistral::console::slash_command*>(clear_cmd),
+      parent,
+      "",
+      system,
+      result);
+  sched.run();
+
   CHECK(!result.empty());
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command is immediate")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
 {
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
@@ -618,53 +649,20 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command is immed
   const auto* exit_cmd = registry.get_command("exit");
   REQUIRE(exit_cmd != nullptr);
 
-  // Exit command should be IMMEDIATE
-  CHECK(exit_cmd->context() == mistral::console::slash_command::execution_context::IMMEDIATE);
+  slash_command_parent_task parent;
+  std::string result;
 
-  // Should return empty string to signal exit (need const_cast because execute_immediate is non-const)
-  std::string result = const_cast<mistral::console::slash_command*>(exit_cmd)->execute_immediate("");
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+      const_cast<mistral::console::slash_command*>(exit_cmd),
+      parent,
+      "",
+      system,
+      result);
+  sched.run();
+
   CHECK(result.empty());
 }
-
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registry needs_agent_execution works")
-{
-  initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
-
-  auto& registry = mistral::console::slash_command_registry::instance();
-
-  CHECK(registry.needs_agent_execution("help") == false);
-  CHECK(registry.needs_agent_execution("clear") == false);
-  CHECK(registry.needs_agent_execution("model") == true);
-  CHECK(registry.needs_agent_execution("tools") == true);
-}
-
-// Helper struct for testing slash commands with AGENT context
-struct slash_command_executor : public dripcore::task {
-  slash_command_executor(
-      mistral::console::slash_command* cmd,
-      dripcore::task& parent_task,
-      const std::string& args,
-      mistral::agent::agent_system& sys,
-      std::string& out_result)
-    : cmd_(cmd), parent_task_(parent_task), args_(args), sys_(sys), out_result_(out_result) {}
-
-  dripcore::task_handle execute() {
-    auto result = co_await cmd_->execute_agent(parent_task_, args_, sys_);
-    out_result_ = result;
-    co_return;
-  }
-
-  mistral::console::slash_command* cmd_;
-  dripcore::task& parent_task_;
-  const std::string& args_;
-  mistral::agent::agent_system& sys_;
-  std::string& out_result_;
-};
-
-struct slash_command_parent_task : public dripcore::task {
-  dripcore::task_handle execute() { co_return; }
-};
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command executes with agent_system")
 {

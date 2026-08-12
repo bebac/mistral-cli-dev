@@ -15,7 +15,7 @@
 namespace mistral::console
 {
   /**
-   * @brief Dedicated dripcore task for executing slash commands that require agent context.
+   * @brief Dedicated dripcore task for executing slash commands.
    */
   class slash_command_executor_task : public dripcore::task
   {

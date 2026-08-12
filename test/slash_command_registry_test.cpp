@@ -20,10 +20,13 @@ public:
   std::string name() const override { return "test_immediate"; }
   std::string description() const override { return "Test immediate command"; }
   std::string usage() const override { return "/test_immediate [args]"; }
-  execution_context context() const override { return execution_context::IMMEDIATE; }
-  std::string execute_immediate(const std::string& args) override
+
+  dripcore::awaitable<std::string> execute(
+      dripcore::task&,
+      const std::string& args,
+      agent::agent_system&) override
   {
-    return "Immediate: " + args;
+    co_return "Immediate: " + args;
   }
 };
 
@@ -33,9 +36,8 @@ public:
   std::string name() const override { return "test_agent"; }
   std::string description() const override { return "Test agent command"; }
   std::string usage() const override { return "/test_agent [args]"; }
-  execution_context context() const override { return execution_context::AGENT; }
 
-  dripcore::awaitable<std::string> execute_agent(
+  dripcore::awaitable<std::string> execute(
       dripcore::task&,
       const std::string& args,
       agent::agent_system&) override
@@ -49,13 +51,16 @@ class test_help_command : public slash_command
 public:
   std::string name() const override { return "help"; }
   std::string description() const override { return "Show help"; }
-  execution_context context() const override { return execution_context::IMMEDIATE; }
-  std::string execute_immediate(const std::string& args) override
+
+  dripcore::awaitable<std::string> execute(
+      dripcore::task&,
+      const std::string& args,
+      agent::agent_system&) override
   {
     if (args.empty()) {
-      return "General help";
+      co_return "General help";
     }
-    return "Help for: " + args;
+    co_return "Help for: " + args;
   }
 };
 
@@ -72,9 +77,6 @@ TEST_CASE("slash_command_registry: register and get command")
 {
   auto& registry = mistral::console::slash_command_registry::instance();
 
-  // Clear any existing commands (tests may run in any order)
-  // We'll use a fresh registry for each test by checking state
-
   auto cmd = std::make_unique<mistral::console::test_immediate_command>();
   registry.register_command(std::move(cmd));
 
@@ -83,7 +85,6 @@ TEST_CASE("slash_command_registry: register and get command")
   CHECK(retrieved->name() == "test_immediate");
   CHECK(retrieved->description() == "Test immediate command");
   CHECK(retrieved->usage() == "/test_immediate [args]");
-  CHECK(retrieved->context() == mistral::console::slash_command::execution_context::IMMEDIATE);
 }
 
 TEST_CASE("slash_command_registry: get unknown command")
@@ -119,18 +120,6 @@ TEST_CASE("slash_command_registry: get_command_names")
   CHECK(has_help);
 }
 
-TEST_CASE("slash_command_registry: needs_agent_execution")
-{
-  auto& registry = mistral::console::slash_command_registry::instance();
-
-  registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
-  registry.register_command(std::make_unique<mistral::console::test_agent_command>());
-
-  CHECK(registry.needs_agent_execution("test_immediate") == false);
-  CHECK(registry.needs_agent_execution("test_agent") == true);
-  CHECK(registry.needs_agent_execution("nonexistent") == false);
-}
-
 TEST_CASE("slash_command_registry: get_usage")
 {
   auto& registry = mistral::console::slash_command_registry::instance();
@@ -161,8 +150,14 @@ TEST_CASE("slash_command_registry: register empty name throws")
   public:
     std::string name() const override { return ""; }
     std::string description() const override { return "Empty name"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string& args) override { return "test"; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "test";
+    }
   };
 
   CHECK_THROWS_AS(
@@ -202,8 +197,14 @@ TEST_CASE("slash_command_registry: thread safety")
           explicit dynamic_command(std::string n) : name_(std::move(n)) {}
           std::string name() const override { return name_; }
           std::string description() const override { return "Dynamic command"; }
-          execution_context context() const override { return execution_context::IMMEDIATE; }
-          std::string execute_immediate(const std::string&) override { return "ok"; }
+
+          dripcore::awaitable<std::string> execute(
+              dripcore::task&,
+              const std::string&,
+              mistral::agent::agent_system&) override
+          {
+            co_return "ok";
+          }
         private:
           std::string name_;
         };
@@ -236,8 +237,14 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
   public:
     std::string name() const override { return "test_re_register"; }
     std::string description() const override { return "First"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return "first"; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "first";
+    }
   };
 
   class cmd2 : public mistral::console::slash_command
@@ -245,9 +252,8 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
   public:
     std::string name() const override { return "test_re_register"; }
     std::string description() const override { return "Second"; }
-    execution_context context() const override { return execution_context::AGENT; }
 
-    dripcore::awaitable<std::string> execute_agent(
+    dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string&,
         mistral::agent::agent_system&) override
@@ -262,7 +268,6 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
   const mistral::console::slash_command* cmd = registry.get_command("test_re_register");
   REQUIRE(cmd != nullptr);
   CHECK(cmd->description() == "Second");
-  CHECK(cmd->context() == mistral::console::slash_command::execution_context::AGENT);
 }
 
 TEST_CASE("slash_command_registry: case sensitive lookup")
@@ -274,8 +279,14 @@ TEST_CASE("slash_command_registry: case sensitive lookup")
   public:
     std::string name() const override { return "testcase"; }
     std::string description() const override { return "Lowercase"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return ""; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "";
+    }
   };
 
   registry.register_command(std::make_unique<lower_cmd>());
@@ -293,8 +304,14 @@ TEST_CASE("slash_command_registry: empty metadata handling")
     std::string name() const override { return "empty_meta"; }
     std::string description() const override { return ""; }
     std::string usage() const override { return ""; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return ""; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "";
+    }
   };
 
   auto& registry = mistral::console::slash_command_registry::instance();
@@ -316,8 +333,14 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
   public:
     std::string name() const override { return "zebra"; }
     std::string description() const override { return "Z"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return ""; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "";
+    }
   };
 
   class a_cmd : public mistral::console::slash_command
@@ -325,8 +348,14 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
   public:
     std::string name() const override { return "alpha"; }
     std::string description() const override { return "A"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return ""; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "";
+    }
   };
 
   class m_cmd : public mistral::console::slash_command
@@ -334,8 +363,14 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
   public:
     std::string name() const override { return "middle"; }
     std::string description() const override { return "M"; }
-    execution_context context() const override { return execution_context::IMMEDIATE; }
-    std::string execute_immediate(const std::string&) override { return ""; }
+
+    dripcore::awaitable<std::string> execute(
+        dripcore::task&,
+        const std::string&,
+        mistral::agent::agent_system&) override
+    {
+      co_return "";
+    }
   };
 
   registry.register_command(std::make_unique<z_cmd>());

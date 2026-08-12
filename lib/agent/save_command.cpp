@@ -22,12 +22,7 @@ namespace mistral::agent
     return "[filename]";
   }
 
-  console::slash_command::execution_context save_command::context() const
-  {
-    return execution_context::AGENT;
-  }
-
-  dripcore::awaitable<std::string> save_command::execute_agent(
+  dripcore::awaitable<std::string> save_command::execute(
     dripcore::task&,
     const std::string &args,
     agent::agent_system &agent_sys)

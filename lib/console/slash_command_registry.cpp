@@ -49,16 +49,6 @@ namespace mistral::console
     return names;
   }
 
-  bool slash_command_registry::needs_agent_execution(const std::string &name) const
-  {
-    const slash_command *cmd = get_command(name);
-    if (!cmd)
-    {
-      return false;
-    }
-    return cmd->context() == slash_command::execution_context::AGENT;
-  }
-
   std::string slash_command_registry::get_usage(const std::string &name) const
   {
     const slash_command *cmd = get_command(name);

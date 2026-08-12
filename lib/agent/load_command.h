@@ -20,9 +20,7 @@ namespace mistral::agent
     std::string name() const override;
     std::string description() const override;
     std::string usage() const override;
-    execution_context context() const override;
-
-    dripcore::awaitable<std::string> execute_agent(
+    dripcore::awaitable<std::string> execute(
         dripcore::task& task,
         const std::string& args,
         agent::agent_system& agent_sys

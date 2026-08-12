@@ -18,35 +18,19 @@
 namespace
 {
 
-  // Test command for AGENT context - defined in anonymous namespace to avoid
-  // symbol collision with slash_command_registry_test.cpp
+  // Test command for executor task
   class executor_test_agent_command : public mistral::console::slash_command
   {
   public:
     std::string name() const override { return "test_cmd"; }
     std::string description() const override { return "Test command"; }
-    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
 
-    dripcore::awaitable<std::string> execute_agent(
+    dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string &args,
         mistral::agent::agent_system &) override
     {
       co_return "Response: " + args;
-    }
-  };
-
-  // Test command for IMMEDIATE context (should fail in executor)
-  class executor_test_immediate_command : public mistral::console::slash_command
-  {
-  public:
-    std::string name() const override { return "immediate_cmd"; }
-    std::string description() const override { return "Immediate command"; }
-    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::IMMEDIATE; }
-
-    std::string execute_immediate(const std::string &args) override
-    {
-      return "Immediate: " + args;
     }
   };
 
@@ -113,7 +97,7 @@ namespace
 
 } // anonymous namespace
 
-TEST_CASE("slash_command_executor_task: execute AGENT command")
+TEST_CASE("slash_command_executor_task: execute command")
 {
   auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
   auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
@@ -148,25 +132,6 @@ TEST_CASE("slash_command_executor_task: unknown command")
   CHECK(response.find("Unknown command: /unknown_cmd") != std::string::npos);
 }
 
-TEST_CASE("slash_command_executor_task: IMMEDIATE command in AGENT executor")
-{
-  auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
-  auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
-
-  auto &registry = mistral::console::slash_command_registry::instance();
-  registry.register_command(std::make_unique<executor_test_immediate_command>());
-
-  SlashCommandExecutorTestFixture fixture;
-  mistral::console::slash_command_request req;
-  req.command_name = "immediate_cmd";
-  req.args = "";
-
-  std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, std::move(req));
-
-  CHECK(response.find("must be executed in IMMEDIATE context") != std::string::npos);
-}
-
 TEST_CASE("slash_command_executor_task: exception handling")
 {
   auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
@@ -177,9 +142,8 @@ TEST_CASE("slash_command_executor_task: exception handling")
   public:
     std::string name() const override { return "throw_cmd"; }
     std::string description() const override { return "Throws"; }
-    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
 
-    dripcore::awaitable<std::string> execute_agent(
+    dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string &,
         mistral::agent::agent_system &) override
@@ -212,9 +176,8 @@ TEST_CASE("slash_command_executor_task: empty response")
   public:
     std::string name() const override { return "empty_cmd"; }
     std::string description() const override { return "Empty"; }
-    mistral::console::slash_command::execution_context context() const override { return mistral::console::slash_command::execution_context::AGENT; }
 
-    dripcore::awaitable<std::string> execute_agent(
+    dripcore::awaitable<std::string> execute(
         dripcore::task&,
         const std::string &,
         mistral::agent::agent_system &) override

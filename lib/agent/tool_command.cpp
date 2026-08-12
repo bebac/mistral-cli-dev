@@ -22,12 +22,7 @@ namespace mistral::agent
     return "/tool <tool_name> <json_arguments>";
   }
 
-  console::slash_command::execution_context tool_command::context() const
-  {
-    return execution_context::AGENT;
-  }
-
-  dripcore::awaitable<std::string> tool_command::execute_agent(
+  dripcore::awaitable<std::string> tool_command::execute(
     dripcore::task&,
     const std::string &args,
     agent::agent_system &agent_sys)
