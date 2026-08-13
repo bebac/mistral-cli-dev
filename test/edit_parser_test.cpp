@@ -642,6 +642,85 @@ namespace mistral::agent
       CHECK((*result)[0].file_path == "src/main.cpp");
     }
 
+    TEST_CASE("parse_edits_with_patchset - mismatched closing fence backticks (4 instead of 5)"
+              * doctest::may_fail(true)
+              * doctest::skip() // Skip this test. It is a malformed patchset. I don't see
+                                // an easy way to handle this other than hoping that the agent
+                                // realizes that the patchset does not contain the expected
+                                // number of edits and creates a new corrected patchset.
+    )
+    {
+      // Known limitation: when the AI emits 5-backtick opening fences (`````)
+      // but 4-backtick closing fences (````) for intermediate blocks, and only
+      // the last block uses the correct 5-backtick closing, the parser cannot
+      // detect the mismatched closing fences. It skips the 4-backtick fences,
+      // finds the last 5-backtick fence, and merges all edits into 1 garbled
+      // edit. This is an AI formatting error, not a parser bug — the parser
+      // correctly requires consistent 5-backtick fencing.
+      std::string input =
+        "Here are the changes (patchset: fix-remove-patchset-callsites):\n"
+        "\n"
+        "test/agent_task_base_test.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "    agent_sys.remove_patchset(); // Clear first\n"
+        "=======\n"
+        "    agent_sys.remove_patchset(\"test-patchset\"); // Clear first\n"
+        ">>>>>>> REPLACE\n"
+        "````\n"
+        "\n"
+        "test/agent_task_base_test.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "    // Clean up\n"
+        "    agent_sys.remove_patchset();\n"
+        "}\n"
+        "\n"
+        "TEST_CASE(\"patchset parsing - multiple edits with tool call\")\n"
+        "=======\n"
+        "    // Clean up\n"
+        "    agent_sys.remove_patchset(\"test-patchset\");\n"
+        "}\n"
+        "\n"
+        "TEST_CASE(\"patchset parsing - multiple edits with tool call\")\n"
+        ">>>>>>> REPLACE\n"
+        "````\n"
+        "\n"
+        "test/agent_task_base_test.cpp\n"
+        "`````cpp\n"
+        "<<<<<<< SEARCH\n"
+        "    auto& agent_sys = agent_system::instance();\n"
+        "    agent_sys.remove_patchset();\n"
+        "    agent_sys.store_patchset(parse_result->first, parse_result->second);\n"
+        "\n"
+        "    auto retrieved = agent_sys.get_patchset(\"multi-edit\");\n"
+        "=======\n"
+        "    auto& agent_sys = agent_system::instance();\n"
+        "    agent_sys.remove_patchset(\"multi-edit\");\n"
+        "    agent_sys.store_patchset(parse_result->first, parse_result->second);\n"
+        "\n"
+        "    auto retrieved = agent_sys.get_patchset(\"multi-edit\");\n"
+        ">>>>>>> REPLACE\n"
+        "`````";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "fix-remove-patchset-callsites");
+      // Should parse 3 separate edits, not merge them into 1 garbled edit.
+      // Currently the parser only recognizes 5-backtick closing fences, so it
+      // skips the 4-backtick ones, finds the last 5-backtick fence, and
+      // produces 1 edit with garbled content from all 3 blocks.
+      REQUIRE(result->second.size() == 3);
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[0].file_path == "test/agent_task_base_test.cpp");
+      CHECK(result->second[0].search_text == "    agent_sys.remove_patchset(); // Clear first");
+      CHECK(result->second[0].replace_text == "    agent_sys.remove_patchset(\"test-patchset\"); // Clear first");
+      CHECK(result->second[1].patch_number == 2);
+      CHECK(result->second[1].file_path == "test/agent_task_base_test.cpp");
+      CHECK(result->second[2].patch_number == 3);
+      CHECK(result->second[2].file_path == "test/agent_task_base_test.cpp");
+    }
+
     TEST_SUITE_END();
   } // namespace test
 } // namespace mistral::agent
