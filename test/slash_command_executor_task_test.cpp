@@ -80,13 +80,14 @@ namespace
     std::string execute_and_collect_response(
         std::shared_ptr<dripcore::channel<mistral::console::slash_command_request>> request_ch,
         std::shared_ptr<dripcore::channel<std::string>> response_ch,
+        std::shared_ptr<mistral::console::slash_command_registry> registry,
         mistral::console::slash_command_request req)
     {
       std::string response;
       dripcore::scheduler scheduler;
 
       scheduler.spawn<mistral::console::slash_command_executor_task>(
-          request_ch, response_ch);
+          request_ch, response_ch, registry);
       scheduler.spawn<response_collector_task>(
           request_ch, response_ch, std::move(req), response);
 
@@ -102,8 +103,8 @@ TEST_CASE("slash_command_executor_task: execute command")
   auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
   auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
-  auto &registry = mistral::console::slash_command_registry::instance();
-  registry.register_command(std::make_unique<executor_test_agent_command>());
+  auto registry = std::make_shared<mistral::console::slash_command_registry>();
+  registry->register_command(std::make_unique<executor_test_agent_command>());
 
   SlashCommandExecutorTestFixture fixture;
   mistral::console::slash_command_request req;
@@ -111,7 +112,7 @@ TEST_CASE("slash_command_executor_task: execute command")
   req.args = "hello";
 
   std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, std::move(req));
+      request_ch, response_ch, registry, std::move(req));
 
   CHECK(response == "Response: hello");
 }
@@ -121,13 +122,15 @@ TEST_CASE("slash_command_executor_task: unknown command")
   auto request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(1);
   auto response_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
+  auto registry = std::make_shared<mistral::console::slash_command_registry>();
+
   SlashCommandExecutorTestFixture fixture;
   mistral::console::slash_command_request req;
   req.command_name = "unknown_cmd";
   req.args = "";
 
   std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, std::move(req));
+      request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.find("Unknown command: /unknown_cmd") != std::string::npos);
 }
@@ -152,8 +155,8 @@ TEST_CASE("slash_command_executor_task: exception handling")
     }
   };
 
-  auto &registry = mistral::console::slash_command_registry::instance();
-  registry.register_command(std::make_unique<throwing_command>());
+  auto registry = std::make_shared<mistral::console::slash_command_registry>();
+  registry->register_command(std::make_unique<throwing_command>());
 
   SlashCommandExecutorTestFixture fixture;
   mistral::console::slash_command_request req;
@@ -161,7 +164,7 @@ TEST_CASE("slash_command_executor_task: exception handling")
   req.args = "";
 
   std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, std::move(req));
+      request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.find("Error executing /throw_cmd: Test error") != std::string::npos);
 }
@@ -186,8 +189,8 @@ TEST_CASE("slash_command_executor_task: empty response")
     }
   };
 
-  auto &registry = mistral::console::slash_command_registry::instance();
-  registry.register_command(std::make_unique<empty_command>());
+  auto registry = std::make_shared<mistral::console::slash_command_registry>();
+  registry->register_command(std::make_unique<empty_command>());
 
   SlashCommandExecutorTestFixture fixture;
   mistral::console::slash_command_request req;
@@ -195,7 +198,7 @@ TEST_CASE("slash_command_executor_task: empty response")
   req.args = "";
 
   std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, std::move(req));
+      request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.empty());
 }

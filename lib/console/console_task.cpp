@@ -51,6 +51,9 @@ namespace mistral::console
 
     std::thread thread;
 
+    // Slash command registry (shared with the isocline thread for completion/validation)
+    std::shared_ptr<slash_command_registry> slash_cmd_registry;
+
     // For passing the prompt string to the input thread
     std::string current_prompt;
     bool is_approval_prompt = false;
@@ -136,30 +139,30 @@ namespace mistral::console
     }
   };
 
-  // Handle slash command completion
-  static void handle_slash_completion(ic_completion_env_t* cenv, const char* prefix)
-  {
-    auto& registry = slash_command_registry::instance();
-    auto commands = registry.get_command_names();
-
-    // Convert to null-terminated array of const char* for ic_add_completions
-    std::vector<const char*> cmd_list;
-    for (const auto& cmd : commands) {
-        cmd_list.push_back(cmd.c_str());
-    }
-    cmd_list.push_back(nullptr);
-
-    ic_add_completions(cenv, prefix, cmd_list.data());
-  }
-
   // Custom completer that handles slash commands
   static void slash_command_completer(ic_completion_env_t* cenv, const char* prefix)
   {
+    auto* state = static_cast<console_state*>(ic_completion_arg(cenv));
     // Check if we're completing a slash command
     if (ic_starts_with(prefix, "/")) {
       // Get the part after the /
       const char* cmd_prefix = prefix + 1;
-      ic_complete_word(cenv, cmd_prefix, &handle_slash_completion, &ic_char_is_nonseparator);
+      if (state && state->slash_cmd_registry) {
+        ic_complete_word(cenv, cmd_prefix,
+          [](ic_completion_env_t* cenv, const char* prefix) {
+            auto* s = static_cast<console_state*>(ic_completion_arg(cenv));
+            if (s && s->slash_cmd_registry) {
+              auto commands = s->slash_cmd_registry->get_command_names();
+              std::vector<const char*> cmd_list;
+              for (const auto& cmd : commands) {
+                cmd_list.push_back(cmd.c_str());
+              }
+              cmd_list.push_back(nullptr);
+              ic_add_completions(cenv, prefix, cmd_list.data());
+            }
+          },
+          &ic_char_is_nonseparator);
+      }
     }
     // For non-slash input, fall back to default filename completion
     else {
@@ -184,8 +187,8 @@ namespace mistral::console
         ? ""
         : cmd_input.substr(space_pos + 1);
 
-    auto& registry = slash_command_registry::instance();
-    auto cmd = registry.get_command(command);
+    if (!state->slash_cmd_registry) return;
+    auto cmd = state->slash_cmd_registry->get_command(command);
     if (!cmd)
     {
       std::cout << "Unknown command: /" << command << std::endl;
@@ -251,7 +254,7 @@ namespace mistral::console
     }
 
     // Set custom completer for slash commands
-    ic_set_default_completer(&slash_command_completer, nullptr);
+    ic_set_default_completer(&slash_command_completer, state);
 
     while (!state->shutdown.load())
     {
@@ -314,13 +317,14 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch,
-    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch)
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
+    std::shared_ptr<slash_command_registry> slash_cmd_registry)
     :
     prompt_ch_(std::move(prompt_ch)),
     input_ch_(std::move(input_ch)),
     slash_cmd_request_ch_(std::move(slash_cmd_request_ch)),
-    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)
-  )
+    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
+    slash_cmd_registry_(std::move(slash_cmd_registry))
   {
   }
 
@@ -345,6 +349,9 @@ namespace mistral::console
     // Make the notify read end non-blocking for dripcore.
     fcntl(state->notify_read, F_SETFL,
           fcntl(state->notify_read, F_GETFL) | O_NONBLOCK);
+
+    // Pass the registry to the state for the input thread
+    state->slash_cmd_registry = slash_cmd_registry_;
 
     // Start the input thread.
     state->thread = std::thread([state]() { input_thread_func(state.get()); });

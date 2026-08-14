@@ -12,15 +12,17 @@
 namespace mistral::console
 {
   /**
-   * @brief Singleton registry for managing slash commands.
+   * @brief Registry for managing slash commands.
    *
    * This class provides thread-safe registration and lookup of slash commands.
    * Commands are registered at startup and can be looked up by name for execution.
+   * Owned by agent_system and shared with console_task and
+   * slash_command_executor_task via shared_ptr.
    */
   class slash_command_registry
   {
   public:
-    static slash_command_registry &instance();
+    slash_command_registry() = default;
 
     // Register a command (typically called at startup)
     void register_command(std::unique_ptr<slash_command> cmd);

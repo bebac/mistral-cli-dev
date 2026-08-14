@@ -275,11 +275,12 @@ int main(int argc, char* argv[])
 
   // Spawn slash command executor task
   sched.spawn<mistral::console::slash_command_executor_task>(
-      slash_cmd_request_ch, slash_cmd_response_ch);
+      slash_cmd_request_ch, slash_cmd_response_ch, agent_system.slash_commands());
 
   // Spawn console task with slash command channels
   sched.spawn<mistral::console::console_task>(
-      prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch);
+      prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch,
+      agent_system.slash_commands());
 
   //sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);

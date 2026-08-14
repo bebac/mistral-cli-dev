@@ -10,11 +10,12 @@ namespace mistral::console
 {
   slash_command_executor_task::slash_command_executor_task(
     std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch,
-    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch)
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
+    std::shared_ptr<slash_command_registry> registry)
     :
     cmd_request_ch_(std::move(cmd_request_ch)),
-    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)
-  )
+    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
+    registry_(std::move(registry))
   {
   }
 
@@ -28,8 +29,7 @@ namespace mistral::console
         break;
       }
 
-      auto &registry = slash_command_registry::instance();
-      const slash_command *const_cmd = registry.get_command(request->command_name);
+      const slash_command *const_cmd = registry_->get_command(request->command_name);
 
       if (!const_cmd)
       {

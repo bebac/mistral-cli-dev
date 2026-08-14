@@ -58,6 +58,7 @@ namespace mistral::agent
     build_global_tool_registry();
 
     // Register slash commands
+    slash_command_registry_ = std::make_shared<console::slash_command_registry>();
     register_slash_commands();
   }
 
@@ -324,6 +325,9 @@ namespace mistral::agent
     class help_command : public console::slash_command
     {
     public:
+      explicit help_command(console::slash_command_registry& registry)
+        : registry_(registry) {}
+
       std::string name() const override { return "help"; }
       std::string description() const override { return "Show available slash commands"; }
       std::string usage() const override { return "/help [command]"; }
@@ -333,13 +337,12 @@ namespace mistral::agent
         const std::string& args,
         agent::agent_system&) override
       {
-        auto& registry = console::slash_command_registry::instance();
-        auto names = registry.get_command_names();
+        auto names = registry_.get_command_names();
 
         if (args.empty()) {
           std::string result = "Available slash commands:\n";
           for (const auto& name : names) {
-            const auto* cmd = registry.get_command(name);
+            const auto* cmd = registry_.get_command(name);
             if (cmd) {
               result += "  /" + name;
               if (!cmd->description().empty()) {
@@ -350,13 +353,16 @@ namespace mistral::agent
           }
           co_return result;
         } else {
-          const auto* cmd = registry.get_command(args);
+          const auto* cmd = registry_.get_command(args);
           if (!cmd) {
             co_return "Unknown command: /" + args;
           }
           co_return "Usage: /" + cmd->usage() + "\n" + cmd->description();
         }
       }
+
+    private:
+      console::slash_command_registry& registry_;
     };
 
     class clear_command : public console::slash_command
@@ -426,8 +432,8 @@ namespace mistral::agent
       }
     };
 
-    auto& registry = console::slash_command_registry::instance();
-    registry.register_command(std::make_unique<help_command>());
+    auto& registry = *slash_command_registry_;
+    registry.register_command(std::make_unique<help_command>(registry));
     registry.register_command(std::make_unique<clear_command>());
     registry.register_command(std::make_unique<model_command>());
     registry.register_command(std::make_unique<tools_command>());

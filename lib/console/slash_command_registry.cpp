@@ -4,12 +4,6 @@
 
 namespace mistral::console
 {
-  slash_command_registry &slash_command_registry::instance()
-  {
-    static slash_command_registry registry;
-    return registry;
-  }
-
   void slash_command_registry::register_command(std::unique_ptr<slash_command> cmd)
   {
     if (!cmd)

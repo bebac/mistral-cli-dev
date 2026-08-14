@@ -116,6 +116,9 @@ namespace mistral::agent
     void mark_applied(const std::string& patchset_id) override;
     bool has_patchset() const;
 
+    // Slash command registry
+    std::shared_ptr<console::slash_command_registry> slash_commands() { return slash_command_registry_; }
+
     // Register built-in slash commands
     void register_slash_commands();
 
@@ -169,6 +172,9 @@ namespace mistral::agent
     // Usage statistics storage
     mutable std::mutex usage_stats_mtx_;
     json usage_stats_;
+
+    // Slash command registry
+    std::shared_ptr<console::slash_command_registry> slash_command_registry_;
 
     // Patchset storage - only one at a time (the latest)
     std::optional<patchset_t> current_patchset_;

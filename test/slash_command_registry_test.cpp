@@ -66,16 +66,15 @@ public:
 
 } // namespace mistral::console
 
-TEST_CASE("slash_command_registry: singleton instance")
+TEST_CASE("slash_command_registry: default constructible")
 {
-  auto& registry1 = mistral::console::slash_command_registry::instance();
-  auto& registry2 = mistral::console::slash_command_registry::instance();
-  CHECK(&registry1 == &registry2);
+  mistral::console::slash_command_registry registry;
+  CHECK(registry.get_command_names().empty());
 }
 
 TEST_CASE("slash_command_registry: register and get command")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   auto cmd = std::make_unique<mistral::console::test_immediate_command>();
   registry.register_command(std::move(cmd));
@@ -89,14 +88,14 @@ TEST_CASE("slash_command_registry: register and get command")
 
 TEST_CASE("slash_command_registry: get unknown command")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
   const mistral::console::slash_command* retrieved = registry.get_command("nonexistent");
   CHECK(retrieved == nullptr);
 }
 
 TEST_CASE("slash_command_registry: get_command_names")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   // Register multiple commands
   registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
@@ -104,7 +103,7 @@ TEST_CASE("slash_command_registry: get_command_names")
   registry.register_command(std::make_unique<mistral::console::test_help_command>());
 
   auto names = registry.get_command_names();
-  REQUIRE(names.size() >= 3); // At least our 3 commands
+  REQUIRE(names.size() == 3);
 
   // Check that our commands are in the list
   bool has_immediate = false;
@@ -122,7 +121,7 @@ TEST_CASE("slash_command_registry: get_command_names")
 
 TEST_CASE("slash_command_registry: get_usage")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
 
@@ -132,7 +131,7 @@ TEST_CASE("slash_command_registry: get_usage")
 
 TEST_CASE("slash_command_registry: has_command")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
 
@@ -142,7 +141,7 @@ TEST_CASE("slash_command_registry: has_command")
 
 TEST_CASE("slash_command_registry: register empty name throws")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   // Create a command with empty name
   class empty_name_command : public mistral::console::slash_command
@@ -168,7 +167,7 @@ TEST_CASE("slash_command_registry: register empty name throws")
 
 TEST_CASE("slash_command_registry: register null command")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   // Registering null should not throw, just be a no-op
   registry.register_command(nullptr);
@@ -179,7 +178,7 @@ TEST_CASE("slash_command_registry: register null command")
 
 TEST_CASE("slash_command_registry: thread safety")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   // Clear state by creating new commands each time
   const int num_threads = 10;
@@ -225,12 +224,12 @@ TEST_CASE("slash_command_registry: thread safety")
 
   // Verify all commands were registered
   auto names = registry.get_command_names();
-  CHECK(names.size() >= num_threads * commands_per_thread);
+  CHECK(names.size() == num_threads * commands_per_thread);
 }
 
 TEST_CASE("slash_command_registry: re-register command overwrites")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   class cmd1 : public mistral::console::slash_command
   {
@@ -272,7 +271,7 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
 
 TEST_CASE("slash_command_registry: case sensitive lookup")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   class lower_cmd : public mistral::console::slash_command
   {
@@ -314,7 +313,7 @@ TEST_CASE("slash_command_registry: empty metadata handling")
     }
   };
 
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
   registry.register_command(std::make_unique<empty_cmd>());
 
   const mistral::console::slash_command* cmd = registry.get_command("empty_meta");
@@ -326,7 +325,7 @@ TEST_CASE("slash_command_registry: empty metadata handling")
 
 TEST_CASE("slash_command_registry: get_command_names returns sorted list")
 {
-  auto& registry = mistral::console::slash_command_registry::instance();
+  mistral::console::slash_command_registry registry;
 
   class z_cmd : public mistral::console::slash_command
   {
@@ -378,7 +377,7 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
   registry.register_command(std::make_unique<m_cmd>());
 
   auto names = registry.get_command_names();
-  REQUIRE(names.size() >= 3);
+  REQUIRE(names.size() == 3);
 
   // Find our three commands in the list
   bool has_alpha = false;

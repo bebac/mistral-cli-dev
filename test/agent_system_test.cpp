@@ -574,14 +574,15 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after init
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
+  auto registry = system.slash_commands();
+  REQUIRE(registry != nullptr);
 
   // Check that built-in commands are registered
-  CHECK(registry.has_command("help"));
-  CHECK(registry.has_command("clear"));
-  CHECK(registry.has_command("model"));
-  CHECK(registry.has_command("tools"));
-  CHECK(registry.has_command("exit"));
+  CHECK(registry->has_command("help"));
+  CHECK(registry->has_command("clear"));
+  CHECK(registry->has_command("model"));
+  CHECK(registry->has_command("tools"));
+  CHECK(registry->has_command("exit"));
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
@@ -589,8 +590,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* help_cmd = registry.get_command("help");
+  auto registry = system.slash_commands();
+  const auto* help_cmd = registry->get_command("help");
   REQUIRE(help_cmd != nullptr);
 
   std::string result;
@@ -613,8 +614,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* clear_cmd = registry.get_command("clear");
+  auto registry = system.slash_commands();
+  const auto* clear_cmd = registry->get_command("clear");
   REQUIRE(clear_cmd != nullptr);
 
   std::string result;
@@ -635,8 +636,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
   initialize_agent_system_empty();
   auto &system = mistral::agent::agent_system::instance();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* exit_cmd = registry.get_command("exit");
+  auto registry = system.slash_commands();
+  const auto* exit_cmd = registry->get_command("exit");
   REQUIRE(exit_cmd != nullptr);
 
   std::string result;
@@ -656,11 +657,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
 {
   initialize_agent_system_with_main_agent();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* model_cmd = registry.get_command("model");
+  auto &system = mistral::agent::agent_system::instance();
+  auto registry = system.slash_commands();
+  const auto* model_cmd = registry->get_command("model");
   REQUIRE(model_cmd != nullptr);
 
-  auto &system = mistral::agent::agent_system::instance();
   std::string result;
 
   dripcore::scheduler sched;
@@ -679,11 +680,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
 {
   initialize_agent_system_with_main_agent();
 
-  auto& registry = mistral::console::slash_command_registry::instance();
-  const auto* tools_cmd = registry.get_command("tools");
+  auto &system = mistral::agent::agent_system::instance();
+  auto registry = system.slash_commands();
+  const auto* tools_cmd = registry->get_command("tools");
   REQUIRE(tools_cmd != nullptr);
 
-  auto &system = mistral::agent::agent_system::instance();
   std::string result;
 
   dripcore::scheduler sched;

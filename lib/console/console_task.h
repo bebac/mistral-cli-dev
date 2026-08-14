@@ -2,6 +2,7 @@
 #define MISTRAL_CONSOLE_TASK_H
 
 #include <console/slash_command.h>
+#include <console/slash_command_registry.h>
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -16,16 +17,16 @@ namespace mistral::console
   //
   // Architecture:
   //   - A background std::thread runs isocline readline calls.
-  //   - A pipe pair provides notification from thread → event loop.
-  //   - A second pipe (prompt_pipe) signals thread → "go ahead and call readline".
+  //   - A pipe pair provides notification from thread to event loop.
+  //   - A second pipe (prompt_pipe) signals thread to call readline.
   //   - A mutex-protected queue transfers the input string.
   //
   // Flow:
   //   1. agent_task sends prompt string to prompt_ch
-  //   2. console_task receives it, writes to prompt_pipe → wakes thread
+  //   2. console_task receives it, writes to prompt_pipe, wakes thread
   //   3. Thread calls ic_readline, stores result, writes to notify_pipe
   //   4. console_task co_await readable(notify_pipe), dequeues string
-  //   5. console_task sends string to input_ch → agent_task receives it
+  //   5. console_task sends string to input_ch, agent_task receives it
   class console_task : public dripcore::task
   {
   public:
@@ -33,7 +34,8 @@ namespace mistral::console
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch = nullptr,
-      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr
+      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr,
+      std::shared_ptr<slash_command_registry> slash_cmd_registry = nullptr
     );
 
     ~console_task();
@@ -45,6 +47,7 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch_;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
+    std::shared_ptr<slash_command_registry> slash_cmd_registry_;
   };
 
 } // namespace mistral::console
