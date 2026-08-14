@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iostream>
+#include <set>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -96,6 +98,60 @@ namespace mistral::tools
 
     result.body = (body_start < content.size()) ? content.substr(body_start) : "";
     return result;
+  }
+
+  // ---- generate_note_tags_file ----
+
+  std::string generate_note_tags_file(const std::string& notes_dir, const std::string& base_dir)
+  {
+    namespace fs = std::filesystem;
+
+    std::set<std::string> all_tags;
+    fs::path notes_path(notes_dir);
+
+    if (!fs::exists(notes_path))
+    {
+      return "";
+    }
+
+    // Recursively scan all .md files in notes directory
+    for (const auto& entry : fs::recursive_directory_iterator(notes_path))
+    {
+      if (!entry.is_regular_file())
+        continue;
+      if (entry.path().extension() != ".md")
+        continue;
+
+      std::ifstream f(entry.path());
+      if (!f)
+        continue;
+
+      std::ostringstream ss;
+      ss << f.rdbuf();
+      auto parsed = parse_frontmatter(ss.str());
+
+      for (const auto& tag : parsed.front.tags)
+      {
+        all_tags.insert(tag);
+      }
+    }
+
+    // Write tags to file in base_dir directory
+    fs::path tags_file = fs::path(base_dir) / "note_tags.txt";
+    std::ofstream out(tags_file);
+    if (!out)
+    {
+      std::cerr << "warning: could not write note tags file: " << tags_file << std::endl;
+      return "";
+    }
+
+    out << "Available note tags:\n";
+    for (const auto& tag : all_tags)
+    {
+      out << "- " << tag << "\n";
+    }
+
+    return tags_file.string();
   }
 
   // ---- note_tools ----

@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,10 @@ namespace mistral::tools
   };
 
   parsed_note parse_frontmatter(const std::string& content);
+
+  // Collect all unique tags from all notes and write to a file.
+  // Returns the path to the generated tags file, or empty string on error.
+  std::string generate_note_tags_file(const std::string& notes_dir, const std::string& base_dir);
 
   // ---- Note tools ----
 
