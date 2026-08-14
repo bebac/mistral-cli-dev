@@ -37,8 +37,9 @@ namespace mistral::agent
     }
 
     // Check if there's a code fence marker at the given position
-    // Edit blocks use 5 backticks to allow nested 3-backtick code blocks
-    constexpr std::string_view CODE_FENCE = "`````";
+    // Edit blocks use 3 tildes (~~~) to avoid clashes with backtick code fences
+    // in file content and eliminate muscle-memory errors (e.g. 4 vs 5 backticks)
+    constexpr std::string_view CODE_FENCE = "~~~";
     bool is_fence_marker(std::string_view content, size_t pos)
     {
       return content.compare(pos, CODE_FENCE.length(), CODE_FENCE) == 0;
