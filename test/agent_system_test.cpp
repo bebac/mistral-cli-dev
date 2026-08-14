@@ -552,27 +552,21 @@ TEST_SUITE_BEGIN("agent_system::slash_commands");
 struct slash_command_executor : public dripcore::task {
   slash_command_executor(
       mistral::console::slash_command* cmd,
-      dripcore::task& parent_task,
-      const std::string& args,
+      std::string args,
       mistral::agent::agent_system& sys,
       std::string& out_result)
-    : cmd_(cmd), parent_task_(parent_task), args_(args), sys_(sys), out_result_(out_result) {}
+    : cmd_(cmd), args_(std::move(args)), sys_(sys), out_result_(out_result) {}
 
   dripcore::task_handle execute() {
-    auto result = co_await cmd_->execute(parent_task_, args_, sys_);
+    auto result = co_await cmd_->execute(*this, args_, sys_);
     out_result_ = result;
     co_return;
   }
 
   mistral::console::slash_command* cmd_;
-  dripcore::task& parent_task_;
-  const std::string& args_;
+  std::string args_;
   mistral::agent::agent_system& sys_;
   std::string& out_result_;
-};
-
-struct slash_command_parent_task : public dripcore::task {
-  dripcore::task_handle execute() { co_return; }
 };
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after initialization")
@@ -599,13 +593,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
   const auto* help_cmd = registry.get_command("help");
   REQUIRE(help_cmd != nullptr);
 
-  slash_command_parent_task parent;
   std::string result;
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
       const_cast<mistral::console::slash_command*>(help_cmd),
-      parent,
       "",
       system,
       result);
@@ -625,13 +617,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
   const auto* clear_cmd = registry.get_command("clear");
   REQUIRE(clear_cmd != nullptr);
 
-  slash_command_parent_task parent;
   std::string result;
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
       const_cast<mistral::console::slash_command*>(clear_cmd),
-      parent,
       "",
       system,
       result);
@@ -649,13 +639,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
   const auto* exit_cmd = registry.get_command("exit");
   REQUIRE(exit_cmd != nullptr);
 
-  slash_command_parent_task parent;
   std::string result;
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
       const_cast<mistral::console::slash_command*>(exit_cmd),
-      parent,
       "",
       system,
       result);
@@ -672,14 +660,12 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
   const auto* model_cmd = registry.get_command("model");
   REQUIRE(model_cmd != nullptr);
 
-  slash_command_parent_task parent;
   auto &system = mistral::agent::agent_system::instance();
   std::string result;
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
       const_cast<mistral::console::slash_command*>(model_cmd),
-      parent,
       "",
       system,
       result);
@@ -697,14 +683,12 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
   const auto* tools_cmd = registry.get_command("tools");
   REQUIRE(tools_cmd != nullptr);
 
-  slash_command_parent_task parent;
   auto &system = mistral::agent::agent_system::instance();
   std::string result;
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
       const_cast<mistral::console::slash_command*>(tools_cmd),
-      parent,
       "",
       system,
       result);
