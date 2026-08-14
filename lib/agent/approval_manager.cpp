@@ -41,15 +41,7 @@ void approval_manager::add_session_approval(const std::string& tool_name, const 
       regex_pattern += ".*";
     }
 
-    //try
-    //{
-      approval.path_regex = std::regex(regex_pattern, std::regex::ECMAScript | std::regex::optimize);
-    //}
-    //catch (const std::regex_error&)
-    //{
-    //  // If regex compilation fails, use a simple string match
-    //  approval.path_regex = std::regex();
-    //}
+    approval.path_regex = std::regex(regex_pattern, std::regex::ECMAScript | std::regex::optimize);
   }
   else
   {
@@ -101,7 +93,6 @@ bool approval_manager::arguments_match(const json& arguments, const session_appr
     json arg_value = arguments[key];
 
     // Special handling for path with regex
-    //if (key == "path" && !approval.path_regex.empty()) // std::regex does not have an empty member!!!
     if (key == "path")
     {
       if (arg_value.is_string())
