@@ -145,6 +145,26 @@ namespace mistral::net
     return {};
   }
 
+  // ---- ssl_error_category ----
+
+  const char* ssl_error_category::name() const noexcept
+  {
+    return "openssl";
+  }
+
+  std::string ssl_error_category::message(int ev) const
+  {
+    char err_buf[256];
+    ERR_error_string_n(static_cast<unsigned long>(ev), err_buf, sizeof(err_buf));
+    return err_buf;
+  }
+
+  const std::error_category& ssl_error_category_instance()
+  {
+    static ssl_error_category instance;
+    return instance;
+  }
+
   // ---- tls_connection ----
 
   tls_connection::~tls_connection()
@@ -227,7 +247,7 @@ namespace mistral::net
       ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
       return {
         std::string("SSL error: ") + err_buf,
-        std::error_code(static_cast<int>(ssl_err), std::system_category())
+        std::error_code(static_cast<int>(ssl_err), ssl_error_category_instance())
       };
     }
   }

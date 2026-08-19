@@ -90,6 +90,12 @@ namespace mistral::net
               }
             }
             else if (err == SSL_ERROR_SSL) {
+              if (client.is_shutting_down()) {
+                // We initiated the shutdown, so SSL errors (e.g. "unexpected eof
+                // while reading") are expected — treat as a graceful close.
+                event_ch_->try_send({coordinator_event_type::connection_closed});
+                break;
+              }
               auto [msg, ec] = tls_connection::get_ssl_error_details();
               std::cerr << "[http_read] " << msg << " fd=" << client.platform_handle() << std::endl;
               event_ch_->try_send({

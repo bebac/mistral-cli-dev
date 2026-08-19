@@ -92,6 +92,10 @@ namespace mistral::net
               }
             }
             else if (err == SSL_ERROR_SSL) {
+              if (client.is_shutting_down()) {
+                event_ch_->try_send({coordinator_event_type::connection_closed});
+                break;
+              }
               auto [msg, ec] = tls_connection::get_ssl_error_details();
               std::cerr << "[http_write] " << msg << std::endl;
               event_ch_->try_send({

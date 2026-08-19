@@ -261,6 +261,9 @@ namespace mistral::net
       std::cerr << "[http_coordinator] Connection closed" << std::endl;
       // Reset client to allow reconnection
       client_.reset();
+      // Stop reader/writer tasks.
+      reader_task_.cancel();
+      writer_task_.cancel();
     }
 
     void handle_connection_error(std::error_code ec)
@@ -268,13 +271,16 @@ namespace mistral::net
       std::cerr << "[http_coordinator] Connection error: " << ec.message() << std::endl;
       // Reset client to allow reconnection
       client_.reset();
+      // Stop reader/writer tasks.
+      reader_task_.cancel();
+      writer_task_.cancel();
     }
 
     void handle_goaway(uint32_t last_stream_id, std::error_code ec)
     {
       std::cerr << "[http_coordinator] GOAWAY received, last_stream_id=" << last_stream_id
                 << ", error=" << ec.message() << " (active_streams=" << client_.active_streams() << ")" << std::endl;
-      client_.shutdown(); // Same reasinong as for coordinator_event_type::shutdown
+      client_.shutdown(); // Same reasoning as for coordinator_event_type::shutdown
     }
 
     void handle_shutdown()

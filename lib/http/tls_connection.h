@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 namespace mistral::net
@@ -92,6 +93,19 @@ namespace mistral::net
     SSL* ssl_ = nullptr;
   };
 
+  // Error category for OpenSSL errors, so that std::error_code::message()
+  // produces meaningful output instead of "unspecified system_category error".
+  class ssl_error_category : public std::error_category
+  {
+  public:
+    const char* name() const noexcept override;
+
+    std::string message(int ev) const override;
+  };
+
+  // Returns the singleton ssl_error_category instance.
+  const std::error_category& ssl_error_category_instance();
+
   // High-level TLS connection that manages TCP socket + SSL.
   // Performs blocking connect and TLS handshake, then switches to non-blocking.
   class tls_connection
@@ -109,14 +123,16 @@ namespace mistral::net
     void set_non_blocking(bool enable) { ssl_.set_non_blocking(enable); }
 
     int read(std::span<std::byte> in) {
-        return SSL_read(ssl_.get(), in.data(), static_cast<int>(in.size()));
+      return SSL_read(ssl_.get(), in.data(), static_cast<int>(in.size()));
     }
     int write(std::span<const std::byte> out) {
-        return SSL_write(ssl_.get(), out.data(), static_cast<int>(out.size()));
+      return SSL_write(ssl_.get(), out.data(), static_cast<int>(out.size()));
     }
     bool no_data_pending() const {
-        return SSL_pending(ssl_.get()) == 0;
+      return SSL_pending(ssl_.get()) == 0;
     }
+
+    bool is_shutting_down() const { return shutting_down_; }
 
     int shutdown() {
       // NOTE - Not sure about this. Thing is that dripcore has no really good way to stop
@@ -125,6 +141,7 @@ namespace mistral::net
       // won't notify it. Doing a shutdwon does seem to wake it up though. I would have expected
       // SSL_shutdown to also do a shutdown on the fd, but that doesn't seem to work.
       //return SSL_shutdown(ssl_.get());
+      shutting_down_ = true;
       if (sock_ >= 0) {
         return ::shutdown(sock_, SHUT_RDWR);
       }
@@ -149,6 +166,7 @@ namespace mistral::net
     ssl_context ssl_ctx_;
     ssl_handle ssl_;
     int sock_ = -1;
+    bool shutting_down_ = false;
   };
 
   // Call once at process start.

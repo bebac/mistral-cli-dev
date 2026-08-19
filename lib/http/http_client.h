@@ -48,6 +48,10 @@ namespace mistral::net
       return conn_->shutdown();
     }
 
+    bool is_shutting_down() const {
+      return conn_->is_shutting_down();
+    }
+
     auto open_stream() { return context_->open_stream(); }
     auto active_streams() { return context_->active_streams(); }
 
