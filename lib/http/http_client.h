@@ -55,6 +55,10 @@ namespace mistral::net
     auto open_stream() { return context_->open_stream(); }
     auto active_streams() { return context_->active_streams(); }
 
+    void set_initial_window_size(uint32_t size) {
+      context_->set_initial_window_size(size);
+    }
+
     // Expose connection-level callbacks from stunning-waddle
     void on_goaway(std::function<void(uint32_t, std::error_code)> cb) {
       context_->on_goaway(std::move(cb));

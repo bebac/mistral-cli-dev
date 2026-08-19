@@ -15,6 +15,7 @@
 #include <dripcore/task_handle.h>
 #include <dripcore/cancelled.h>
 #include <dripcore/task_control.h>
+#include <dripcore/awaitable.h>
 
 #include <http/headers.h>
 #include <http/stream.h>
@@ -25,7 +26,6 @@
 #include <memory>
 #include <string>
 #include <variant>
-#include <vector>
 #include <format>
 #include <span>
 #include <iostream>
@@ -66,7 +66,7 @@ namespace mistral::net
 
           switch (evt->type) {
             case coordinator_event_type::new_request:
-              handle_new_request(*evt->request, evt->completion_ch);
+              co_await handle_new_request(*evt->request, evt->completion_ch);
               break;
 
             case coordinator_event_type::connection_closed:
@@ -101,7 +101,7 @@ namespace mistral::net
     }
 
   private:
-    void handle_new_request(const api::api_request& req, std::shared_ptr<dripcore::channel<bool>> completion_ch)
+    dripcore::awaitable<void> handle_new_request(const api::api_request& req, std::shared_ptr<dripcore::channel<bool>> completion_ch)
     {
       auto response_ch = req.response_ch;
 
@@ -111,7 +111,10 @@ namespace mistral::net
 
       if (!response_ch) {
         std::cerr << "[http_coordinator] response_ch is required!" << std::endl;
-        return;
+        if (completion_ch) {
+          completion_ch->try_send(true);
+        }
+        co_return;
       }
 
       // If not connected, establish connection
@@ -119,6 +122,11 @@ namespace mistral::net
         try {
           std::cerr << "[http_coordinator] " << host_ << " connecting..." << std::endl;
           client_.connect(host_, port_);
+
+          // Advertise a larger receive window (1 MB) to reduce WINDOW_UPDATE
+          // frequency and prevent stalls during large response reception.
+          // Must be called before open_stream() so SETTINGS includes the value.
+          client_.set_initial_window_size(1048576);
 
           // Register connection-level callbacks
           client_.on_goaway([this](uint32_t last_stream_id, std::error_code ec) {
@@ -146,18 +154,23 @@ namespace mistral::net
           if (completion_ch) {
             completion_ch->try_send(true);
           }
-          return;
+          co_return;
         }
       }
 
       // Open a new stream for this request
       auto stream = client_.open_stream();
 
-      // Set up stream callbacks - these directly send to response_ch
-      setup_stream_callbacks(stream, req, response_ch, completion_ch, response, sse_parser);
+      // Create a window channel for send flow control. on_window_available
+      // fires from the read task when a WINDOW_UPDATE replenishes the send
+      // window. on_reset closes the channel so the await wakes with nullopt.
+      auto window_ch = std::make_shared<dripcore::channel<bool>>(1);
 
-      // Initialize and send the request
-      init_request(stream, req);
+      // Set up stream callbacks - these directly send to response_ch
+      setup_stream_callbacks(stream, req, response_ch, completion_ch, response, sse_parser, window_ch);
+
+      // Send the request (awaitable for flow control backpressure)
+      co_await send_request_body(stream, req, window_ch);
     }
 
     void setup_stream_callbacks(
@@ -166,7 +179,8 @@ namespace mistral::net
       std::shared_ptr<dripcore::channel<api::api_event>> response_ch,
       std::shared_ptr<dripcore::channel<bool>> completion_ch,
       std::shared_ptr<api::api_response> response,
-      std::shared_ptr<http::sse_parser> sse_parser
+      std::shared_ptr<http::sse_parser> sse_parser,
+      std::shared_ptr<dripcore::channel<bool>> window_ch
     )
     {
       stream.on_headers(
@@ -228,11 +242,13 @@ namespace mistral::net
       );
 
       stream.on_reset(
-        [response_ch, completion_ch, response](std::error_code ec) {
+        [response_ch, completion_ch, response, window_ch](std::error_code ec) {
           mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_reset error_code='{}'", ec.message());
           response_ch->try_send({api::event_type::error,
             std::format("stream reset: {}", ec.message())});
           response->done = true;
+          // Close the window channel so send_request_body wakes with nullopt
+          window_ch->close();
           // Notify request task that this request is complete
           if (completion_ch) {
             completion_ch->try_send(true);
@@ -241,7 +257,11 @@ namespace mistral::net
       );
     }
 
-    void init_request(http::stream& stream, const api::api_request& req)
+    dripcore::awaitable<void> send_request_body(
+      http::stream& stream,
+      const api::api_request& req,
+      std::shared_ptr<dripcore::channel<bool>> window_ch
+    )
     {
       ::http::headers hdrs{
         {"content-type", "application/json"},
@@ -253,7 +273,32 @@ namespace mistral::net
       stream.send_headers(req.method, req.path, host_, hdrs, false);
 
       auto body_bytes = std::as_bytes(std::span{req.body.data(), req.body.size()});
-      stream.send_data(body_bytes, true);
+
+      // Register on_window_available to signal the channel when the
+      // flow control window transitions from exhausted to available.
+      stream.on_window_available([window_ch]() {
+        window_ch->try_send(true);
+      });
+
+      size_t offset = 0;
+      while (offset < body_bytes.size())
+      {
+        size_t remaining = body_bytes.size() - offset;
+        size_t sent = stream.send_data(
+          std::span<const std::byte>(body_bytes.data() + offset, remaining),
+          true);
+        offset += sent;
+
+        if (offset < body_bytes.size())
+        {
+          // Window exhausted — suspend until on_window_available fires.
+          auto wake = co_await window_ch->recv(this);
+          if (!wake) {
+            // Window channel closed (stream reset/closed) — abort.
+            break;
+          }
+        }
+      }
     }
 
     void handle_connection_closed()

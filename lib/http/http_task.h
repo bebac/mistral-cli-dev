@@ -94,6 +94,11 @@ namespace mistral::net
             {
               std::cerr << "[http_task] " << host_ << " connecting (" << retries << ")..." << std::endl;
               client_.connect(host_, port_);
+
+              // Advertise a larger receive window (1 MB) to reduce WINDOW_UPDATE
+              // frequency and prevent stalls during large response reception.
+              client_.set_initial_window_size(1048576);
+
               connected_ = true;
             }
             catch (const std::exception& e)
@@ -110,10 +115,11 @@ namespace mistral::net
           std::cout << "[http_task] Sending request " << req->path << ", size: " << req->body.size() << std::endl;
 
           // Open a new HTTP stream for this request.
-          auto stream = open_stream(client_, *req);
+          auto window_ch = std::make_shared<dripcore::channel<bool>>(1);
+          auto stream = open_stream(client_, *req, window_ch);
 
           // Buffer request (headers + body).
-          init_request(stream, *req);
+          co_await send_request_body(stream, *req, window_ch);
 
           // --- SSL pump loop ---
           //
@@ -284,7 +290,7 @@ namespace mistral::net
     }
 
   private:
-    auto open_stream(http_client& client, const api::api_request& req) -> ::http::stream
+    auto open_stream(http_client& client, const api::api_request& req, std::shared_ptr<dripcore::channel<bool>> window_ch) -> ::http::stream
     {
       auto stream = client.open_stream();
 
@@ -350,18 +356,24 @@ namespace mistral::net
       );
 
       stream.on_reset(
-        [&](std::error_code ec) {
+        [&, window_ch](std::error_code ec) {
           mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_reset error_code='{}'", ec.message());
           req.response_ch->try_send({api::event_type::error,
             std::format("stream reset: {}", ec.message())});
           response_.done = true;
+          // Close the window channel so send_request_body wakes with nullopt
+          window_ch->close();
         }
       );
 
       return stream;
     }
 
-    void init_request(http::stream& stream, const api::api_request& req)
+    dripcore::awaitable<void> send_request_body(
+      http::stream& stream,
+      const api::api_request& req,
+      std::shared_ptr<dripcore::channel<bool>> window_ch
+    )
     {
       ::http::headers hdrs{
         {"content-type",  "application/json"},
@@ -373,7 +385,32 @@ namespace mistral::net
       stream.send_headers(req.method, req.path, host_, hdrs, false);
 
       auto body_bytes = std::as_bytes(std::span{req.body.data(), req.body.size()});
-      stream.send_data(body_bytes, true);
+
+      // Register on_window_available to signal the channel when the
+      // flow control window transitions from exhausted to available.
+      stream.on_window_available([window_ch]() {
+        window_ch->try_send(true);
+      });
+
+      size_t offset = 0;
+      while (offset < body_bytes.size())
+      {
+        size_t remaining = body_bytes.size() - offset;
+        size_t sent = stream.send_data(
+          std::span<const std::byte>(body_bytes.data() + offset, remaining),
+          true);
+        offset += sent;
+
+        if (offset < body_bytes.size())
+        {
+          // Window exhausted — suspend until on_window_available fires.
+          auto wake = co_await window_ch->recv(this);
+          if (!wake) {
+            // Window channel closed (stream reset/closed) — abort.
+            break;
+          }
+        }
+      }
     }
 
     std::string host_;
