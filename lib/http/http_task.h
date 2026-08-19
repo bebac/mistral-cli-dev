@@ -186,9 +186,23 @@ namespace mistral::net
         std::cerr << "[http_task] client_output_task !connected" << std::endl;
       }
 
+      // When SSL_write returns WANT_WRITE or WANT_READ, OpenSSL requires
+      // the same buffer contents on retry. With SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER
+      // enabled (set on the SSL_CTX), the pointer may differ but contents must
+      // match. Data is only ever appended to the engine's pending_out_ vector —
+      // never modified in place — and only removed from the front via
+      // output_end() (which we don't call on WANT_WRITE). So on retry we can
+      // simply re-fetch output_begin() and subspan to the remembered length,
+      // avoiding a buffer copy.
+      size_t retry_len = 0;
+
       while (true)
       {
         auto out = client_.output_begin();
+
+        if (retry_len > 0 && retry_len < out.size()) {
+          out = out.first(retry_len);
+        }
 
         // init_request buffers the complete request, so once we get an empty output buffer we
         // have sent the complete request.
@@ -198,6 +212,7 @@ namespace mistral::net
         int n = client_.write(out);
 
         if (n > 0) {
+          retry_len = 0;
           client_.output_end(n);
         }
         else
@@ -205,9 +220,11 @@ namespace mistral::net
           int err = client_.get_error(n);
 
           if (err == SSL_ERROR_WANT_WRITE) {
+            retry_len = out.size();
             co_await writable(client_.platform_handle());
           }
           else if (err == SSL_ERROR_WANT_READ) {
+            retry_len = out.size();
             co_await readable(client_.platform_handle());
           }
           else if (err == SSL_ERROR_SYSCALL) {

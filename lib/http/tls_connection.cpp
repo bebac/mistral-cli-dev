@@ -58,6 +58,14 @@ namespace mistral::net
       throw std::runtime_error("unable to create SSL context");
     }
     SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
+
+    // Allow SSL_write() to be retried with a different buffer pointer than
+    // the original call that returned SSL_ERROR_WANT_WRITE or
+    // SSL_ERROR_WANT_READ. The buffer contents must remain the same, but
+    // the pointer may change (e.g., due to vector reallocation in the
+    // HTTP/2 engine's output buffer). Without this flag, OpenSSL raises
+    // SSL_R_BAD_WRITE_RETRY when the pointer differs.
+    SSL_CTX_set_mode(ctx_, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
   }
 
   ssl_context::~ssl_context()
