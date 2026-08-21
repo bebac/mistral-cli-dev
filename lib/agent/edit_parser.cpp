@@ -3,6 +3,7 @@
 
 #include <cctype>
 #include <algorithm>
+#include <filesystem>
 #include <string_view>
 #include <vector>
 
@@ -297,7 +298,55 @@ namespace mistral::agent
       size_t code_block_end = find_closing_fence(input, code_block_start);
       if (code_block_end == std::string_view::npos)
       {
-        // No closing code block marker found, skip
+        // find_closing_fence requires >>>>>>> REPLACE markers.
+        // If it failed, try a fallback for markerless new file creation:
+        // use the next ~~~ at line start as the closing fence, but only
+        // if the file does not already exist (markers are required for
+        // editing existing files).
+        size_t fb_close = input.find(CODE_FENCE, code_block_start + CODE_FENCE.length());
+        while (fb_close != std::string_view::npos)
+        {
+          if (fb_close == 0 || input[fb_close - 1] == '\n')
+          {
+            break;
+          }
+          fb_close = input.find(CODE_FENCE, fb_close + CODE_FENCE.length());
+        }
+
+        if (fb_close != std::string_view::npos)
+        {
+          // Extract content between opening and fallback closing fence
+          size_t fb_content_start = code_block_start + CODE_FENCE.length();
+          if (fb_content_start < fb_close)
+          {
+            size_t first_nl = input.find('\n', fb_content_start);
+            if (first_nl != std::string_view::npos && first_nl < fb_close) {
+              fb_content_start = first_nl + 1;
+            }
+          }
+
+          std::string_view fb_content = input.substr(fb_content_start, fb_close - fb_content_start);
+          if (!fb_content.empty() && fb_content.back() == '\n') {
+            fb_content = fb_content.substr(0, fb_content.length() - 1);
+          }
+
+          // Only accept markerless blocks for new files that don't exist
+          if (find_marker(fb_content, SEARCH_MARKER) == std::string_view::npos &&
+              !std::filesystem::exists(file_path))
+          {
+            file_edit_t edit;
+            edit.file_path = file_path;
+            edit.search_text = "";
+            edit.replace_text = std::string(fb_content);
+            edit.patch_number = edits.size() + 1;
+            edits.push_back(edit);
+          }
+
+          pos = fb_close + CODE_FENCE.length();
+          continue;
+        }
+
+        // No closing fence found at all, skip
         pos = file_path_end + 1;
         continue;
       }

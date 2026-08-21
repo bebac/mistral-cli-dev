@@ -1,6 +1,8 @@
 #include "agent/edit_parser.h"
 #include "doctest/doctest.h"
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -330,6 +332,68 @@ namespace mistral::agent
       CHECK(result->second[0].search_text == "");
       CHECK(result->second[0].replace_text == "// New file content\nint main() { return 0; }");
       CHECK(result->second[0].patch_number == 1);
+    }
+
+    TEST_CASE("parse_edits_with_patchset - markerless new file creation (no SEARCH/REPLACE markers)")
+    {
+      // When the LLM creates new files, it may omit the SEARCH/REPLACE
+      // markers entirely and just put the file content in the code block.
+      // The parser accepts this if the file does not already exist.
+      std::string input =
+        "Here are the changes (patchset: markerless-create):\n"
+        "\n"
+        "markerless_new_file_test.tmp\n"
+        "~~~cpp\n"
+        "#include <iostream>\n"
+        "\n"
+        "int main() {\n"
+        "  std::cout << \"Hello!\" << std::endl;\n"
+        "  return 0;\n"
+        "}\n"
+        "~~~";
+
+      // Ensure the file doesn't exist
+      std::filesystem::remove("markerless_new_file_test.tmp");
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "markerless-create");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "markerless_new_file_test.tmp");
+      CHECK(result->second[0].search_text == "");
+      CHECK(result->second[0].replace_text == "#include <iostream>\n\nint main() {\n  std::cout << \"Hello!\" << std::endl;\n  return 0;\n}");
+      CHECK(result->second[0].patch_number == 1);
+
+      // Clean up
+      std::filesystem::remove("markerless_new_file_test.tmp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - markerless block rejected for existing file")
+    {
+      // If the file already exists, markerless blocks are rejected —
+      // markers are required for editing existing files.
+      std::string input =
+        "Here are the changes (patchset: markerless-existing):\n"
+        "\n"
+        "markerless_existing_test.tmp\n"
+        "~~~cpp\n"
+        "This should not be accepted as an edit\n"
+        "~~~";
+
+      // Create the file so it exists
+      {
+        std::ofstream out("markerless_existing_test.tmp");
+        out << "existing content";
+      }
+
+      auto result = parse_edits_with_patchset(input);
+      // Patchset ID found but 0 edits (markerless block rejected for existing file)
+      REQUIRE(result.has_value());
+      CHECK(result->first == "markerless-existing");
+      CHECK(result->second.empty());
+
+      // Clean up
+      std::filesystem::remove("markerless_existing_test.tmp");
     }
 
     TEST_CASE("parse_edits_with_patchset - file path with spaces")
