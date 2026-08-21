@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace mistral::agent
 {
@@ -860,5 +861,38 @@ namespace mistral::agent
   bool agent_system::has_patchset() const
   {
     return current_patchset_.has_value();
+  }
+
+  // ---- Request Cancellation Support ----
+
+  void agent_system::set_current_response_ch(std::shared_ptr<dripcore::channel<api::api_event>> ch)
+  {
+    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
+    current_response_ch_ = std::move(ch);
+  }
+
+  void agent_system::clear_current_response_ch()
+  {
+    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
+    current_response_ch_.reset();
+  }
+
+  std::shared_ptr<dripcore::channel<api::api_event>> agent_system::get_current_response_ch() const
+  {
+    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
+    return current_response_ch_;
+  }
+
+  void agent_system::set_shutdown_pipe_fd(int fd)
+  {
+    shutdown_pipe_write_fd_ = fd;
+  }
+
+  void agent_system::signal_shutdown()
+  {
+    if (shutdown_pipe_write_fd_ >= 0) {
+      char buf = '0';
+      ::write(shutdown_pipe_write_fd_, &buf, 1);
+    }
   }
 } // namespace mistral::agent

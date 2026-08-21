@@ -57,6 +57,11 @@ namespace mistral::agent
 
   auto agent_task_base::agent_loop() -> dripcore::awaitable<void>
   {
+    // Create a fresh response channel for this agent_loop invocation.
+    // This allows cancellation (closing the channel) without affecting
+    // future requests.
+    response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
+
     auto tools_schema = tools_.get_schema();
     bool final_answer = false;
 
@@ -67,6 +72,9 @@ namespace mistral::agent
 
       agent_loop_on_sending_chat_request();
 
+      // Register response channel for cancellation support.
+      agent_system::instance().set_current_response_ch(response_ch_);
+
       // Build request with path from api_version
       std::string path = "/" + api_version_ + "/chat/completions";
       request_ch_->try_send({.path = path, .body = std::move(body), .stream = true, .response_ch = response_ch_});
@@ -74,12 +82,14 @@ namespace mistral::agent
       // Consume streaming events.
       std::vector<api::message_content> accumulated_content;
       std::vector<api::tool_call> accumulated_tool_calls;
+      bool cancelled = false;
 
       while (true)
       {
         auto evt = co_await response_ch_->recv(this);
 
         if (!evt) {
+          cancelled = true;
           final_answer = true;
           break;
         }
@@ -131,7 +141,14 @@ namespace mistral::agent
         }
       }
 
-      if (!accumulated_tool_calls.empty())
+      // Unregister response channel — request is no longer in flight.
+      agent_system::instance().clear_current_response_ch();
+
+      if (cancelled)
+      {
+        agent_loop_on_cancelled();
+      }
+      else if (!accumulated_tool_calls.empty())
       {
         // PARSE AND STORE PATCHSET FROM accumulated_content BEFORE tool execution
         if (!try_parse_and_store_patchset(accumulated_content))

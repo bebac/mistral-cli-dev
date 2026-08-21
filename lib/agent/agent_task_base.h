@@ -46,6 +46,7 @@ namespace mistral::agent
     virtual auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> = 0;
     virtual void agent_loop_on_error(const std::string& error) = 0;
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
+    virtual void agent_loop_on_cancelled() {}
 
     // Helper methods
     std::optional<std::pair<std::string, std::vector<file_edit_t>>>

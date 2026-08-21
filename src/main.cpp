@@ -13,6 +13,7 @@
 #include "console/slash_command_executor_task.h"
 #include "console/slash_command_registry.h"
 #include "trace/trace.h"
+#include "common/signal_watcher_task.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
@@ -24,6 +25,20 @@
 #include <string>
 #include <getopt.h>
 #include <filesystem>
+#include <signal.h>
+#include <unistd.h>
+
+// Global pipe write fd for SIGINT → dripcore event loop notification.
+static int g_sigint_pipe_write_fd = -1;
+
+static void sigint_handler(int)
+{
+  if (g_sigint_pipe_write_fd >= 0) {
+    char buf = '1';
+    ssize_t ret = ::write(g_sigint_pipe_write_fd, &buf, 1);
+    (void)ret;
+  }
+}
 
 void terminate_handler()
 {
@@ -211,6 +226,22 @@ int main(int argc, char* argv[])
   std::cout << "mistral-cli (" << resolved_model << ")\n"
             << "Type your message, Ctrl-D to exit.\n" << std::endl;
 
+  // Create self-pipe for SIGINT → dripcore event loop notification.
+  int sigint_pipe_fds[2];
+  if (::pipe(sigint_pipe_fds) != 0) {
+    std::cerr << "error: failed to create signal pipe" << std::endl;
+    return 1;
+  }
+  g_sigint_pipe_write_fd = sigint_pipe_fds[1];
+  agent_system.set_shutdown_pipe_fd(sigint_pipe_fds[1]);
+
+  // Install SIGINT handler.
+  struct sigaction sa{};
+  sa.sa_handler = sigint_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(SIGINT, &sa, nullptr);
+
   // Create scheduler and spawn tasks.
   dripcore::scheduler sched;
 
@@ -232,7 +263,13 @@ int main(int argc, char* argv[])
   //sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch);
+  sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_fds[0]);
   sched.run();
+
+  // Restore default SIGINT handler and close signal pipe.
+  signal(SIGINT, SIG_DFL);
+  ::close(sigint_pipe_fds[0]);
+  ::close(sigint_pipe_fds[1]);
 
   return 0;
 }

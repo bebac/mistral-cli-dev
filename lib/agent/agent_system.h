@@ -22,6 +22,7 @@
 #include <string>
 #include <memory>
 #include <map>
+#include <mutex>
 #include <vector>
 
 namespace mistral::tools
@@ -129,6 +130,19 @@ namespace mistral::agent
       const std::string& message
     );
 
+    // Current response channel for request cancellation support.
+    // Registered by agent_task_base before each API request and
+    // cleared after the request completes. The signal_watcher_task
+    // closes this channel when SIGINT is received to cancel the
+    // in-flight request.
+    void set_current_response_ch(std::shared_ptr<dripcore::channel<api::api_event>> ch);
+    void clear_current_response_ch();
+    std::shared_ptr<dripcore::channel<api::api_event>> get_current_response_ch() const;
+
+    // Shutdown pipe for notifying the signal_watcher_task to exit.
+    void set_shutdown_pipe_fd(int fd);
+    void signal_shutdown();
+
   private:
     agent_system() = default;
     ~agent_system() = default;
@@ -178,6 +192,13 @@ namespace mistral::agent
 
     // Patchset storage - only one at a time (the latest)
     std::optional<patchset_t> current_patchset_;
+
+    // Current response channel for request cancellation
+    mutable std::mutex current_response_ch_mtx_;
+    std::shared_ptr<dripcore::channel<api::api_event>> current_response_ch_;
+
+    // Shutdown pipe write end (for notifying signal_watcher_task)
+    int shutdown_pipe_write_fd_ = -1;
   };
 
 } // namespace mistral::agent

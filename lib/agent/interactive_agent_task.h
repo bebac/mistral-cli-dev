@@ -67,6 +67,9 @@ namespace mistral::agent
         stats_ch_->close();
       }
 
+      // Signal the signal_watcher_task to shut down.
+      agent_system::instance().signal_shutdown();
+
       co_return;
     }
 
@@ -275,6 +278,14 @@ namespace mistral::agent
       }
       agent_task_base::agent_loop_on_completed(accumulated_content);
       std::cout << std::endl;
+    }
+
+    void agent_loop_on_cancelled() override final
+    {
+      if (in_thinking_) {
+        thinking_end();
+      }
+      std::cout << normal_color_ << std::flush;
     }
 
   private:
