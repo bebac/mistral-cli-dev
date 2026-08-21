@@ -295,7 +295,7 @@ namespace mistral::agent
       CHECK(!result.has_value());
     }
 
-    TEST_CASE("parse_edits_with_patchset - no edit blocks")
+    TEST_CASE("parse_edits_with_patchset - no edit blocks returns patchset ID with 0 edits")
     {
       std::string input =
         "Here are the changes (patchset: empty-patchset):\n"
@@ -303,7 +303,9 @@ namespace mistral::agent
         "No edit blocks here";
 
       auto result = parse_edits_with_patchset(input);
-      CHECK(!result.has_value());
+      REQUIRE(result.has_value());
+      CHECK(result->first == "empty-patchset");
+      CHECK(result->second.empty());
     }
 
     TEST_CASE("parse_edits_with_patchset - new file creation")

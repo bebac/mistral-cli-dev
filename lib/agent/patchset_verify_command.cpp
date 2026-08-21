@@ -89,6 +89,17 @@ namespace mistral::agent
     // Success - structural parsing passed
     const auto& [patchset_id, edits] = *parse_result;
 
+    if (edits.empty())
+    {
+      co_return std::format(
+        "❌ Patchset verification failed:\n"
+        "   - Patchset ID '{}' was found but 0 edits were parsed.\n"
+        "   - This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
+        "markers or mismatched ~~~ code fences).",
+        patchset_id
+      );
+    }
+
     auto validation_result = validate_all_edits(edits);
 
     // Build result message

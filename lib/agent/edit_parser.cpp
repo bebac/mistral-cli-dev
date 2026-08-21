@@ -349,7 +349,11 @@ namespace mistral::agent
 
     auto edits = parse_edit_blocks(input);
     if (!edits) {
-      return std::nullopt;
+      // Patchset ID was found but no valid edit blocks were parsed.
+      // Return the ID with an empty edit list so the caller can store
+      // the patchset and report a meaningful error (e.g., "0 edits
+      // parsed") rather than "patchset not found".
+      return std::make_pair(*patchset_id, std::vector<file_edit_t>{});
     }
 
     return std::make_pair(*patchset_id, std::move(*edits));

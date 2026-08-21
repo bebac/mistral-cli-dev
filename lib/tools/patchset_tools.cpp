@@ -37,7 +37,18 @@ namespace mistral::agent
       );
     }
 
-    // 3. Validate all edits (dry run)
+    // 3. Check for empty patchset (formatting error indicator)
+    if (patchset->edits.empty())
+    {
+      return make_error_response(
+        "no_edits",
+        "Patchset '" + patchset_id + "' contains 0 edits. "
+        "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
+        "markers or mismatched ~~~ code fences)."
+      );
+    }
+
+    // 4. Validate all edits (dry run)
     auto validation_result = validate_all_edits(patchset->edits);
 
     if (validation_result.all_valid())
@@ -103,6 +114,17 @@ namespace mistral::agent
       return make_error_response(
         "patchset_not_found",
         "No patchset with ID: " + patchset_id
+      );
+    }
+
+    // Check for empty patchset (formatting error indicator)
+    if (patchset->edits.empty())
+    {
+      return make_error_response(
+        "no_edits",
+        "Patchset '" + patchset_id + "' contains 0 edits. "
+        "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
+        "markers or mismatched ~~~ code fences)."
       );
     }
 
