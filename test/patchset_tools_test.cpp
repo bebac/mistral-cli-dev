@@ -118,6 +118,12 @@ namespace mistral::agent
     private:
       std::string path_;
       static inline int next_id_ = 0;
+
+    public:
+      static int next_id_for_dir_tests()
+      {
+        return next_id_++;
+      }
     };
 
     // Helper to create a simple edit
@@ -330,6 +336,38 @@ namespace mistral::agent
     CHECK(content == "new file content");
 
     std::filesystem::remove(new_file);
+  }
+
+  TEST_CASE("patchset_apply - new file creation creates intermediate directories")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    std::string new_dir = "patchset_test_subdir_" +
+      std::to_string(temp_file::next_id_for_dir_tests());
+    std::string new_file = new_dir + "/nested/deep/file.tmp";
+
+    // Ensure directory doesn't exist
+    if (std::filesystem::exists(new_dir))
+    {
+      std::filesystem::remove_all(new_dir);
+    }
+
+    auto edit = make_edit(new_file, "", "nested content", 1);
+    store.store_patchset("create-nested", {edit});
+
+    auto result = tools.patchset_apply("create-nested");
+    CHECK(result["status"] == "success");
+    CHECK(result["applied"] == 1);
+    CHECK(result["failed"] == 0);
+
+    std::ifstream in(new_file);
+    std::string content((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+    CHECK(content == "nested content");
+
+    // Cleanup
+    std::filesystem::remove_all(new_dir);
   }
 
   TEST_CASE("patchset_apply - file overwrite")

@@ -5,9 +5,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+
+namespace fs = std::filesystem;
 
 namespace mistral::agent
 {
@@ -251,6 +254,24 @@ namespace mistral::agent
         // For new files (empty search_text)
         if (edit.search_text.empty())
         {
+          // Create parent directories if they don't exist
+          auto parent_path = fs::path(edit.file_path).parent_path();
+          if (!parent_path.empty())
+          {
+            std::error_code ec;
+            fs::create_directories(parent_path, ec);
+            if (ec)
+            {
+              edit_result["status"] = "failed";
+              edit_result["error_type"] = "write_failed";
+              edit_result["error"] = "Could not create directory: " + parent_path.string() +
+                                     " (" + ec.message() + ")";
+              results_array.push_back(edit_result);
+              result["failed"] = result["failed"].get<int>() + 1;
+              continue;
+            }
+          }
+
           // Create new file
           std::ofstream out(edit.file_path);
           if (!out)
