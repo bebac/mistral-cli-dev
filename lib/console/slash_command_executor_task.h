@@ -27,7 +27,7 @@ namespace mistral::console
       std::shared_ptr<slash_command_registry> registry
     );
 
-    dripcore::task_handle execute();
+    dripcore::awaitable<> body() override;
 
   private:
     std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch_;

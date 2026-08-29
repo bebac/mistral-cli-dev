@@ -17,7 +17,7 @@ namespace mistral::agent
   public:
     using agent_task_base::agent_task_base;
 
-    dripcore::task_handle execute();
+    dripcore::awaitable<> body() override;
 
   protected:
     void thinking_begin() override;

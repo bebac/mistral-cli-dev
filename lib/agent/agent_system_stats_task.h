@@ -37,7 +37,7 @@ namespace mistral::agent
     explicit agent_system_stats_task(
       std::shared_ptr<dripcore::channel<stat_message>> stats_ch);
 
-    dripcore::task_handle execute();
+    dripcore::awaitable<> body() override;
 
   private:
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;

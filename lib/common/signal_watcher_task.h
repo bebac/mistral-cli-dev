@@ -27,7 +27,7 @@ namespace mistral::common
     {
     }
 
-    dripcore::task_handle execute()
+    dripcore::awaitable<> body() override
     {
       while (true)
       {

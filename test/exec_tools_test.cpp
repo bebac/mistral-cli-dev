@@ -32,7 +32,7 @@ namespace mistral::tools
           cwd_(std::move(cwd)), timeout_(timeout),
           out_result_(out_result), out_completed_(out_completed) {}
 
-      dripcore::task_handle execute()
+      dripcore::awaitable<> body() override
       {
         out_result_ = co_await tools_.exec(std::move(command_), std::move(args_), std::move(cwd_), timeout_);
         out_completed_ = true;

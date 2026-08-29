@@ -6,7 +6,7 @@
 namespace mistral::agent
 {
 
-  dripcore::task_handle subagent_task::execute()
+  dripcore::awaitable<> subagent_task::body()
   {
     while (true)
     {

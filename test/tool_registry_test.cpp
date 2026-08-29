@@ -31,7 +31,7 @@ namespace mistral::agent
       dispatch_task(tool_registry& reg, json tc, json& out_result, bool& out_completed)
         : registry_(reg), tool_call_(std::move(tc)), out_result_(out_result), out_completed_(out_completed) {}
 
-      dripcore::task_handle execute()
+      dripcore::awaitable<> body() override
       {
         out_result_ = co_await registry_.dispatch(tool_call_);
         out_completed_ = true;

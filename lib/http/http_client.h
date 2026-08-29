@@ -53,19 +53,16 @@ namespace mistral::net
     }
 
     auto open_stream() { return context_->open_stream(); }
+    auto get_stream(uint32_t id) { return context_->get_stream(id); }
     auto active_streams() { return context_->active_streams(); }
 
     void set_initial_window_size(uint32_t size) {
       context_->set_initial_window_size(size);
     }
 
-    // Expose connection-level callbacks from stunning-waddle
-    void on_goaway(std::function<void(uint32_t, std::error_code)> cb) {
-      context_->on_goaway(std::move(cb));
-    }
-    void on_connection_error(std::function<void(std::error_code)> cb) {
-      context_->on_connection_error(std::move(cb));
-    }
+    // Event draining (async event interface)
+    bool has_events() const { return context_->has_events(); }
+    auto next_event() { return context_->next_event(); }
 
     auto input_begin() { return context_->input_begin(); }
     void input_end(size_t n) { context_->input_end(n); }

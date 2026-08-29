@@ -19,7 +19,7 @@ namespace mistral::console
   {
   }
 
-  dripcore::task_handle slash_command_executor_task::execute()
+  dripcore::awaitable<> slash_command_executor_task::body()
   {
     while (true)
     {

@@ -133,7 +133,7 @@ namespace {
       async_note_task(Func&& f, async_result<result_type>& holder)
         : func_(std::forward<Func>(f)), holder_(holder) {}
 
-      dripcore::task_handle execute() {
+      dripcore::awaitable<> body() override {
         if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>) {
           holder_.set(co_await func_());
         } else {

@@ -6,13 +6,16 @@
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
+#include <dripcore/awaitable.h>
 
 #include <memory>
 #include <string>
 
 namespace mistral::console
 {
+  // Forward declaration — defined in console_task.cpp
+  struct console_state;
+
   // Console task integrates isocline (blocking readline) with dripcore's event loop.
   //
   // Architecture:
@@ -40,7 +43,9 @@ namespace mistral::console
 
     ~console_task();
 
-    dripcore::task_handle execute();
+  protected:
+    dripcore::awaitable<> body() override;
+    dripcore::awaitable<> teardown() override;
 
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
@@ -48,6 +53,7 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch_;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
     std::shared_ptr<slash_command_registry> slash_cmd_registry_;
+    std::shared_ptr<console_state> state_;
   };
 
 } // namespace mistral::console

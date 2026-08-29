@@ -330,9 +330,9 @@ namespace mistral::console
 
   console_task::~console_task() = default;
 
-  dripcore::task_handle console_task::execute()
+  dripcore::awaitable<> console_task::body()
   {
-    auto state = std::make_shared<console_state>();
+    state_ = std::make_shared<console_state>();
 
     // Create pipes.
     int notify_fds[2], prompt_fds[2];
@@ -341,20 +341,20 @@ namespace mistral::console
       co_return;
     }
 
-    state->notify_read  = notify_fds[0];
-    state->notify_write = notify_fds[1];
-    state->prompt_read  = prompt_fds[0];
-    state->prompt_write = prompt_fds[1];
+    state_->notify_read  = notify_fds[0];
+    state_->notify_write = notify_fds[1];
+    state_->prompt_read  = prompt_fds[0];
+    state_->prompt_write = prompt_fds[1];
 
     // Make the notify read end non-blocking for dripcore.
-    fcntl(state->notify_read, F_SETFL,
-          fcntl(state->notify_read, F_GETFL) | O_NONBLOCK);
+    fcntl(state_->notify_read, F_SETFL,
+          fcntl(state_->notify_read, F_GETFL) | O_NONBLOCK);
 
     // Pass the registry to the state for the input thread
-    state->slash_cmd_registry = slash_cmd_registry_;
+    state_->slash_cmd_registry = slash_cmd_registry_;
 
     // Start the input thread.
-    state->thread = std::thread([state]() { input_thread_func(state.get()); });
+    state_->thread = std::thread([this]() { input_thread_func(state_.get()); });
 
     // Main loop: wait for prompt requests, relay input.
     while (true)
@@ -376,19 +376,19 @@ namespace mistral::console
       }
 
       // Store the prompt and mode in the state for the input thread
-      state->set_prompt(display_prompt, is_approval);
+      state_->set_prompt(display_prompt, is_approval);
 
       // Signal the thread to call readline (or readchar for approvals).
-      state->signal_prompt_go();
+      state_->signal_prompt_go();
 
       // Wait for the thread to provide input.
-      co_await readable(state->notify_read);
+      co_await readable(state_->notify_read);
 
       // Drain the notification byte.
       char buf;
-      ::read(state->notify_read, &buf, 1);
+      ::read(state_->notify_read, &buf, 1);
 
-      if (state->eof.load()) {
+      if (state_->eof.load()) {
         break;
       }
 
@@ -396,7 +396,7 @@ namespace mistral::console
       if (buf == console_state::notify_slash_cmd_pending_id)
       {
         // Slash command: forward to executor task
-        auto request = state->take_pending_slash_command();
+        auto request = state_->take_pending_slash_command();
         if (request && slash_cmd_request_ch_) {
           slash_cmd_request_ch_->try_send(std::move(*request));
         }
@@ -415,13 +415,17 @@ namespace mistral::console
       }
       else
       {
-        auto input_opt = state->dequeue_input();
+        auto input_opt = state_->dequeue_input();
         std::string input = input_opt ? std::move(*input_opt) : "";
         input_ch_->try_send(std::move(input));
       }
     }
 
-    // Cleanup.
+    co_return;
+  }
+
+  dripcore::awaitable<> console_task::teardown()
+  {
     if ( input_ch_ ) {
       input_ch_->close();
     }
@@ -434,21 +438,23 @@ namespace mistral::console
       slash_cmd_response_ch_->close();
     }
 
-    state->shutdown.store(true);
+    if (state_) {
+      state_->shutdown.store(true);
 
-    // Wake the thread if it's blocked on prompt_read.
-    state->signal_prompt_shutdown();
+      // Wake the thread if it's blocked on prompt_read.
+      state_->signal_prompt_shutdown();
 
-    if (state->thread.joinable()) {
-      state->thread.join();
-    }
+      if (state_->thread.joinable()) {
+        state_->thread.join();
+      }
 
-    {
-      std::lock_guard<std::mutex> lock(state->mtx);
-      ::close(state->notify_read);
-      ::close(state->notify_write);
-      ::close(state->prompt_read);
-      ::close(state->prompt_write);
+      {
+        std::lock_guard<std::mutex> lock(state_->mtx);
+        ::close(state_->notify_read);
+        ::close(state_->notify_write);
+        ::close(state_->prompt_read);
+        ::close(state_->prompt_write);
+      }
     }
 
     co_return;

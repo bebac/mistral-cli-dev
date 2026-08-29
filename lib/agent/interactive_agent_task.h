@@ -31,7 +31,7 @@ namespace mistral::agent
   public:
     using agent_task_base::agent_task_base;
 
-    dripcore::task_handle execute()
+    dripcore::awaitable<> body() override
     {
       auto tools_schema = tools_.get_schema();
 
@@ -56,6 +56,11 @@ namespace mistral::agent
         co_await agent_loop();
       }
 
+      co_return;
+    }
+
+    dripcore::awaitable<> teardown() override
+    {
       // Cleanup: close channels.
       request_ch_->close();
 

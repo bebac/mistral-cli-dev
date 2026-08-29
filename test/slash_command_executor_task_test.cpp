@@ -50,7 +50,7 @@ namespace
       {
       }
 
-      dripcore::task_handle execute()
+      dripcore::awaitable<> body() override
       {
         // Send the request
         request_ch_->try_send(std::move(req_));

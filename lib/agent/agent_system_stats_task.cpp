@@ -9,7 +9,7 @@ namespace mistral::agent
   {
   }
 
-  dripcore::task_handle agent_system_stats_task::execute()
+  dripcore::awaitable<> agent_system_stats_task::body()
   {
     while (true)
     {

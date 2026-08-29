@@ -30,7 +30,7 @@ namespace mistral::agent
     explicit agent_system_task(
         std::shared_ptr<dripcore::channel<std::string>> agent_response_ch);
 
-    dripcore::task_handle execute();
+    dripcore::awaitable<> body() override;
 
   private:
     std::shared_ptr<dripcore::channel<std::string>> agent_response_ch_;

@@ -1,5 +1,4 @@
 #include "http/tls_connection.h"
-#include "http/http_task.h"
 #include "http/http_coordinator_task.h"
 #include "api/mistral_types.h"
 #include "agent/interactive_agent_task.h"
@@ -260,7 +259,6 @@ int main(int argc, char* argv[])
       prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch,
       agent_system.slash_commands());
 
-  //sched.spawn<mistral::net::http_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
   sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch);
   sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_fds[0]);

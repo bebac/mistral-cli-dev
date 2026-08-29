@@ -138,7 +138,7 @@ namespace mistral::net
       // NOTE - Not sure about this. Thing is that dripcore has no really good way to stop
       // tasks that are waiting on IO. When using CTRL-C to stop, the http_read_task is very
       // likely to suspended on 'co_await readable(client)' and apparently closing the socket
-      // won't notify it. Doing a shutdwon does seem to wake it up though. I would have expected
+      // won't notify it. Doing a shutdown does seem to wake it up though. I would have expected
       // SSL_shutdown to also do a shutdown on the fd, but that doesn't seem to work.
       //return SSL_shutdown(ssl_.get());
       shutting_down_ = true;
@@ -172,6 +172,6 @@ namespace mistral::net
   // Call once at process start.
   void init_openssl();
 
-} // namespace mistral::http
+} // namespace mistral::net
 
 #endif // MISTRAL_TLS_CONNECTION_H

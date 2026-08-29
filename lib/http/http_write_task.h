@@ -36,8 +36,8 @@ namespace mistral::net
     {
     }
 
-  public:
-    dripcore::task_handle execute()
+  protected:
+    dripcore::awaitable<> body() override
     {
       auto& client = client_.get();
 
@@ -51,82 +51,56 @@ namespace mistral::net
       // avoiding a buffer copy.
       size_t retry_len = 0;
 
-      try {
-        while (client.connected()) {
-          auto out = client.output_begin();
+      while (client.connected()) {
+        auto out = client.output_begin();
 
-          if (retry_len > 0 && retry_len < out.size()) {
-            out = out.first(retry_len);
-          }
+        if (retry_len > 0 && retry_len < out.size()) {
+          out = out.first(retry_len);
+        }
 
-          // Empty output buffer means nothing to send
-          if (out.empty()) {
-            retry_len = 0;
-            if (auto res = co_await output_ready_ch_->recv(this)) {
-              continue;
-            }
-            else {
-              break;
-            }
-          }
-
-          if (!client.connected()) {
-            std::cerr << "[http_write] connection closed" << std::endl;
-            break;
-          }
-
-          int n = client.write(out);
-
-          if (n > 0) {
-            retry_len = 0;
-            client.output_end(n);
+        // Empty output buffer means nothing to send
+        if (out.empty()) {
+          retry_len = 0;
+          if (auto res = co_await output_ready_ch_->recv(this)) {
+            continue;
           }
           else {
-            int err = client.get_error(n);
+            break;
+          }
+        }
 
-            if (err == SSL_ERROR_WANT_WRITE) {
-              retry_len = out.size();
-              co_await writable(client);
-            }
-            else if (err == SSL_ERROR_WANT_READ) {
-              retry_len = out.size();
-              co_await readable(client);
-            }
-            else if (err == SSL_ERROR_SYSCALL) {
-              // Connection closed or reset - not a fatal error, allows retry
-              if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
-                std::cerr << "[http_write_task] SSL_write: connection closed error: " << errno
-                          << "(" << strerror(errno) << ")" << std::endl;
-                event_ch_->try_send({coordinator_event_type::connection_closed});
-                break;
-              }
-              else {
-                std::cerr << "[http_write] send connection error(1)" << std::endl;
-                event_ch_->try_send({
-                  coordinator_event_type::connection_error,
-                  {},
-                  std::make_error_code(static_cast<std::errc>(errno))
-                });
-                break;
-              }
-            }
-            else if (err == SSL_ERROR_SSL) {
-              if (client.is_shutting_down()) {
-                event_ch_->try_send({coordinator_event_type::connection_closed});
-                break;
-              }
-              auto [msg, ec] = tls_connection::get_ssl_error_details();
-              std::cerr << "[http_write] " << msg << std::endl;
-              event_ch_->try_send({
-                coordinator_event_type::connection_error,
-                {},
-                ec
-              });
+        if (!client.connected()) {
+          std::cerr << "[http_write] connection closed" << std::endl;
+          break;
+        }
+
+        int n = client.write(out);
+
+        if (n > 0) {
+          retry_len = 0;
+          client.output_end(n);
+        }
+        else {
+          int err = client.get_error(n);
+
+          if (err == SSL_ERROR_WANT_WRITE) {
+            retry_len = out.size();
+            co_await writable(client);
+          }
+          else if (err == SSL_ERROR_WANT_READ) {
+            retry_len = out.size();
+            co_await readable(client);
+          }
+          else if (err == SSL_ERROR_SYSCALL) {
+            // Connection closed or reset - not a fatal error, allows retry
+            if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
+              std::cerr << "[http_write_task] SSL_write: connection closed error: " << errno
+                        << "(" << strerror(errno) << ")" << std::endl;
+              event_ch_->try_send({coordinator_event_type::connection_closed});
               break;
             }
             else {
-              std::cerr << "[http_write] send connection error(2)" << std::endl;
-              // For any other SSL error, use errno as fallback
+              std::cerr << "[http_write] send connection error(1)" << std::endl;
               event_ch_->try_send({
                 coordinator_event_type::connection_error,
                 {},
@@ -135,22 +109,41 @@ namespace mistral::net
               break;
             }
           }
+          else if (err == SSL_ERROR_SSL) {
+            if (client.is_shutting_down()) {
+              event_ch_->try_send({coordinator_event_type::connection_closed});
+              break;
+            }
+            auto [msg, ec] = tls_connection::get_ssl_error_details();
+            std::cerr << "[http_write] " << msg << std::endl;
+            event_ch_->try_send({
+              coordinator_event_type::connection_error,
+              {},
+              ec
+            });
+            break;
+          }
+          else {
+            std::cerr << "[http_write] send connection error(2)" << std::endl;
+            // For any other SSL error, use errno as fallback
+            event_ch_->try_send({
+              coordinator_event_type::connection_error,
+              {},
+              std::make_error_code(static_cast<std::errc>(errno))
+            });
+            break;
+          }
         }
       }
-      catch (const dripcore::cancelled&) {
-        // Task was cancelled, clean up gracefully
-        std::cerr << "[http_write] task cancelled, shutting down" << std::endl;
-        event_ch_->try_send({coordinator_event_type::connection_closed});
-      }
-      catch (const std::exception& e) {
-        std::cerr << "[http_write] exception: " << e.what() << std::endl;
-        event_ch_->try_send({
-          coordinator_event_type::connection_error,
-          {},
-          std::make_error_code(std::errc::io_error)
-        });
-      }
 
+      co_return;
+    }
+
+    dripcore::awaitable<> teardown() override
+    {
+      // On cancellation or error, notify the coordinator that the
+      // connection is gone so it can fail pending streams.
+      event_ch_->try_send({coordinator_event_type::connection_closed});
       co_return;
     }
 

@@ -557,7 +557,7 @@ struct slash_command_executor : public dripcore::task {
       std::string& out_result)
     : cmd_(cmd), args_(std::move(args)), sys_(sys), out_result_(out_result) {}
 
-  dripcore::task_handle execute() {
+  dripcore::awaitable<> body() override {
     auto result = co_await cmd_->execute(*this, args_, sys_);
     out_result_ = result;
     co_return;
