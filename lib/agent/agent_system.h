@@ -31,6 +31,7 @@ namespace mistral::tools
   class note_tools;
   class grep_tools;
   class exec_tools;
+  class task_tools;
 }
 
 namespace mistral::agent
@@ -89,6 +90,7 @@ namespace mistral::agent
     mistral::tools::note_tools& note_tools() { return *note_tools_; }
     mistral::tools::grep_tools& grep_tools() { return *grep_tools_; }
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
+    mistral::tools::task_tools& task_tools() { return *task_tools_; }
     mistral::agent::patchset_tools& patchset_tools() { return *patchset_tools_; }
 
     // Shared channels
@@ -169,6 +171,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::note_tools> note_tools_;
     std::unique_ptr<mistral::tools::grep_tools> grep_tools_;
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
+    std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::agent::patchset_tools> patchset_tools_;
 
     tool_registry global_tools_;

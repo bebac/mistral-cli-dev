@@ -6,6 +6,7 @@
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
 #include "tools/exec_tools.h"
+#include "tools/task_tools.h"
 #include "template/template_engine.h"
 
 #include <api/mistral_api.h>
@@ -315,6 +316,7 @@ namespace mistral::agent
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
     grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
+    task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::agent::patchset_tools>(*this);
   }
 
@@ -453,6 +455,7 @@ namespace mistral::agent
     auto& note_tools = *note_tools_;
     auto& grep_tools = *grep_tools_;
     auto& exec_tools = *exec_tools_;
+    auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
 
     global_tools_.register_tool(
@@ -567,6 +570,56 @@ namespace mistral::agent
       "Clear a stored patchset.",
       &patchset_tools, &mistral::agent::patchset_tools::patchset_clear,
       arg("patchset_id", "The unique identifier of the patchset to clear")
+    );
+
+    // ---- Task tools ----
+
+    global_tools_.register_tool(
+      "task_create",
+      "Create a new task for project tracking. Tasks persist across sessions. "
+      "Returns the created task with a generated ID.",
+      &task_tools, &mistral::tools::task_tools::create_task,
+      arg("title", "Short summary of the task"),
+      arg("description", "Detailed explanation (optional)", std::string("")),
+      arg("priority", "Priority: low, medium, high, critical (default: medium)", std::string("medium")),
+      arg("tags", "List of tags for categorisation", std::vector<std::string>{})
+    );
+
+    global_tools_.register_tool(
+      "task_list",
+      "List tasks with optional filters. Empty filter values mean no filter. "
+      "Returns an array of task summaries (id, title, status, priority, tags).",
+      &task_tools, &mistral::tools::task_tools::list_tasks,
+      arg("status", "Filter by status: todo, in-progress, done, blocked, cancelled (empty for all)", std::string("")),
+      arg("tag", "Filter by tag (empty for all)", std::string("")),
+      arg("priority", "Filter by priority: low, medium, high, critical (empty for all)", std::string(""))
+    );
+
+    global_tools_.register_tool(
+      "task_get",
+      "Get full details of a task by its ID.",
+      &task_tools, &mistral::tools::task_tools::get_task,
+      arg("task_id", "The task ID (e.g. task-001)")
+    );
+
+    global_tools_.register_tool(
+      "task_update",
+      "Update a task. Pass only the fields you want to change; empty strings are ignored. "
+      "Returns the updated task.",
+      &task_tools, &mistral::tools::task_tools::update_task,
+      arg("task_id", "The task ID to update"),
+      arg("status", "New status: todo, in-progress, done, blocked, cancelled (empty = unchanged)", std::string("")),
+      arg("priority", "New priority: low, medium, high, critical (empty = unchanged)", std::string("")),
+      arg("title", "New title (empty = unchanged)", std::string("")),
+      arg("description", "New description (empty = unchanged)", std::string(""))
+    );
+
+    global_tools_.register_tool(
+      "task_search",
+      "Search tasks by text query across title and description (case-insensitive). "
+      "Returns matching task summaries with match location.",
+      &task_tools, &mistral::tools::task_tools::search_tasks,
+      arg("query", "Text to search for")
     );
   }
 
