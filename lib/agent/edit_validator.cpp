@@ -1,6 +1,7 @@
 #include "agent/edit_validator.h"
 #include "common/string_utils.h"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -13,6 +14,81 @@ namespace mistral::agent
 
   namespace
   {
+    // Check if a file path has a markdown extension (.md or .markdown)
+    bool is_markdown_file(const std::string& path)
+    {
+      return (path.size() >= 3 &&
+              path.compare(path.size() - 3, 3, ".md") == 0) ||
+             (path.size() >= 9 &&
+              path.compare(path.size() - 9, 9, ".markdown") == 0);
+    }
+
+    // Check if text contains patchset format markers that would indicate
+    // a parsing error (e.g., a missing >>>>>>> REPLACE marker causing
+    // subsequent edit blocks to be merged into the replace text).
+    // These markers are extremely unlikely in non-markdown source files.
+    bool contains_patch_markers(const std::string& text)
+    {
+      // Check for code fence marker (~~~) on its own line (optionally
+      // followed by a language specifier and whitespace, then end-of-line).
+      // This avoids false positives from ~~~ embedded in longer lines.
+      {
+        size_t pos = 0;
+        while ((pos = text.find("~~~", pos)) != std::string::npos)
+        {
+          if (pos == 0 || text[pos - 1] == '\n')
+          {
+            // Verify the rest of the line is a valid fence: optional
+            // whitespace, a single alphanumeric word (language specifier),
+            // and optional trailing whitespace, then end-of-line.
+            size_t i = pos + 3;
+            while (i < text.size() && text[i] != '\n' &&
+                   std::isspace(static_cast<unsigned char>(text[i])))
+              i++;
+            while (i < text.size() && text[i] != '\n' &&
+                   std::isalnum(static_cast<unsigned char>(text[i])))
+              i++;
+            while (i < text.size() && text[i] != '\n' &&
+                   std::isspace(static_cast<unsigned char>(text[i])))
+              i++;
+            if (i >= text.size() || text[i] == '\n')
+            {
+              return true;
+            }
+          }
+          pos += 3;
+        }
+      }
+
+      // Check for SEARCH marker at line start
+      {
+        size_t pos = 0;
+        while ((pos = text.find("<<<<<<< SEARCH", pos)) != std::string::npos)
+        {
+          if (pos == 0 || text[pos - 1] == '\n')
+          {
+            return true;
+          }
+          pos += 14;
+        }
+      }
+
+      // Check for REPLACE marker at line start
+      {
+        size_t pos = 0;
+        while ((pos = text.find(">>>>>>> REPLACE", pos)) != std::string::npos)
+        {
+          if (pos == 0 || text[pos - 1] == '\n')
+          {
+            return true;
+          }
+          pos += 15;
+        }
+      }
+
+      return false;
+    }
+
     // Validate a file path for safety and correctness
     bool is_valid_file_path(const std::string& path)
     {
@@ -40,6 +116,28 @@ namespace mistral::agent
       return true;
     }
 
+    // Apply suspicious content check to a validation result.
+    // If the replace_text contains patchset format markers (and the file
+    // is not markdown), marks the result as invalid.
+    void apply_suspicious_content_check(const file_edit_t& edit,
+                                        edit_validation_t& result)
+    {
+      if (result.valid && !is_markdown_file(edit.file_path) &&
+          contains_patch_markers(edit.replace_text))
+      {
+        result.valid = false;
+        result.error_type = "suspicious_replace_content";
+        result.error_message =
+          "Replace text contains patchset format markers (~~~, <<<<<<< SEARCH, "
+          "or >>>>>>> REPLACE). This usually indicates a missing >>>>>>> REPLACE "
+          "marker in the original patchset, causing subsequent edit blocks to be "
+          "merged into this edit's replace text.";
+        result.is_fixable = true;
+        result.suggestion =
+          "Check that every edit block has a >>>>>>> REPLACE marker before the "
+          "closing ~~~ fence, and that each edit block is properly separated.";
+      }
+    }
   } // namespace
 
   edit_validation_t validate_edit(const file_edit_t& edit)
@@ -75,6 +173,7 @@ namespace mistral::agent
       {
         result.valid = true;
       }
+      apply_suspicious_content_check(edit, result);
       return result;
     }
 
@@ -90,6 +189,7 @@ namespace mistral::agent
       {
         result.valid = true;
       }
+      apply_suspicious_content_check(edit, result);
       return result;
     }
 
@@ -141,6 +241,8 @@ namespace mistral::agent
     {
       result.valid = true;
     }
+
+    apply_suspicious_content_check(edit, result);
 
     return result;
   }

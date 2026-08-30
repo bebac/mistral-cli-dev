@@ -238,10 +238,83 @@ namespace mistral::agent
     }
 
 
+    // Get a human-readable name for a C++ type
+    template <typename T>
+    static std::string type_name()
+    {
+      using U = std::decay_t<T>;
+      if constexpr (detail::is_vector<U>::value) {
+        return "array of " + type_name<typename detail::is_vector<U>::inner_type>();
+      } else if constexpr (detail::is_optional<U>::value) {
+        return type_name<typename detail::is_optional<U>::inner_type>();
+      } else if constexpr (std::is_same_v<U, bool>) {
+        return "boolean";
+      } else if constexpr (std::is_integral_v<U>) {
+        return "integer";
+      } else if constexpr (std::is_floating_point_v<U>) {
+        return "number";
+      } else if constexpr (std::is_same_v<U, std::string>) {
+        return "string";
+      } else {
+        return "string";
+      }
+    }
+
+    // Get a human-readable name for a JSON value's type
+    static std::string json_type_name(const json& v)
+    {
+      if (v.is_string()) return "string";
+      if (v.is_array()) return "array";
+      if (v.is_object()) return "object";
+      if (v.is_number_integer()) return "integer";
+      if (v.is_number_float()) return "number";
+      if (v.is_boolean()) return "boolean";
+      if (v.is_null()) return "null";
+      return "unknown";
+    }
+
+    // Wraps from_json_arg with better error messages on type errors.
+    // Raw nlohmann json exceptions (e.g. "[json.exception.type_error.302]...")
+    // are replaced with actionable messages that include the argument name,
+    // expected type, and actual value.
+    template <typename T>
+    static T safe_from_json_arg(const json& j, const arg_info& info)
+    {
+      try {
+        return from_json_arg<T>(j, info);
+      } catch (const std::exception& e) {
+        std::string msg = e.what();
+        // Only enhance raw nlohmann json exceptions; rethrow others
+        // (e.g., "missing required argument: foo") as-is
+        if (msg.find("[json.") == std::string::npos) {
+          throw;
+        }
+
+        std::string actual = j.contains(info.name)
+          ? json_type_name(j[info.name])
+          : "missing";
+
+        std::string value_str;
+        if (j.contains(info.name)) {
+          value_str = j[info.name].dump();
+          if (value_str.size() > 100) value_str = value_str.substr(0, 100) + "...";
+        }
+
+        throw std::runtime_error(std::format(
+          "Argument '{}' has wrong type: expected {}, but received {}{}{}",
+          info.name,
+          type_name<T>(),
+          actual,
+          value_str.empty() ? "" : " (value: ",
+          value_str.empty() ? "" : value_str + ")"
+        ));
+      }
+    }
+
     template <size_t... Is>
     Ret call_impl(const json& j_args, std::index_sequence<Is...>)
     {
-      return func_(from_json_arg<Args>(j_args, args_info_[Is])...);
+      return func_(safe_from_json_arg<Args>(j_args, args_info_[Is])...);
     }
 
     std::function<Ret(Args...)> func_;
@@ -302,10 +375,10 @@ namespace mistral::agent
         try {
           co_return co_await it->second->execute(args);
         } catch (const std::exception& e) {
-          co_return {{"error", e.what()}};
+          co_return json(std::string("Error: ") + e.what());
         }
       }
-      co_return {{"error", std::format("tool '{}' not found", name)}};
+      co_return json(std::format("Error: tool '{}' not found", name));
     }
 
     // Get tool definitions array for the API request.

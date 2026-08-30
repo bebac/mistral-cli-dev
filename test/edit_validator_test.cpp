@@ -16,7 +16,8 @@ namespace mistral::agent
     class temp_file
     {
     public:
-      explicit temp_file(const std::string& content = "", int test_line = 0)
+      explicit temp_file(const std::string& content = "", int test_line = 0,
+                         const std::string& ext = ".tmp")
       {
         // Use a relative path that's valid for the validator
         // Include test line number to avoid collisions between different test cases
@@ -25,7 +26,7 @@ namespace mistral::agent
         {
           filename += std::to_string(test_line) + "_";
         }
-        filename += std::to_string(next_id_++) + ".tmp";
+        filename += std::to_string(next_id_++) + ext;
         path_ = filename;
 
         std::ofstream out(path_);
@@ -474,6 +475,232 @@ namespace mistral::agent
       CHECK(result.fixable_error_count() == 0);
       CHECK(result.get_fixable_errors().empty());
       CHECK(result.get_non_fixable_errors().size() == 3);
+    }
+
+    TEST_CASE("validate_edit - suspicious patch markers in replace text")
+    {
+      temp_file tf("hello world");
+
+      // Replace text contains a code fence marker (~~~) at line start
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~\n<<< SEARCH\nmore stuff";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+      CHECK(result.is_fixable == true);
+      CHECK(!result.suggestion.empty());
+    }
+
+    TEST_CASE("validate_edit - SEARCH marker in replace text")
+    {
+      temp_file tf("hello world");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n<<<<<<< SEARCH\nother_file.cpp";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+    }
+
+    TEST_CASE("validate_edit - REPLACE marker in replace text")
+    {
+      temp_file tf("hello world");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n>>>>>>> REPLACE\n~~~";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+    }
+
+    TEST_CASE("validate_edit - patch markers not at line start are OK")
+    {
+      temp_file tf("hello world");
+
+      // ~~~ embedded in a word (not at line start) should be fine
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "a~~~b";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+    }
+
+    TEST_CASE("validate_edit - ~~~ with trailing content on same line is OK")
+    {
+      temp_file tf("hello world");
+
+      // ~~~ at line start but followed by non-whitespace content
+      // (not a standalone fence) should not trigger the check.
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~this is a comment\nmore stuff";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+    }
+
+    TEST_CASE("validate_edit - ~~~ with language specifier on own line is flagged")
+    {
+      temp_file tf("hello world");
+
+      // ~~~cpp on its own line is a valid code fence and should be flagged.
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~cpp\nsome code";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+    }
+
+    TEST_CASE("validate_edit - ~~~ with trailing whitespace on own line is flagged")
+    {
+      temp_file tf("hello world");
+
+      // ~~~ followed by only whitespace then end-of-line is a fence.
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~  \nmore stuff";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+    }
+
+    TEST_CASE("validate_edit - ~~~ at end of replace text is flagged")
+    {
+      temp_file tf("hello world");
+
+      // ~~~ as the last line (no trailing newline) is a valid fence.
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+    }
+
+    TEST_CASE("validate_edit - markdown files skip patch marker check")
+    {
+      temp_file tf("hello world", __LINE__, ".md");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~\n<<<<<<< SEARCH\n>>>>>>> REPLACE";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+    }
+
+    TEST_CASE("validate_edit - .markdown files skip patch marker check")
+    {
+      temp_file tf("hello world", __LINE__, ".markdown");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "hello";
+      edit.replace_text = "goodbye\n~~~\n<<<<<<< SEARCH\n>>>>>>> REPLACE";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+    }
+
+    TEST_CASE("validate_edit - patch markers in indented string literals are OK")
+    {
+      // Simulates a legitimate edit whose replace text contains patch markers
+      // inside C++ string literals (indented, not at line start).
+      // This is the actual apply_suspicious_content_check function which
+      // mentions ~~~, <<<<<<< SEARCH, and >>>>>>> REPLACE in its error messages.
+      temp_file tf("  } // namespace\n\n  edit_validation_t validate_edit(const file_edit_t& edit)\n  {");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "  } // namespace\n\n  edit_validation_t validate_edit(const file_edit_t& edit)\n  {";
+      edit.replace_text =
+        "    void apply_suspicious_content_check(const file_edit_t& edit,\n"
+        "                                        edit_validation_t& result)\n"
+        "    {\n"
+        "      result.error_message =\n"
+        "        \"Replace text contains patchset format markers (~~~, <<<<<<< SEARCH, \"\n"
+        "        \"or >>>>>>> REPLACE). This usually indicates a missing >>>>>>> REPLACE \"\n"
+        "        \"marker in the original patchset.\";\n"
+        "    }\n"
+        "  } // namespace\n\n"
+        "  edit_validation_t validate_edit(const file_edit_t& edit)\n"
+        "  {";
+
+      auto result = validate_edit(edit);
+      CHECK(result.valid);
+    }
+
+    TEST_CASE("validate_edit - corrupted merge with markers at line start")
+    {
+      // Simulates the corruption scenario: a missing >>>>>>> REPLACE marker
+      // causes the next edit block's content to be merged into replace_text.
+      // The merged content brings ~~~ and <<<<<<< SEARCH at line start.
+      temp_file tf("  } // namespace\n\n  edit_validation_t validate_edit(const file_edit_t& edit)\n  {");
+
+      file_edit_t edit;
+      edit.file_path = tf.path();
+      edit.search_text = "  } // namespace\n\n  edit_validation_t validate_edit(const file_edit_t& edit)\n  {";
+      edit.replace_text =
+        "    void apply_suspicious_content_check(const file_edit_t& edit,\n"
+        "                                        edit_validation_t& result)\n"
+        "    {\n"
+        "      result.error_message =\n"
+        "        \"Replace text contains patchset format markers (~~~, <<<<<<< SEARCH, \"\n"
+        "        \"or >>>>>>> REPLACE.\";\n"
+        "    }\n"
+        "  } // namespace\n"
+        "~~~\n"
+        "\n"
+        "lib/agent/edit_validator.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "  // Handle file overwrite\n"
+        "=======\n"
+        "  // Handle file overwrite - modified\n"
+        ">>>>>>> REPLACE";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+      CHECK(result.is_fixable == true);
+    }
+
+    TEST_CASE("validate_edit - new file with patch markers (non-md)")
+    {
+      std::string new_path = "test_new_markers_" +
+        std::to_string(__LINE__) + ".cpp";
+      std::filesystem::remove(new_path);
+
+      file_edit_t edit;
+      edit.file_path = new_path;
+      edit.search_text = ""; // New file creation
+      edit.replace_text = "#include <iostream>\n~~~\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE";
+
+      auto result = validate_edit(edit);
+      CHECK(!result.valid);
+      CHECK(result.error_type == "suspicious_replace_content");
+
+      std::filesystem::remove(new_path);
     }
 
     TEST_CASE("validate_all_edits - all invalid fixable")

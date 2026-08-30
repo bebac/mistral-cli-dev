@@ -344,6 +344,9 @@ namespace mistral::agent
         }
       }}
     );
+    if (result.is_string()) {
+      co_return result.get<std::string>();
+    }
     co_return result.dump();
   }
 } // namespace mistral::agent

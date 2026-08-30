@@ -75,6 +75,9 @@ namespace mistral::agent
     // Execute the tool
     try {
       json result = co_await agent_sys.global_tools().dispatch(tool_call);
+      if (result.is_string()) {
+        co_return result.get<std::string>();
+      }
       co_return result.dump(2); // Pretty print with 2-space indent
     } catch (const std::exception& e) {
       co_return std::string("Error executing tool: ") + e.what();

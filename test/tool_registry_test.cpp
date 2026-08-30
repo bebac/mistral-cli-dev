@@ -112,8 +112,78 @@ TEST_CASE("tool_registry: dispatch unknown tool")
     }}
   });
 
-  CHECK(result.contains("error"));
-  CHECK(result["error"].get<std::string>().find("not found") != std::string::npos);
+  CHECK(result.is_string());
+  CHECK(result.get<std::string>().find("not found") != std::string::npos);
+}
+
+TEST_CASE("tool_registry: dispatch with wrong argument type")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "add",
+    "Add two integers",
+    &tool_inst, &test_tool::add,
+    arg("a", "First integer"),
+    arg("b", "Second integer")
+  );
+
+  // Pass a string where an integer is expected
+  auto result = run_async_dispatch(registry, {
+    {"function", {
+      {"name", "add"},
+      {"arguments", R"({"a": "hello", "b": 3})"}
+    }}
+  });
+
+  REQUIRE(result.is_string());
+  auto msg = result.get<std::string>();
+
+  // The dispatch catch block prepends "Error: "
+  CHECK(msg.starts_with("Error: "));
+  // The enhanced message should include the argument name
+  CHECK(msg.find("'a'") != std::string::npos);
+  // Should mention the expected type
+  CHECK(msg.find("expected integer") != std::string::npos);
+  // Should mention the actual type received
+  CHECK(msg.find("received string") != std::string::npos);
+  // Should include the offending value
+  CHECK(msg.find("\"hello\"") != std::string::npos);
+}
+
+TEST_CASE("tool_registry: dispatch with wrong argument type for string param")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "greet",
+    "Greet someone",
+    &tool_inst, &test_tool::greet,
+    arg("name", "Name to greet")
+  );
+
+  // Pass an integer where a string is expected
+  auto result = run_async_dispatch(registry, {
+    {"function", {
+      {"name", "greet"},
+      {"arguments", R"({"name": 42})"}
+    }}
+  });
+
+  REQUIRE(result.is_string());
+  auto msg = result.get<std::string>();
+
+  CHECK(msg.starts_with("Error: "));
+  CHECK(msg.find("'name'") != std::string::npos);
+  CHECK(msg.find("expected string") != std::string::npos);
+  CHECK(msg.find("received integer") != std::string::npos);
+  CHECK(msg.find("42") != std::string::npos);
 }
 
 TEST_CASE("tool_registry: get_schema returns tool definitions")
