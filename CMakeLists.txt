@@ -126,5 +126,32 @@ target_link_libraries(tests PRIVATE
     mistral-core
 )
 
+# -----------------------------------------------------------------------------
+# Third-party: cpp-tui (TUI library)
+# ----------------------------------------------------------------=============
+
+include(FetchContent)
+FetchContent_Declare(
+    cpptui
+    GIT_REPOSITORY https://github.com/jonoton/cpp-tui.git
+    GIT_TAG        9543ee3c056583eea1fc44491c6c240f0df0b570
+)
+FetchContent_MakeAvailable(cpptui)
+
+# -----------------------------------------------------------------------------
+# TUI executable
+# ----------------------------------------------------------------=============
+
+add_executable(mistral-tui
+    src/tui_main.cpp
+)
+
+target_compile_features(mistral-tui PRIVATE cxx_std_20)
+
+target_link_libraries(mistral-tui PRIVATE
+    mistral-core
+    cpptui::cpptui
+)
+
 include(CTest)
 add_test(NAME run_tests COMMAND tests)

@@ -2,6 +2,7 @@
 #include "http/http_coordinator_task.h"
 #include "api/mistral_types.h"
 #include "agent/interactive_agent_task.h"
+#include "agent/console_render_sink.h"
 #include "agent/agent_system.h"
 #include "agent/agent_system_task.h"
 #include "agent/agent_system_stats_task.h"
@@ -260,7 +261,8 @@ int main(int argc, char* argv[])
       agent_system.slash_commands());
 
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
-  sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch);
+  auto sink = std::make_shared<mistral::agent::console_render_sink>();
+  sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink);
   sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_fds[0]);
   sched.run();
 
