@@ -727,7 +727,7 @@ int main(int argc, char* argv[])
           content_styled.colored_bold(fragment, Theme::current().primary);
           break;
         case ct::tool_result:
-          content_styled.colored(fragment, Theme::current().success);
+          content_styled.colored(fragment, Theme::current().primary);
           break;
         case ct::error:
           content_styled.colored_bold(fragment, Theme::current().error);
@@ -736,7 +736,7 @@ int main(int argc, char* argv[])
           content_styled.colored(fragment, Theme::current().warning);
           break;
         case ct::user:
-          content_styled.colored_bold(fragment, Theme::current().secondary);
+          content_styled.colored_bold(fragment, Theme::current().success);
           break;
         case ct::system:
           content_styled.colored(fragment, Theme::current().warning);
@@ -811,6 +811,10 @@ int main(int argc, char* argv[])
     char lower = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 
     if (lower == 'r') {
+      // Send 'r' to the agent so it enters the REJECT_WITH_MESSAGE branch
+      // and waits for the rejection message.
+      send_response("r");
+
       // Transition to text_input mode for reject-with-message.
       approval_state.store(2, std::memory_order_release);
       input->set_approval_mode(ChatInput::approval_mode::text_input);
