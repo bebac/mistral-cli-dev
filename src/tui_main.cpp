@@ -307,6 +307,42 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// ChatInput: multiline input area based on TextArea.
+// Enter inserts a newline. Alt+Enter or Enter on an empty last line
+// (double-Enter) submits the message.
+// ---------------------------------------------------------------------------
+class ChatInput : public cpptui::TextArea {
+public:
+  std::function<void()> on_submit;
+
+  bool on_event(const cpptui::Event& event) override {
+    if (event.is_key_event() && event.is_enter()) {
+      // Alt+Enter always submits.
+      if (event.alt) {
+        if (on_submit) on_submit();
+        return true;
+      }
+
+      // Enter on empty last line with content above submits (double-Enter).
+      if (!event.ctrl && !event.shift) {
+        bool is_last_line = (cursor_y_ == (int)lines_.size() - 1);
+        bool current_line_empty = lines_[cursor_y_].empty();
+        bool has_content = false;
+        for (const auto& l : lines_) {
+          if (!l.empty()) { has_content = true; break; }
+        }
+        if (is_last_line && current_line_empty && has_content) {
+          if (on_submit) on_submit();
+          return true;
+        }
+      }
+    }
+
+    return TextArea::on_event(event);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[])
@@ -481,7 +517,7 @@ int main(int argc, char* argv[])
 
   // Content area (scrollable)
   auto content = std::make_shared<Paragraph>();
-  content->set_text("mistral-tui prototype\nType your message and press Enter. Ctrl+C to quit.\n\n");
+  content->set_text("mistral-tui prototype\nType your message. Alt+Enter or double-Enter to send. Ctrl+C to quit.\n\n");
   content->word_wrap = true;
   content->fg_color = Theme::current().foreground;
   content->bg_color = Theme::current().background;
@@ -502,9 +538,12 @@ int main(int argc, char* argv[])
   // Don't let the scroll container steal focus from the input field.
   scroll->focusable = false;
 
-  // Input field (3 lines)
-  auto input = std::make_shared<Input>();
-  input->placeholder = "Type your message...";
+  // Input area: multiline TextArea (3 lines)
+  auto input = std::make_shared<ChatInput>();
+  input->show_line_numbers = false;
+  input->word_wrap = true;
+  input->show_scrollbar = true;
+  input->accepts_tab = false;
   input->fixed_height = 3;
 
   // Footer: workspace (left), agent · model (center), usage (right)
@@ -571,7 +610,8 @@ int main(int argc, char* argv[])
     };
 
   // -----------------------------------------------------------------------
-  // Wire up input: Enter sends message to agent via pipe + queue.
+  // Wire up input: Alt+Enter or double-Enter sends message to agent via
+  // pipe + queue. Plain Enter inserts a newline (handled by TextArea).
   // We cannot call dripcore::channel::try_send() from the TUI thread
   // because it calls executor::current() which returns nullptr outside
   // a dripcore task context. Instead, we push to a thread-safe queue
@@ -582,14 +622,14 @@ int main(int argc, char* argv[])
     // If an approval dialog is open, Enter should not send a chat message.
     if (approval_pending.load(std::memory_order_acquire)) return;
 
-    std::string text = input->get_value();
+    std::string text = input->get_text();
     if (text.empty()) return;
 
     // Append user message to content.
     append_content("\n> " + text + "\n");
 
-    // Clear input field.
-    input->set_value("");
+    // Clear input area.
+    input->set_text("");
 
     // Push to thread-safe queue and wake up the bridge task.
     inq.push(std::move(text));
@@ -597,10 +637,8 @@ int main(int argc, char* argv[])
     ::write(input_pipe_fds[1], &wakeup, 1);
   };
 
-  // Register both key 10 (LF) and key 13 (CR) for Enter.
-  // Terminals typically send CR (13) for Enter, but some send LF (10).
-  app.register_key(10, send_input);
-  app.register_key(13, send_input);
+  // Wire submit callback to the ChatInput widget.
+  input->on_submit = send_input;
 
   // -----------------------------------------------------------------------
   // Approval dialog: shown when the agent requests tool approval.
