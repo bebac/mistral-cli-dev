@@ -48,6 +48,10 @@ namespace mistral::agent
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
     virtual void agent_loop_on_cancelled() {}
 
+    // Returns true if the error is transient and the request should be
+    // retried (e.g. HTTP 503, connection closed, stream reset).
+    static bool is_retryable_error(const std::string& error);
+
     // Helper methods
     std::optional<std::pair<std::string, std::vector<file_edit_t>>>
       try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content);

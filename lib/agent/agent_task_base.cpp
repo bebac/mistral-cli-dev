@@ -2,6 +2,7 @@
 
 #include "common/string_utils.h"
 
+#include <chrono>
 #include <iostream>
 
 namespace mistral::agent
@@ -57,16 +58,18 @@ namespace mistral::agent
 
   auto agent_task_base::agent_loop() -> dripcore::awaitable<void>
   {
-    // Create a fresh response channel for this agent_loop invocation.
-    // This allows cancellation (closing the channel) without affecting
-    // future requests.
-    response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
-
     auto tools_schema = tools_.get_schema();
     bool final_answer = false;
+    int retry_count = 0;
+    constexpr int max_retries = 3;
 
     while (!final_answer)
     {
+      // Create a fresh response channel for each request attempt.
+      // This allows cancellation (closing the channel) without affecting
+      // future requests, and ensures retries get a clean channel.
+      response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
+
       // Build and send API request.
       auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
 
@@ -83,6 +86,8 @@ namespace mistral::agent
       std::vector<api::message_content> accumulated_content;
       std::vector<api::tool_call> accumulated_tool_calls;
       bool cancelled = false;
+      bool retry = false;
+      std::string retry_error;
 
       while (true)
       {
@@ -97,6 +102,11 @@ namespace mistral::agent
           break;
         }
         if (evt->type == api::event_type::error) {
+          if (retry_count < max_retries && is_retryable_error(evt->payload)) {
+            retry_error = evt->payload;
+            retry = true;
+            break;
+          }
           agent_loop_on_error(evt->payload);
           final_answer = true;
           break;
@@ -144,6 +154,18 @@ namespace mistral::agent
       // Unregister response channel — request is no longer in flight.
       agent_system::instance().clear_current_response_ch();
 
+      if (retry)
+      {
+        retry_count++;
+        if (in_thinking_) thinking_end();
+        auto delay = std::chrono::seconds(1 << (retry_count - 1));
+        agent_loop_on_error(std::format(
+          "Retrying ({}/{}) after {}s: {}",
+          retry_count, max_retries, delay.count(), retry_error));
+        co_await sleep_for(delay);
+        continue;
+      }
+
       if (cancelled)
       {
         agent_loop_on_cancelled();
@@ -157,6 +179,12 @@ namespace mistral::agent
           // append to an ongoing patchset (supports interleaved tool calls).
           try_parse_and_append_edits(accumulated_content);
         }
+
+        // Close any open thinking block before emitting tool call output.
+        // If the model goes directly from thinking to tool calls (no text
+        // in between), thinking_end() would never be called, leaving
+        // in_thinking_ true and missing the newline separator.
+        if (in_thinking_) thinking_end();
 
         // Add assistant message with accumulated content and tool calls.
         chat_.add_assistant_message(
@@ -348,5 +376,25 @@ namespace mistral::agent
       co_return result.get<std::string>();
     }
     co_return result.dump();
+  }
+
+  bool agent_task_base::is_retryable_error(const std::string& error)
+  {
+    // HTTP 503 (service unavailable), 502 (bad gateway), 429 (rate limited)
+    if (error.starts_with("HTTP 503") ||
+        error.starts_with("HTTP 502") ||
+        error.starts_with("HTTP 429")) {
+      return true;
+    }
+    // Connection-level errors (server closed, network error, stream reset,
+    // send failure — can happen if the server closes the connection between
+    // the connected() check and the actual send).
+    if (error.find("connection closed") != std::string::npos ||
+        error.find("connection error") != std::string::npos ||
+        error.find("stream reset") != std::string::npos ||
+        error.find("send error") != std::string::npos) {
+      return true;
+    }
+    return false;
   }
 } // namespace mistral::agent
