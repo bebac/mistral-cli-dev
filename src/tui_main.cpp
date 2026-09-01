@@ -45,45 +45,15 @@ static void sigint_handler(int)
   }
 }
 
-// ---------------------------------------------------------------------------
-// Thread-safe prompt queue: dripcore thread → TUI thread.
-// The prompt_bridge_task reads from prompt_ch_ and pushes prompts here.
-// The TUI timer checks this queue and shows a modal dialog.
-// ---------------------------------------------------------------------------
-struct prompt_queue
-{
-  std::mutex mtx;
-  std::optional<std::string> pending_prompt;
-  std::atomic<bool> has_data{false};
-
-  void push(std::string prompt)
-  {
-    {
-      std::lock_guard<std::mutex> lock(mtx);
-      pending_prompt.emplace(std::move(prompt));
-    }
-    has_data.store(true, std::memory_order_release);
-  }
-
-  std::optional<std::string> drain()
-  {
-    std::lock_guard<std::mutex> lock(mtx);
-    std::optional<std::string> result;
-    if (pending_prompt) {
-      result = std::move(*pending_prompt);
-      pending_prompt.reset();
-    }
-    has_data.store(false, std::memory_order_release);
-    return result;
-  }
-};
 
 // ---------------------------------------------------------------------------
 // prompt_bridge_task: runs in dripcore context, bridges prompt_ch_ to the
 // TUI thread. Reads prompt messages from the agent task and routes them:
 //   - "mistral" → sets agent_ready flag (agent is ready for input)
-//   - "[APPROVAL_PROMPT]..." → pushes to prompt_queue for modal display
-//   - Other (e.g. "Enter message...") → pushes to prompt_queue as well
+//   - "[APPROVAL_PROMPT]..." → appends to content area via App::post,
+//     sets approval mode to single_key
+//   - Other (e.g. "Enter message for AI...") → appends to content area
+//     via App::post, sets approval mode to text_input
 //
 // This is necessary because dripcore channels can only be consumed from
 // within a dripcore task context.
@@ -91,14 +61,21 @@ struct prompt_queue
 class prompt_bridge_task : public dripcore::task
 {
 public:
+  using post_fn = std::function<void(std::function<void()>)>;
+  using append_fn = std::function<void(const std::string&, mistral::agent::content_type)>;
+
   prompt_bridge_task(
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
     std::atomic<bool>& agent_ready,
-    prompt_queue& prompt_q
+    std::atomic<int>& approval_state,
+    post_fn post,
+    append_fn append_content
   )
     : prompt_ch_(std::move(prompt_ch))
     , agent_ready_(agent_ready)
-    , prompt_q_(prompt_q)
+    , approval_state_(approval_state)
+    , post_(std::move(post))
+    , append_content_(std::move(append_content))
   {
   }
 
@@ -116,7 +93,12 @@ public:
 
       if (msg->find("[APPROVAL_PROMPT]") == 0)
       {
-        prompt_q_.push(msg->substr(std::string("[APPROVAL_PROMPT]").length()));
+        std::string prompt_text =
+          msg->substr(std::string("[APPROVAL_PROMPT]").length());
+        approval_state_.store(1, std::memory_order_release);
+        post_([fn = append_content_, text = std::move(prompt_text)]() {
+          fn(text, mistral::agent::content_type::system);
+        });
       }
       else if (*msg == "mistral")
       {
@@ -124,9 +106,15 @@ public:
       }
       else
       {
-        // Other prompts (e.g. "Enter message for AI...") — treat as
-        // approval-style prompts that need text input.
-        prompt_q_.push(*msg);
+        // Other prompts (e.g. "Enter message for AI...") — append inline.
+        // These are text-input prompts from the reject-with-message flow.
+        // The agent task already sent the [APPROVAL_PROMPT] first, which
+        // set approval_state to 1 (single_key). The user pressed 'r',
+        // which set approval_state to 2 (text_input) and sent 'r' back.
+        // Now the agent sends the text prompt. We just append it inline.
+        post_([fn = append_content_, text = *msg]() {
+          fn(text, mistral::agent::content_type::system);
+        });
       }
     }
 
@@ -140,7 +128,9 @@ public:
 private:
   std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
   std::atomic<bool>& agent_ready_;
-  prompt_queue& prompt_q_;
+  std::atomic<int>& approval_state_;
+  post_fn post_;
+  append_fn append_content_;
 };
 
 // ---------------------------------------------------------------------------
@@ -231,8 +221,13 @@ class Divider : public cpptui::Widget {
 public:
   Divider() { fixed_height = 1; }
 
+  // When non-default, overrides the theme border color.
+  cpptui::Color override_fg;
+
   void render(cpptui::Buffer& buffer) override {
-    cpptui::Color fg = fg_color.resolve(cpptui::Theme::current().border);
+    cpptui::Color fg = override_fg.is_default
+      ? fg_color.resolve(cpptui::Theme::current().border)
+      : override_fg;
     cpptui::Color bg = bg_color.resolve(cpptui::Theme::current().background);
     for (int i = 0; i < width; ++i) {
       cpptui::Cell c;
@@ -307,15 +302,118 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// InputHint: 1-line widget showing approval key bindings.
+// Empty in normal chat mode; shows hints when approval mode is active.
+// ---------------------------------------------------------------------------
+class InputHint : public cpptui::Widget {
+public:
+  InputHint() { fixed_height = 1; }
+
+  std::string text;
+  cpptui::Color hint_fg;
+
+  void render(cpptui::Buffer& buffer) override {
+    cpptui::Color fg = hint_fg.is_default
+      ? fg_color.resolve(cpptui::Theme::current().foreground)
+      : hint_fg;
+    cpptui::Color bg = bg_color.resolve(cpptui::Theme::current().background);
+
+    // Fill background
+    for (int i = 0; i < width; ++i) {
+      cpptui::Cell c;
+      c.content = " ";
+      c.fg_color = fg;
+      c.bg_color = bg;
+      buffer.set(x + i, y, c);
+    }
+
+    if (text.empty()) return;
+
+    // Render hint text with 1px left margin
+    auto chars = cpptui::TextHelper::prepare_text_for_render(text);
+    int dx = 0;
+    for (const auto& ci : chars) {
+      if (1 + dx >= width) break;
+      cpptui::Cell c;
+      c.content = ci.content;
+      c.fg_color = fg;
+      c.bg_color = bg;
+      buffer.set(x + 1 + dx, y, c);
+      if (ci.display_width == 2 && 1 + dx + 1 < width) {
+        cpptui::Cell skip;
+        skip.content = "";
+        skip.bg_color = bg;
+        buffer.set(x + 1 + dx + 1, y, skip);
+      }
+      dx += ci.display_width;
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------
 // ChatInput: multiline input area based on TextArea.
 // Enter inserts a newline. Alt+Enter or Enter on an empty last line
 // (double-Enter) submits the message.
+//
+// Approval mode state machine:
+//   none        → normal chat input
+//   single_key  → intercepts y/n/r/a/? before TextArea processes them
+//   text_input  → normal editing for reject-with-message, Enter submits
 // ---------------------------------------------------------------------------
 class ChatInput : public cpptui::TextArea {
 public:
+  enum class approval_mode { none, single_key, text_input };
+
   std::function<void()> on_submit;
+  std::function<void(char)> on_approval_key;
+  std::function<void()> on_approval_text_submit;
+
+  approval_mode approval_mode_ = approval_mode::none;
+
+  void set_approval_mode(approval_mode mode) {
+    approval_mode_ = mode;
+    if (mode == approval_mode::none) {
+      set_text("");
+    } else if (mode == approval_mode::single_key) {
+      set_text("");
+    }
+    // text_input mode: keep existing text, user is typing rejection message
+  }
 
   bool on_event(const cpptui::Event& event) override {
+    if (approval_mode_ == approval_mode::single_key) {
+      // Intercept single-key approval responses before TextArea processes them.
+      if (event.is_key_event() && event.is_printable() &&
+          !event.ctrl && !event.alt && !event.shift) {
+        char ch = static_cast<char>(event.key);
+        if (ch == 'y' || ch == 'n' || ch == 'r' || ch == 'a' || ch == '?' ||
+            ch == 'Y' || ch == 'N' || ch == 'R' || ch == 'A') {
+          if (on_approval_key) on_approval_key(ch);
+          return true;
+        }
+      }
+      // Consume all other key events in single_key mode to prevent
+      // TextArea from inserting characters.
+      if (event.is_key_event()) {
+        return true;
+      }
+      return TextArea::on_event(event);
+    }
+
+    if (approval_mode_ == approval_mode::text_input) {
+      // In text_input mode, Enter submits the rejection message.
+      if (event.is_key_event() && event.is_enter()) {
+        if (!event.ctrl && !event.shift) {
+          // Any Enter submits in text_input mode (no double-Enter needed).
+          if (on_approval_text_submit) on_approval_text_submit();
+          return true;
+        }
+      }
+      // Let TextArea handle all other events (typing, backspace, etc.)
+      return TextArea::on_event(event);
+    }
+
+    // Normal chat mode: existing Enter handling.
     if (event.is_key_event() && event.is_enter()) {
       // Alt+Enter always submits.
       if (event.alt) {
@@ -471,8 +569,7 @@ int main(int argc, char* argv[])
   // Agent-ready flag.
   // -----------------------------------------------------------------------
   std::atomic<bool> agent_ready{true};
-  prompt_queue prompt_q;
-  std::atomic<bool> approval_pending{false};
+  std::atomic<int> approval_state{0};  // 0=none, 1=single_key, 2=text_input
 
   // Redirect stderr to a log file — the HTTP coordinator and other
   // dripcore tasks write diagnostic messages to std::cerr which would
@@ -517,10 +614,16 @@ int main(int argc, char* argv[])
 
   // Content area (scrollable)
   auto content = std::make_shared<Paragraph>();
-  content->set_text("mistral-tui prototype\nType your message. Alt+Enter or double-Enter to send. Ctrl+C to quit.\n\n");
   content->word_wrap = true;
+  content->preserve_whitespace = true;
   content->fg_color = Theme::current().foreground;
   content->bg_color = Theme::current().background;
+
+  // Styled content accumulator: spans are appended with appropriate
+  // colors based on content_type. This replaces plain text mode.
+  StyledText content_styled;
+  content_styled.add("mistral-tui prototype\nType your message. Alt+Enter or double-Enter to send. Ctrl+C to quit.\n\n");
+  content->set_styled(content_styled);
 
   // Set initial fixed_height based on wrapped line count so that
   // ScrollableVertical::layout() computes the correct content_height
@@ -546,6 +649,22 @@ int main(int argc, char* argv[])
   input->accepts_tab = false;
   input->fixed_height = 3;
 
+  // Input hint: 1-line widget for approval key bindings.
+  // Empty in normal chat mode; shows hints when approval is active.
+  auto input_hint = std::make_shared<InputHint>();
+  input_hint->fixed_height = 1;
+
+  // Divider above hint (turns amber in approval mode).
+  // Hidden in normal mode, shown only during approval.
+  auto input_divider = std::make_shared<Divider>();
+  input_divider->visible = false;
+
+  // Divider above input, below hint (turns amber in approval mode).
+  auto input_divider_top = std::make_shared<Divider>();
+
+  // Hint line: hidden in normal mode, shown only during approval.
+  input_hint->visible = false;
+
   // Footer: workspace (left), agent · model (center), usage (right)
   auto footer = std::make_shared<FooterBar>();
   footer->left_text = std::filesystem::current_path().string();
@@ -554,7 +673,8 @@ int main(int argc, char* argv[])
   footer->fg_color = Theme::current().panel_fg;
   footer->bg_color = Theme::current().panel_bg;
 
-  // Layout: header (1) | divider (1) | content (flex) | divider (1) | input (3) | divider (1) | footer (1)
+  // Layout: header (1) | divider (1) | content (flex) | divider (1) |
+  //         hint (1) | divider (1) | input (3) | divider (1) | footer (1)
   auto root = std::make_shared<Vertical>();
   // Give root and input temporary non-zero dimensions so that
   // App::run()'s initial collect_focusables() finds the Input widget.
@@ -566,11 +686,15 @@ int main(int argc, char* argv[])
   root->height = 24;
   input->width = 80;
   input->height = 3;
+  input_hint->width = 80;
+  input_hint->height = 1;
 
   root->add(header);
   root->add(std::make_shared<Divider>());
   root->add(scroll);
-  root->add(std::make_shared<Divider>());
+  root->add(input_divider);
+  root->add(input_hint);
+  root->add(input_divider_top);
   root->add(input);
   root->add(std::make_shared<Divider>());
   root->add(footer);
@@ -583,15 +707,43 @@ int main(int argc, char* argv[])
   // Called directly from the UI thread (e.g. user input echo) and from
   // tui_render_sink via App::post() (agent output streaming).
   // -----------------------------------------------------------------------
-  std::function<void(const std::string&)> append_content =
-    [content, scroll](const std::string& fragment) {
+  std::function<void(const std::string&, mistral::agent::content_type)> append_content =
+    [content, scroll, &content_styled](const std::string& fragment, mistral::agent::content_type type) {
       // Check if user is at the bottom before adding content.
       int visible_h = scroll->height > 0 ? scroll->height : 1;
       int ms = scroll->content_height - visible_h;
       bool was_at_bottom = (scroll->scroll_offset >= (ms < 0 ? 0 : ms));
 
-      // Append to content widget.
-      content->set_text(content->text + fragment);
+      // Append a styled span based on content type.
+      using ct = mistral::agent::content_type;
+      switch (type) {
+        case ct::normal:
+          content_styled.add(fragment);
+          break;
+        case ct::thinking:
+          content_styled.colored(fragment, Theme::current().input_placeholder);
+          break;
+        case ct::tool_call:
+          content_styled.colored_bold(fragment, Theme::current().primary);
+          break;
+        case ct::tool_result:
+          content_styled.colored(fragment, Theme::current().success);
+          break;
+        case ct::error:
+          content_styled.colored_bold(fragment, Theme::current().error);
+          break;
+        case ct::warning:
+          content_styled.colored(fragment, Theme::current().warning);
+          break;
+        case ct::user:
+          content_styled.colored_bold(fragment, Theme::current().secondary);
+          break;
+        case ct::system:
+          content_styled.colored(fragment, Theme::current().warning);
+          break;
+      }
+
+      content->set_styled(content_styled);
 
       // Recalculate fixed_height from wrapped line count so that
       // ScrollableVertical::layout() sets content_height correctly.
@@ -618,66 +770,87 @@ int main(int argc, char* argv[])
   // and write a wakeup byte to a pipe. The input_bridge_task (running
   // in dripcore) reads the pipe and sends to the channel.
   // -----------------------------------------------------------------------
+  // Helper: send a response through the input queue + pipe wakeup.
+  auto send_response = [&](std::string response) {
+    inq.push(std::move(response));
+    char wakeup = '1';
+    ::write(input_pipe_fds[1], &wakeup, 1);
+  };
+
+  // Helper: exit approval mode, reset UI to normal chat.
+  auto exit_approval_mode = [&]() {
+    approval_state.store(0, std::memory_order_release);
+    input->set_approval_mode(ChatInput::approval_mode::none);
+    input_divider->visible = false;
+    input_divider->override_fg = cpptui::Color();
+    input_divider_top->override_fg = cpptui::Color();
+    input_hint->visible = false;
+    input_hint->text = "";
+    input_hint->hint_fg = cpptui::Color();
+    app.update();
+  };
+
+  // Normal chat submit: append user message and send to agent.
   auto send_input = [&]() {
-    // If an approval dialog is open, Enter should not send a chat message.
-    if (approval_pending.load(std::memory_order_acquire)) return;
+    if (approval_state.load(std::memory_order_acquire) != 0) return;
 
     std::string text = input->get_text();
     if (text.empty()) return;
 
     // Append user message to content.
-    append_content("\n> " + text + "\n");
+    append_content("\n> " + text + "\n", mistral::agent::content_type::user);
 
     // Clear input area.
     input->set_text("");
 
-    // Push to thread-safe queue and wake up the bridge task.
-    inq.push(std::move(text));
-    char wakeup = '1';
-    ::write(input_pipe_fds[1], &wakeup, 1);
+    send_response(std::move(text));
   };
 
-  // Wire submit callback to the ChatInput widget.
-  input->on_submit = send_input;
+  // Single-key approval response: send char and return to normal mode.
+  auto on_approval_key = [&](char ch) {
+    char lower = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 
-  // -----------------------------------------------------------------------
-  // Approval dialog: shown when the agent requests tool approval.
-  // -----------------------------------------------------------------------
-  auto approval_dialog = std::make_shared<Dialog>(&app, BorderStyle::Single);
-  approval_dialog->modal = true;
-  approval_dialog->fixed_width = 60;
-  approval_dialog->fixed_height = 10;
-
-  auto approval_text = std::make_shared<Paragraph>();
-  approval_text->word_wrap = true;
-  approval_text->fg_color = Theme::current().foreground;
-  approval_text->bg_color = Theme::current().panel_bg;
-  approval_dialog->add(approval_text);
-
-  // Helper: send a single-char approval response and close the dialog.
-  auto send_approval_response = [&](char response) {
-    approval_pending.store(false, std::memory_order_release);
-    app.close_dialog(approval_dialog);
-
-    // Unregister approval key handlers.
-    for (int k : {'y', 'n', 'r', 'a', '?'}) {
-      app.unregister_key(k);
+    if (lower == 'r') {
+      // Transition to text_input mode for reject-with-message.
+      approval_state.store(2, std::memory_order_release);
+      input->set_approval_mode(ChatInput::approval_mode::text_input);
+      input->set_text("");
+      input_hint->text = "  Enter message for AI (or Enter for default):";
+      input_hint->hint_fg = Theme::current().warning;
+      input_divider_top->override_fg = Theme::current().warning;
+      mistral::trace::logger::instance().trace(
+        mistral::trace::category::approval,
+        "approval: switching to text_input mode"
+      );
+      return;
     }
 
-    // Send the response through the input queue + pipe wakeup.
-    inq.push(std::string(1, response));
-    char wakeup = '1';
-    ::write(input_pipe_fds[1], &wakeup, 1);
+    // y, n, a, ? — send single char and return to normal mode.
+    exit_approval_mode();
+    send_response(std::string(1, lower));
+
+    mistral::trace::logger::instance().trace(
+      mistral::trace::category::approval,
+      "approval: single-key response '{}'", lower
+    );
   };
 
-  // Register approval key handlers (registered on demand when dialog opens).
-  auto register_approval_keys = [&]() {
-    app.register_key('y', [&]() { send_approval_response('y'); });
-    app.register_key('n', [&]() { send_approval_response('n'); });
-    app.register_key('r', [&]() { send_approval_response('r'); });
-    app.register_key('a', [&]() { send_approval_response('a'); });
-    app.register_key('?', [&]() { send_approval_response('?'); });
+  // Text input approval submit: send rejection message and return to normal.
+  auto on_approval_text_submit = [&]() {
+    std::string text = input->get_text();
+    exit_approval_mode();
+    send_response(std::move(text));
+
+    mistral::trace::logger::instance().trace(
+      mistral::trace::category::approval,
+      "approval: text response sent"
+    );
   };
+
+  // Wire callbacks to the ChatInput widget.
+  input->on_submit = send_input;
+  input->on_approval_key = on_approval_key;
+  input->on_approval_text_submit = on_approval_text_submit;
 
   // -----------------------------------------------------------------------
   // Auto-scroll logic: before new content arrives, check if the user is
@@ -729,32 +902,32 @@ int main(int argc, char* argv[])
   }, false, true);
 
   // -----------------------------------------------------------------------
-  // Timer: check for pending approval prompts and show dialog.
+  // Timer: detect approval mode changes and update the UI accordingly.
+  // The prompt_bridge_task sets approval_state via App::post callbacks.
+  // This timer polls the atomic and updates the divider/hint widgets.
   // -----------------------------------------------------------------------
   app.add_timer(50, [&]() {
-    if (!prompt_q.has_data.load(std::memory_order_acquire)) return;
-
-    auto prompt = prompt_q.drain();
-    if (!prompt) return;
-
-    // Show the approval dialog with the prompt text.
-    approval_text->set_text(*prompt + "\n\n"
-      "[y] Approve  [n] Reject  [r] Reject+msg  [a] Approve All  [?] Help");
-    approval_text->fixed_height = 0;  // auto-size
-
-    // Set width/height from fixed_ values — Dialog::show() calls layout()
-    // which uses width/height (not fixed_width/fixed_height).
-    approval_dialog->width = approval_dialog->fixed_width;
-    approval_dialog->height = approval_dialog->fixed_height;
-
-    approval_pending.store(true, std::memory_order_release);
-    register_approval_keys();
-
-    mistral::trace::logger::instance().trace(
-      mistral::trace::category::approval,
-      "opening approval dialog"
-    );
-    app.open_dialog(approval_dialog);
+    int state = approval_state.load(std::memory_order_acquire);
+    if (state == 1) {
+      // single_key mode — ensure UI reflects it.
+      if (input->approval_mode_ != ChatInput::approval_mode::single_key) {
+        input->set_approval_mode(ChatInput::approval_mode::single_key);
+        input_divider->visible = true;
+        input_divider->override_fg = Theme::current().warning;
+        input_divider_top->override_fg = Theme::current().warning;
+        input_hint->visible = true;
+        input_hint->text =
+          "  approval \xc2\xb7 y=approve n=reject r=reject+msg a=all ?=help";
+        input_hint->hint_fg = Theme::current().warning;
+      }
+    } else if (state == 0) {
+      // Normal mode — ensure UI is reset.
+      if (input->approval_mode_ != ChatInput::approval_mode::none) {
+        exit_approval_mode();
+      }
+    }
+    // state == 2 (text_input) is set directly by on_approval_key, no
+    // need to handle it here.
   });
 
   // -----------------------------------------------------------------------
@@ -802,7 +975,11 @@ int main(int argc, char* argv[])
     sched.spawn<input_bridge_task>(input_pipe_fds[0], input_ch, std::ref(inq));
 
     // Spawn prompt bridge task (dripcore → TUI).
-    sched.spawn<prompt_bridge_task>(prompt_ch, std::ref(agent_ready), std::ref(prompt_q));
+    sched.spawn<prompt_bridge_task>(
+      prompt_ch, std::ref(agent_ready), std::ref(approval_state),
+      [&app](std::function<void()> cb) { app.post(std::move(cb)); },
+      append_content
+    );
 
     auto sink = std::make_shared<mistral::agent::tui_render_sink>(
       [&app](std::function<void()> cb) { app.post(std::move(cb)); },

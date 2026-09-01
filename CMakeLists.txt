@@ -133,8 +133,8 @@ target_link_libraries(tests PRIVATE
 include(FetchContent)
 FetchContent_Declare(
     cpptui
-    GIT_REPOSITORY https://github.com/jonoton/cpp-tui.git
-    GIT_TAG        9543ee3c056583eea1fc44491c6c240f0df0b570
+    GIT_REPOSITORY https://github.com/bebac/cpp-tui.git
+    GIT_TAG        92890bff9893225d0b3077a29fdd78af6305879f
 )
 FetchContent_MakeAvailable(cpptui)
 
