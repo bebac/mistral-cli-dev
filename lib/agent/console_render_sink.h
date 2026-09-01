@@ -23,7 +23,7 @@ namespace mistral::agent
 
     void output_line(const std::string& text) override
     {
-      std::cout << text << std::endl;
+      std::cout << normal_color_ << text << std::endl;
     }
 
     void output_tool_call(const std::string& name,
@@ -31,7 +31,8 @@ namespace mistral::agent
     {
       std::cout << tool_color_
                 << "\n[tool] " << name
-                << "(" << args << ")" << std::flush;
+                << "(" << args << ")"
+                << normal_color_ << std::flush;
     }
 
     void output_tool_result(const std::string& result) override
@@ -39,7 +40,7 @@ namespace mistral::agent
       std::string display = (result.size() > 200)
         ? result.substr(0, 200) + "..."
         : result;
-      std::cout << " \xe2\x86\x92 " << display << std::endl;
+      std::cout << normal_color_ << " \xe2\x86\x92 " << display << std::endl;
     }
 
     void output_error(const std::string& text) override
@@ -69,7 +70,7 @@ namespace mistral::agent
 
     void cancelled() override
     {
-      std::cout << normal_color_ << std::flush;
+      std::cout << "\n^C" << normal_color_ << std::endl;
     }
 
   private:

@@ -6,7 +6,6 @@
 #include <dripcore/task.h>
 #include <dripcore/task_handle.h>
 
-#include <iostream>
 #include <unistd.h>
 
 namespace mistral::common
@@ -52,7 +51,6 @@ namespace mistral::common
             auto ch = agent::agent_system::instance().get_current_response_ch();
             if (ch) {
               ch->close();
-              std::cout << "\n^C" << std::endl;
             }
           }
         }

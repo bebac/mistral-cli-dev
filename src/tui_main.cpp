@@ -46,11 +46,11 @@ static void sigint_handler(int)
 }
 
 // ---------------------------------------------------------------------------
-// Thread-safe approval prompt queue: dripcore thread → TUI thread.
-// The prompt_bridge_task reads from prompt_ch_ and pushes approval
-// prompts here. The TUI timer checks this queue and shows a modal dialog.
+// Thread-safe prompt queue: dripcore thread → TUI thread.
+// The prompt_bridge_task reads from prompt_ch_ and pushes prompts here.
+// The TUI timer checks this queue and shows a modal dialog.
 // ---------------------------------------------------------------------------
-struct approval_queue
+struct prompt_queue
 {
   std::mutex mtx;
   std::optional<std::string> pending_prompt;
@@ -82,8 +82,8 @@ struct approval_queue
 // prompt_bridge_task: runs in dripcore context, bridges prompt_ch_ to the
 // TUI thread. Reads prompt messages from the agent task and routes them:
 //   - "mistral" → sets agent_ready flag (agent is ready for input)
-//   - "[APPROVAL_PROMPT]..." → pushes to approval_queue for modal display
-//   - Other (e.g. "Enter message...") → pushes to approval_queue as well
+//   - "[APPROVAL_PROMPT]..." → pushes to prompt_queue for modal display
+//   - Other (e.g. "Enter message...") → pushes to prompt_queue as well
 //
 // This is necessary because dripcore channels can only be consumed from
 // within a dripcore task context.
@@ -94,11 +94,11 @@ public:
   prompt_bridge_task(
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
     std::atomic<bool>& agent_ready,
-    approval_queue& approval_q
+    prompt_queue& prompt_q
   )
     : prompt_ch_(std::move(prompt_ch))
     , agent_ready_(agent_ready)
-    , approval_q_(approval_q)
+    , prompt_q_(prompt_q)
   {
   }
 
@@ -109,11 +109,14 @@ public:
       auto msg = co_await prompt_ch_->recv(this);
       if (!msg) break;  // Channel closed.
 
-      std::cerr << "[prompt_bridge] received: " << msg->substr(0, 80) << std::endl;
+      mistral::trace::logger::instance().trace(
+        mistral::trace::category::approval,
+        "prompt_bridge received: {}", msg->substr(0, 80)
+      );
 
       if (msg->find("[APPROVAL_PROMPT]") == 0)
       {
-        approval_q_.push(msg->substr(std::string("[APPROVAL_PROMPT]").length()));
+        prompt_q_.push(msg->substr(std::string("[APPROVAL_PROMPT]").length()));
       }
       else if (*msg == "mistral")
       {
@@ -123,18 +126,21 @@ public:
       {
         // Other prompts (e.g. "Enter message for AI...") — treat as
         // approval-style prompts that need text input.
-        approval_q_.push(*msg);
+        prompt_q_.push(*msg);
       }
     }
 
-    std::cerr << "[prompt_bridge] channel closed, exiting" << std::endl;
+    mistral::trace::logger::instance().trace(
+      mistral::trace::category::approval,
+      "prompt_bridge channel closed, exiting"
+    );
     co_return;
   }
 
 private:
   std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
   std::atomic<bool>& agent_ready_;
-  approval_queue& approval_q_;
+  prompt_queue& prompt_q_;
 };
 
 // ---------------------------------------------------------------------------
@@ -429,7 +435,7 @@ int main(int argc, char* argv[])
   // Agent-ready flag.
   // -----------------------------------------------------------------------
   std::atomic<bool> agent_ready{true};
-  approval_queue approval_q;
+  prompt_queue prompt_q;
   std::atomic<bool> approval_pending{false};
 
   // Redirect stderr to a log file — the HTTP coordinator and other
@@ -513,6 +519,9 @@ int main(int argc, char* argv[])
   auto root = std::make_shared<Vertical>();
   // Give root and input temporary non-zero dimensions so that
   // App::run()'s initial collect_focusables() finds the Input widget.
+  // Without this, widgets with zero width/height are skipped during
+  // focus collection, and the Input would not receive keyboard events
+  // until the first render/layout pass sets real dimensions.
   // The real dimensions are set during the first render/layout pass.
   root->width = 80;
   root->height = 24;
@@ -682,15 +691,12 @@ int main(int argc, char* argv[])
   }, false, true);
 
   // -----------------------------------------------------------------------
-  // Timer: drain output queue and update content widget.
-  // -----------------------------------------------------------------------
-  // -----------------------------------------------------------------------
   // Timer: check for pending approval prompts and show dialog.
   // -----------------------------------------------------------------------
   app.add_timer(50, [&]() {
-    if (!approval_q.has_data.load(std::memory_order_acquire)) return;
+    if (!prompt_q.has_data.load(std::memory_order_acquire)) return;
 
-    auto prompt = approval_q.drain();
+    auto prompt = prompt_q.drain();
     if (!prompt) return;
 
     // Show the approval dialog with the prompt text.
@@ -706,7 +712,10 @@ int main(int argc, char* argv[])
     approval_pending.store(true, std::memory_order_release);
     register_approval_keys();
 
-    std::cerr << "[tui] opening approval dialog" << std::endl;
+    mistral::trace::logger::instance().trace(
+      mistral::trace::category::approval,
+      "opening approval dialog"
+    );
     app.open_dialog(approval_dialog);
   });
 
@@ -755,7 +764,7 @@ int main(int argc, char* argv[])
     sched.spawn<input_bridge_task>(input_pipe_fds[0], input_ch, std::ref(inq));
 
     // Spawn prompt bridge task (dripcore → TUI).
-    sched.spawn<prompt_bridge_task>(prompt_ch, std::ref(agent_ready), std::ref(approval_q));
+    sched.spawn<prompt_bridge_task>(prompt_ch, std::ref(agent_ready), std::ref(prompt_q));
 
     auto sink = std::make_shared<mistral::agent::tui_render_sink>(
       [&app](std::function<void()> cb) { app.post(std::move(cb)); },
