@@ -10,7 +10,7 @@
 #include "trace/trace.h"
 #include "common/signal_watcher_task.h"
 #include "agent/interactive_agent_task.h"
-#include "agent/tui_render_sink.h"
+#include "tui_render_sink.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <deque>
+#include <functional>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
@@ -43,13 +44,6 @@ static void sigint_handler(int)
     (void)ret;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Thread-safe output queue: dripcore thread → TUI thread.
-// The dripcore agent task pushes output fragments; the TUI drains them
-// via a timer and appends to the content widget.
-// ---------------------------------------------------------------------------
-using output_queue = mistral::agent::tui_output_queue;
 
 // ---------------------------------------------------------------------------
 // Thread-safe approval prompt queue: dripcore thread → TUI thread.
@@ -432,9 +426,8 @@ int main(int argc, char* argv[])
   input_queue inq;
 
   // -----------------------------------------------------------------------
-  // Output queue and agent-ready flag.
+  // Agent-ready flag.
   // -----------------------------------------------------------------------
-  output_queue outq;
   std::atomic<bool> agent_ready{true};
   approval_queue approval_q;
   std::atomic<bool> approval_pending{false};
@@ -535,6 +528,40 @@ int main(int argc, char* argv[])
   root->add(footer);
 
   // -----------------------------------------------------------------------
+  // Content append helper: appends text to the content widget, recalculates
+  // fixed_height for ScrollableVertical, and auto-scrolls to bottom if the
+  // user was already at the bottom.
+  //
+  // Called directly from the UI thread (e.g. user input echo) and from
+  // tui_render_sink via App::post() (agent output streaming).
+  // -----------------------------------------------------------------------
+  std::function<void(const std::string&)> append_content =
+    [content, scroll](const std::string& fragment) {
+      // Check if user is at the bottom before adding content.
+      int visible_h = scroll->height > 0 ? scroll->height : 1;
+      int ms = scroll->content_height - visible_h;
+      bool was_at_bottom = (scroll->scroll_offset >= (ms < 0 ? 0 : ms));
+
+      // Append to content widget.
+      content->set_text(content->text + fragment);
+
+      // Recalculate fixed_height from wrapped line count so that
+      // ScrollableVertical::layout() sets content_height correctly.
+      int wrap_width = content->width > 0 ? content->width : 80;
+      auto lines = cpptui::Paragraph::wrap_text_static(
+        content->text, wrap_width, content->first_line_indent,
+        content->hanging_indent, content->preserve_whitespace);
+      content->fixed_height = (int)lines.size();
+
+      // Auto-scroll to bottom only if the user was at the bottom.
+      if (was_at_bottom) {
+        int max_scroll = (int)lines.size() - visible_h;
+        if (max_scroll < 0) max_scroll = 0;
+        scroll->scroll_offset = max_scroll;
+      }
+    };
+
+  // -----------------------------------------------------------------------
   // Wire up input: Enter sends message to agent via pipe + queue.
   // We cannot call dripcore::channel::try_send() from the TUI thread
   // because it calls executor::current() which returns nullptr outside
@@ -550,7 +577,7 @@ int main(int argc, char* argv[])
     if (text.empty()) return;
 
     // Append user message to content.
-    outq.push("\n> " + text + "\n");
+    append_content("\n> " + text + "\n");
 
     // Clear input field.
     input->set_value("");
@@ -684,51 +711,6 @@ int main(int argc, char* argv[])
   });
 
   // -----------------------------------------------------------------------
-  // Timer: drain output queue and update content widget.
-  // -----------------------------------------------------------------------
-  app.add_timer(50, [&]() {
-    if (!outq.has_data.load(std::memory_order_acquire)) return;
-
-    std::string fragment = outq.drain();
-    if (fragment.empty()) return;
-
-    // Before adding new content, check if the user is currently at the
-    // bottom. If they are, we should auto-scroll to the new bottom after
-    // the content is added. If not, preserve their scroll position.
-    bool was_at_bottom = (scroll->scroll_offset >= max_scroll_offset());
-
-    // Append to content widget.
-    std::string current = content->text;
-    std::string new_text = current + fragment;
-    content->set_text(new_text);
-
-    // Recalculate fixed_height from wrapped line count so that
-    // ScrollableVertical::layout() sets content_height correctly.
-    int wrap_width = content->width > 0 ? content->width : 80;
-    std::vector<std::string> lines;
-    if (content->word_wrap) {
-      lines = Paragraph::wrap_text_static(
-        new_text, wrap_width, content->first_line_indent,
-        content->hanging_indent, content->preserve_whitespace);
-    } else {
-      std::istringstream stream(new_text);
-      std::string line;
-      while (std::getline(stream, line)) lines.push_back(line);
-    }
-    content->fixed_height = (int)lines.size();
-
-    // Auto-scroll to bottom only if the user was at the bottom before
-    // the new content arrived. This preserves mouse wheel and keyboard
-    // scroll positions when the user has scrolled up.
-    if (was_at_bottom) {
-      int visible_h = scroll->height > 0 ? scroll->height : 1;
-      int max_scroll = (int)lines.size() - visible_h;
-      if (max_scroll < 0) max_scroll = 0;
-      scroll->scroll_offset = max_scroll;
-    }
-  });
-
-  // -----------------------------------------------------------------------
   // Timer: update connectivity dot and footer usage stats.
   // -----------------------------------------------------------------------
   app.add_timer(200, [&]() {
@@ -775,7 +757,10 @@ int main(int argc, char* argv[])
     // Spawn prompt bridge task (dripcore → TUI).
     sched.spawn<prompt_bridge_task>(prompt_ch, std::ref(agent_ready), std::ref(approval_q));
 
-    auto sink = std::make_shared<mistral::agent::tui_render_sink>(outq);
+    auto sink = std::make_shared<mistral::agent::tui_render_sink>(
+      [&app](std::function<void()> cb) { app.post(std::move(cb)); },
+      append_content
+    );
     sched.spawn<mistral::agent::interactive_agent_task>(
       agent_id, input_ch, agent_response_ch, prompt_ch, sink
     );
