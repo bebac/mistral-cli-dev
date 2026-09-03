@@ -10,3 +10,7 @@
 [submodule "third_party/just-a-uri"]
 	path = third_party/just-a-uri
 	url = git@github.com:bebac/just-a-uri.git
+[submodule "third_party/cpp-tui"]
+	path = third_party/cpp-tui
+	url = git@github.com:bebac/cpp-tui.git
+	branch = mistral-fixes

@@ -124,19 +124,14 @@ target_include_directories(tests PRIVATE
 
 target_link_libraries(tests PRIVATE
     mistral-core
+    cpptui::cpptui
 )
 
 # -----------------------------------------------------------------------------
 # Third-party: cpp-tui (TUI library)
 # ----------------------------------------------------------------=============
 
-include(FetchContent)
-FetchContent_Declare(
-    cpptui
-    GIT_REPOSITORY https://github.com/bebac/cpp-tui.git
-    GIT_TAG        92890bff9893225d0b3077a29fdd78af6305879f
-)
-FetchContent_MakeAvailable(cpptui)
+add_subdirectory(third_party/cpp-tui)
 
 # -----------------------------------------------------------------------------
 # TUI executable

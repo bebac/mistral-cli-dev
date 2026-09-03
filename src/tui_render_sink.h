@@ -3,8 +3,12 @@
 
 #include "agent/render_sink.h"
 
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace mistral::agent
 {
@@ -24,7 +28,16 @@ namespace mistral::agent
   // TUI render sink: routes agent output to the TUI content widget via
   // App::post(). The post_fn schedules a callback on the UI thread
   // (typically cpptui::App::post). The append_fn appends a text
-  // fragment to the content widget with auto-scroll handling.
+  // fragment to the content widget's styled text accumulator (O(1)).
+  // The flush_fn performs the expensive O(n) re-wrap + scroll update
+  // once after all batched fragments have been appended.
+  //
+  // Batching: instead of posting a callback per token (which floods the
+  // UI event loop and starves input processing), fragments are accumulated
+  // in a thread-safe buffer. A single callback is posted that drains all
+  // accumulated fragments, calls append_fn for each, then calls flush_fn
+  // once. This reduces the number of expensive wrap_text_static calls
+  // from one-per-token to one-per-batch.
   //
   // This header is TUI-specific (lives in src/). It depends only on the
   // abstract render_sink interface and std::function — no direct
@@ -34,34 +47,36 @@ namespace mistral::agent
   public:
     using post_fn = std::function<void(std::function<void()>)>;
     using append_fn = std::function<void(const std::string&, content_type)>;
+    using flush_fn = std::function<void()>;
 
-    tui_render_sink(post_fn post, append_fn append)
-      : post_(std::move(post))
-      , append_(std::move(append))
+    tui_render_sink(post_fn post, append_fn append, flush_fn flush)
+      : state_(std::make_shared<shared_state>())
     {
+      state_->post = std::move(post);
+      state_->append = std::move(append);
+      state_->flush = std::move(flush);
     }
 
     void output(const std::string& text) override
     {
-      post_([fn = append_, msg = text]() { fn(msg, content_type::normal); });
+      state_->enqueue(text, content_type::normal);
     }
 
     void output_thinking(const std::string& text) override
     {
-      post_([fn = append_, msg = text]() { fn(msg, content_type::thinking); });
+      state_->enqueue(text, content_type::thinking);
     }
 
     void output_line(const std::string& text) override
     {
-      post_([fn = append_, msg = text + "\n"]() { fn(msg, content_type::tool_result); });
+      state_->enqueue(text + "\n", content_type::tool_result);
     }
 
     void output_tool_call(const std::string& name,
                           const std::string& args) override
     {
-      post_([fn = append_, msg = "\n[tool] " + name + "(" + args + ")"]() {
-        fn(msg, content_type::tool_call);
-      });
+      state_->enqueue("\n[tool] " + name + "(" + args + ")",
+                      content_type::tool_call);
     }
 
     void output_tool_result(const std::string& result) override
@@ -69,43 +84,107 @@ namespace mistral::agent
       std::string display = (result.size() > 200)
         ? result.substr(0, 200) + "..."
         : result;
-      post_([fn = append_, msg = " \xe2\x86\x92 " + display + "\n"]() {
-        fn(msg, content_type::tool_result);
-      });
+      state_->enqueue(" \xe2\x86\x92 " + display + "\n",
+                      content_type::tool_result);
     }
 
     void output_error(const std::string& text) override
     {
-      post_([fn = append_, msg = "\n[error] " + text + "\n"]() { fn(msg, content_type::error); });
+      state_->enqueue("\n[error] " + text + "\n", content_type::error);
     }
 
     void output_warning(const std::string& text) override
     {
-      post_([fn = append_, msg = "\n[warning] " + text + "\n"]() { fn(msg, content_type::warning); });
+      state_->enqueue("\n[warning] " + text + "\n", content_type::warning);
     }
 
     void thinking_begin() override
     {
-      post_([fn = append_]() { fn("\n", content_type::normal); });
+      state_->enqueue("\n", content_type::normal);
     }
 
     void thinking_end() override
     {
-      post_([fn = append_]() { fn("\n\n", content_type::normal); });
+      state_->enqueue("\n\n", content_type::normal);
     }
 
     void completed() override
     {
-      post_([fn = append_]() { fn("\n", content_type::normal); });
+      state_->enqueue("\n", content_type::normal);
     }
 
     void cancelled() override
     {
+      state_->enqueue("\n[cancelled]\n", content_type::warning);
     }
 
   private:
-    post_fn post_;
-    append_fn append_;
+    struct fragment {
+      std::string text;
+      content_type type;
+    };
+
+    // Shared state: captured by posted callbacks via shared_ptr so it
+    // stays alive as long as any callback is pending, even if the sink
+    // itself is destroyed.
+    struct shared_state : std::enable_shared_from_this<shared_state> {
+      post_fn   post;
+      append_fn append;
+      flush_fn  flush;
+      std::mutex mutex;
+      std::vector<fragment> buffer;
+      std::atomic<bool> pending{false};
+
+      // Called from the agent (dripcore) thread for every token.
+      // Accumulates the fragment and ensures at most one drain callback
+      // is posted at a time.
+      void enqueue(std::string text, content_type type)
+      {
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          buffer.push_back({std::move(text), type});
+        }
+        bool expected = false;
+        if (pending.compare_exchange_strong(expected, true)) {
+          post([self = shared_from_this()]() {
+            self->drain();
+          });
+        }
+      }
+
+      // Runs on the UI thread. Drains all accumulated fragments, calls
+      // append_fn for each (O(1) per fragment), then calls flush_fn
+      // once (O(n) re-wrap). If more fragments arrived during processing,
+      // re-posts instead of clearing pending.
+      void drain()
+      {
+        std::vector<fragment> drained;
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          drained.swap(buffer);
+        }
+        for (auto& f : drained) {
+          append(f.text, f.type);
+        }
+        if (flush) flush();
+
+        // Check if more items arrived while we were processing.
+        bool more = false;
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          more = !buffer.empty();
+        }
+        if (more) {
+          post([self = shared_from_this()]() {
+            self->drain();
+          });
+        } else {
+          pending.store(false, std::memory_order_release);
+        }
+      }
+    };
+
+    std::shared_ptr<shared_state> state_;
   };
 } // namespace mistral::agent
 

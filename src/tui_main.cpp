@@ -622,7 +622,7 @@ int main(int argc, char* argv[])
   // Styled content accumulator: spans are appended with appropriate
   // colors based on content_type. This replaces plain text mode.
   StyledText content_styled;
-  content_styled.add("mistral-tui prototype\nType your message. Alt+Enter or double-Enter to send. Ctrl+C to quit.\n\n");
+  content_styled.add("mistral-tui prototype\nType your message. Alt+Enter or double-Enter to send. ESC to cancel. Ctrl+C to quit.\n\n");
   content->set_styled(content_styled);
 
   // Set initial fixed_height based on wrapped line count so that
@@ -641,13 +641,21 @@ int main(int argc, char* argv[])
   // Don't let the scroll container steal focus from the input field.
   scroll->focusable = false;
 
-  // Input area: multiline TextArea (3 lines)
+  // Input area: multiline TextArea (5 lines), wrapped in a Horizontal
+  // with 1-char spacers on each side for symmetric margins.
+  auto input_row = std::make_shared<Horizontal>();
+  input_row->fixed_height = 5;
+
   auto input = std::make_shared<ChatInput>();
   input->show_line_numbers = false;
   input->word_wrap = true;
   input->show_scrollbar = true;
   input->accepts_tab = false;
-  input->fixed_height = 3;
+  input->fixed_height = 5;
+
+  input_row->add(std::make_shared<HorizontalSpacer>(1));
+  input_row->add(input);
+  //input_row->add(std::make_shared<HorizontalSpacer>(1)); // Scrollbar adds 1 character.
 
   // Input hint: 1-line widget for approval key bindings.
   // Empty in normal chat mode; shows hints when approval is active.
@@ -674,7 +682,7 @@ int main(int argc, char* argv[])
   footer->bg_color = Theme::current().panel_bg;
 
   // Layout: header (1) | divider (1) | content (flex) | divider (1) |
-  //         hint (1) | divider (1) | input (3) | divider (1) | footer (1)
+  //         hint (1) | divider (1) | input_row (5) | divider (1) | footer (1)
   auto root = std::make_shared<Vertical>();
   // Give root and input temporary non-zero dimensions so that
   // App::run()'s initial collect_focusables() finds the Input widget.
@@ -684,8 +692,11 @@ int main(int argc, char* argv[])
   // The real dimensions are set during the first render/layout pass.
   root->width = 80;
   root->height = 24;
-  input->width = 80;
-  input->height = 3;
+  input_row->width = 80;
+  input_row->height = 5;
+  input->width = 78;
+  input->height = 5;
+
   input_hint->width = 80;
   input_hint->height = 1;
 
@@ -695,7 +706,7 @@ int main(int argc, char* argv[])
   root->add(input_divider);
   root->add(input_hint);
   root->add(input_divider_top);
-  root->add(input);
+  root->add(input_row);
   root->add(std::make_shared<Divider>());
   root->add(footer);
 
@@ -707,14 +718,12 @@ int main(int argc, char* argv[])
   // Called directly from the UI thread (e.g. user input echo) and from
   // tui_render_sink via App::post() (agent output streaming).
   // -----------------------------------------------------------------------
-  std::function<void(const std::string&, mistral::agent::content_type)> append_content =
-    [content, scroll, &content_styled](const std::string& fragment, mistral::agent::content_type type) {
-      // Check if user is at the bottom before adding content.
-      int visible_h = scroll->height > 0 ? scroll->height : 1;
-      int ms = scroll->content_height - visible_h;
-      bool was_at_bottom = (scroll->scroll_offset >= (ms < 0 ? 0 : ms));
-
-      // Append a styled span based on content type.
+  // append_fragment: appends a styled span to content_styled. This is
+  // O(1) and safe to call many times per batch without triggering the
+  // expensive wrap_text_static re-wrap.
+  auto append_fragment =
+    [&content_styled](const std::string& fragment,
+                      mistral::agent::content_type type) {
       using ct = mistral::agent::content_type;
       switch (type) {
         case ct::normal:
@@ -742,6 +751,18 @@ int main(int argc, char* argv[])
           content_styled.colored(fragment, Theme::current().warning);
           break;
       }
+    };
+
+  // flush_content: performs the expensive O(n) work of setting styled
+  // content, re-wrapping the entire text, and updating auto-scroll.
+  // Called once per batch by tui_render_sink, or once per single
+  // fragment by append_content (for non-batched callers).
+  auto flush_content =
+    [content, scroll, &content_styled]() {
+      // Check if user is at the bottom before adding content.
+      int visible_h = scroll->height > 0 ? scroll->height : 1;
+      int ms = scroll->content_height - visible_h;
+      bool was_at_bottom = (scroll->scroll_offset >= (ms < 0 ? 0 : ms));
 
       content->set_styled(content_styled);
 
@@ -759,6 +780,16 @@ int main(int argc, char* argv[])
         if (max_scroll < 0) max_scroll = 0;
         scroll->scroll_offset = max_scroll;
       }
+    };
+
+  // append_content: convenience wrapper for callers that post single
+  // fragments (prompt_bridge_task, send_input). Calls append_fragment
+  // then flush_content in one shot.
+  std::function<void(const std::string&, mistral::agent::content_type)> append_content =
+    [append_fragment, flush_content](const std::string& fragment,
+                                     mistral::agent::content_type type) {
+      append_fragment(fragment, type);
+      flush_content();
     };
 
   // -----------------------------------------------------------------------
@@ -802,6 +833,11 @@ int main(int argc, char* argv[])
 
     // Clear input area.
     input->set_text("");
+
+    // Mark agent as busy — connectivity dot dims until the agent
+    // sends "mistral" (ready for next input) after completing or
+    // being cancelled.
+    agent_ready.store(false, std::memory_order_release);
 
     send_response(std::move(text));
   };
@@ -906,6 +942,24 @@ int main(int argc, char* argv[])
   }, false, true);
 
   // -----------------------------------------------------------------------
+  // ESC: cancel the current API request.
+  //
+  // Writes '1' to the SIGINT pipe. The signal_watcher_task (running in
+  // dripcore) reads this and closes the current response channel via
+  // agent_system::get_current_response_ch()->close(). The agent loop
+  // sees the closed channel as a cancellation, calls
+  // agent_loop_on_cancelled() → sink_->cancelled(), then loops back
+  // to wait for the next user input.
+  //
+  // If no request is in flight, get_current_response_ch() returns null
+  // and the signal_watcher_task does nothing — ESC is a harmless no-op.
+  // -----------------------------------------------------------------------
+  app.register_key(27, [&]() {
+    char cancel_byte = '1';
+    ::write(g_sigint_pipe_write_fd, &cancel_byte, 1);
+  });
+
+  // -----------------------------------------------------------------------
   // Timer: detect approval mode changes and update the UI accordingly.
   // The prompt_bridge_task sets approval_state via App::post callbacks.
   // This timer polls the atomic and updates the divider/hint widgets.
@@ -987,7 +1041,8 @@ int main(int argc, char* argv[])
 
     auto sink = std::make_shared<mistral::agent::tui_render_sink>(
       [&app](std::function<void()> cb) { app.post(std::move(cb)); },
-      append_content
+      append_fragment,
+      flush_content
     );
     sched.spawn<mistral::agent::interactive_agent_task>(
       agent_id, input_ch, agent_response_ch, prompt_ch, sink
@@ -1022,18 +1077,28 @@ int main(int argc, char* argv[])
   char cancel_byte = '1';
   ::write(g_sigint_pipe_write_fd, &cancel_byte, 1);
 
+  // Restore SIGINT to default before closing the pipe write end,
+  // so the signal handler doesn't write to a closed fd.
+  signal(SIGINT, SIG_DFL);
+  g_sigint_pipe_write_fd = -1;
+
   ::close(input_pipe_fds[1]);
+
+  // Close the sigint pipe write end so the signal_watcher_task sees
+  // EOF and exits.  This must happen before joining — otherwise the
+  // signal_watcher blocks forever waiting for '0' from signal_shutdown()
+  // which is only called from the agent's teardown, which may never run
+  // if the agent is stuck in an in-flight API request.
+  ::close(sigint_pipe_fds[1]);
 
   // Wait for dripcore thread to finish.
   if (dripcore_thread.joinable()) {
     dripcore_thread.join();
   }
 
-  // Restore signal handler and close pipes.
-  signal(SIGINT, SIG_DFL);
+  // Close remaining pipe read ends.
   ::close(input_pipe_fds[0]);
   ::close(sigint_pipe_fds[0]);
-  ::close(sigint_pipe_fds[1]);
 
   return 0;
 }
