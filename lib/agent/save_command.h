@@ -1,7 +1,7 @@
 #ifndef MISTRAL_SAVE_COMMAND_H
 #define MISTRAL_SAVE_COMMAND_H
 
-#include "console/slash_command.h"
+#include "slash_command/slash_command.h"
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
@@ -15,7 +15,7 @@ namespace mistral::agent
    * - Creates parent directories if needed
    * - Overwrites existing files
    */
-  class save_command : public console::slash_command
+  class save_command : public slash_command::slash_command
   {
   public:
     std::string name() const override;
@@ -27,6 +27,6 @@ namespace mistral::agent
         agent::agent_system& agent_sys
     ) override;
   };
-} // namespace mistral::console
+} // namespace mistral::agent
 
 #endif // MISTRAL_SAVE_COMMAND_H

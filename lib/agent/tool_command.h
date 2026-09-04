@@ -1,7 +1,7 @@
 #ifndef MISTRAL_TOOL_COMMAND_H
 #define MISTRAL_TOOL_COMMAND_H
 
-#include "console/slash_command.h"
+#include "slash_command/slash_command.h"
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
@@ -14,7 +14,7 @@ namespace mistral::agent
    * Example: /tool ls {"path": "."}
    * Example: /tool grep {"pattern": "hello", "path": "src"}
    */
-  class tool_command : public console::slash_command
+  class tool_command : public slash_command::slash_command
   {
   public:
     std::string name() const override;

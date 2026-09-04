@@ -60,7 +60,7 @@ namespace mistral::agent
     build_global_tool_registry();
 
     // Register slash commands
-    slash_command_registry_ = std::make_shared<console::slash_command_registry>();
+    slash_command_registry_ = std::make_shared<slash_command::slash_command_registry>();
     register_slash_commands();
   }
 
@@ -322,13 +322,13 @@ namespace mistral::agent
 
   void agent_system::register_slash_commands()
   {
-    namespace console = mistral::console;
+    namespace sc = mistral::slash_command;
 
     // Register built-in slash commands
-    class help_command : public console::slash_command
+    class help_command : public sc::slash_command
     {
     public:
-      explicit help_command(console::slash_command_registry& registry)
+      explicit help_command(sc::slash_command_registry& registry)
         : registry_(registry) {}
 
       std::string name() const override { return "help"; }
@@ -365,10 +365,10 @@ namespace mistral::agent
       }
 
     private:
-      console::slash_command_registry& registry_;
+      sc::slash_command_registry& registry_;
     };
 
-    class clear_command : public console::slash_command
+    class clear_command : public sc::slash_command
     {
     public:
       std::string name() const override { return "clear"; }
@@ -383,7 +383,7 @@ namespace mistral::agent
       }
     };
 
-    class model_command : public console::slash_command
+    class model_command : public sc::slash_command
     {
     public:
       std::string name() const override { return "model"; }
@@ -398,7 +398,7 @@ namespace mistral::agent
       }
     };
 
-    class tools_command : public console::slash_command
+    class tools_command : public sc::slash_command
     {
     public:
       std::string name() const override { return "tools"; }
@@ -420,7 +420,7 @@ namespace mistral::agent
       }
     };
 
-    class exit_command : public console::slash_command
+    class exit_command : public sc::slash_command
     {
     public:
       std::string name() const override { return "exit"; }

@@ -1,8 +1,8 @@
 #include <doctest/doctest.h>
 #include "pty_test_harness.h"
 #include "tui/tui_widgets.h"
-#include "console/slash_command.h"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command.h"
+#include "slash_command/slash_command_registry.h"
 
 #include <atomic>
 #include <chrono>
@@ -15,7 +15,7 @@
 // Test command: minimal slash_command implementation for testing.
 // ---------------------------------------------------------------------------
 namespace {
-class test_command : public mistral::console::slash_command {
+class test_command : public mistral::slash_command::slash_command {
 public:
   test_command(const std::string& name, const std::string& desc)
     : name_(name), desc_(desc) {}
@@ -36,9 +36,9 @@ private:
 };
 
 // Build a registry with the 10 real command names for testing.
-std::shared_ptr<mistral::console::slash_command_registry>
+std::shared_ptr<mistral::slash_command::slash_command_registry>
 make_test_registry() {
-  auto reg = std::make_shared<mistral::console::slash_command_registry>();
+  auto reg = std::make_shared<mistral::slash_command::slash_command_registry>();
   reg->register_command(std::make_unique<test_command>(
     "help", "Show available slash commands"));
   reg->register_command(std::make_unique<test_command>(
@@ -64,7 +64,7 @@ make_test_registry() {
 
 // Build a widget tree with ChatInput + SlashCommandPopup for testing.
 struct test_app {
-  std::shared_ptr<mistral::console::slash_command_registry> registry;
+  std::shared_ptr<mistral::slash_command::slash_command_registry> registry;
   std::shared_ptr<cpptui::Label> status;
   std::shared_ptr<SlashCommandPopup> slash_popup;
   std::shared_ptr<Divider> slash_divider;

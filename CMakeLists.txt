@@ -53,8 +53,8 @@ add_library(mistral-core STATIC
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp
     lib/console/console_task.cpp
-    lib/console/slash_command_registry.cpp
-    lib/console/slash_command_executor_task.cpp
+    lib/slash_command/slash_command_registry.cpp
+    lib/slash_command/slash_command_executor_task.cpp
     lib/agent/agent_task_base.cpp
     lib/agent/subagent_task.cpp
     lib/agent/policy_engine.cpp

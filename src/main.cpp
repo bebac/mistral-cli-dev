@@ -10,8 +10,8 @@
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
-#include "console/slash_command_executor_task.h"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command_executor_task.h"
+#include "slash_command/slash_command_registry.h"
 #include "trace/trace.h"
 #include "common/signal_watcher_task.h"
 
@@ -130,7 +130,7 @@ int main(int argc, char* argv[])
   auto agent_response_ch = std::make_shared<dripcore::channel<std::string>>(32);
 
   // Create slash command channels
-  auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::console::slash_command_request>>(4);
+  auto slash_cmd_request_ch = std::make_shared<dripcore::channel<mistral::slash_command::slash_command_request>>(4);
   auto slash_cmd_response_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
   // Initialize agent system with config file
@@ -252,7 +252,7 @@ int main(int argc, char* argv[])
   sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
 
   // Spawn slash command executor task
-  sched.spawn<mistral::console::slash_command_executor_task>(
+  sched.spawn<mistral::slash_command::slash_command_executor_task>(
       slash_cmd_request_ch, slash_cmd_response_ch, agent_system.slash_commands());
 
   // Spawn console task with slash command channels

@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
-#include "console/slash_command.h"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command.h"
+#include "slash_command/slash_command_registry.h"
 
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-namespace mistral::console
+namespace mistral::slash_command
 {
 
 // Test command implementations
@@ -64,22 +64,22 @@ public:
   }
 };
 
-} // namespace mistral::console
+} // namespace mistral::slash_command
 
 TEST_CASE("slash_command_registry: default constructible")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
   CHECK(registry.get_command_names().empty());
 }
 
 TEST_CASE("slash_command_registry: register and get command")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  auto cmd = std::make_unique<mistral::console::test_immediate_command>();
+  auto cmd = std::make_unique<mistral::slash_command::test_immediate_command>();
   registry.register_command(std::move(cmd));
 
-  const mistral::console::slash_command* retrieved = registry.get_command("test_immediate");
+  const mistral::slash_command::slash_command* retrieved = registry.get_command("test_immediate");
   REQUIRE(retrieved != nullptr);
   CHECK(retrieved->name() == "test_immediate");
   CHECK(retrieved->description() == "Test immediate command");
@@ -88,19 +88,19 @@ TEST_CASE("slash_command_registry: register and get command")
 
 TEST_CASE("slash_command_registry: get unknown command")
 {
-  mistral::console::slash_command_registry registry;
-  const mistral::console::slash_command* retrieved = registry.get_command("nonexistent");
+  mistral::slash_command::slash_command_registry registry;
+  const mistral::slash_command::slash_command* retrieved = registry.get_command("nonexistent");
   CHECK(retrieved == nullptr);
 }
 
 TEST_CASE("slash_command_registry: get_command_names")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
   // Register multiple commands
-  registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
-  registry.register_command(std::make_unique<mistral::console::test_agent_command>());
-  registry.register_command(std::make_unique<mistral::console::test_help_command>());
+  registry.register_command(std::make_unique<mistral::slash_command::test_immediate_command>());
+  registry.register_command(std::make_unique<mistral::slash_command::test_agent_command>());
+  registry.register_command(std::make_unique<mistral::slash_command::test_help_command>());
 
   auto names = registry.get_command_names();
   REQUIRE(names.size() == 3);
@@ -121,9 +121,9 @@ TEST_CASE("slash_command_registry: get_command_names")
 
 TEST_CASE("slash_command_registry: get_usage")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
+  registry.register_command(std::make_unique<mistral::slash_command::test_immediate_command>());
 
   CHECK(registry.get_usage("test_immediate") == "/test_immediate [args]");
   CHECK(registry.get_usage("nonexistent") == "");
@@ -131,9 +131,9 @@ TEST_CASE("slash_command_registry: get_usage")
 
 TEST_CASE("slash_command_registry: has_command")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  registry.register_command(std::make_unique<mistral::console::test_immediate_command>());
+  registry.register_command(std::make_unique<mistral::slash_command::test_immediate_command>());
 
   CHECK(registry.has_command("test_immediate") == true);
   CHECK(registry.has_command("nonexistent") == false);
@@ -141,10 +141,10 @@ TEST_CASE("slash_command_registry: has_command")
 
 TEST_CASE("slash_command_registry: register empty name throws")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
   // Create a command with empty name
-  class empty_name_command : public mistral::console::slash_command
+  class empty_name_command : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return ""; }
@@ -167,7 +167,7 @@ TEST_CASE("slash_command_registry: register empty name throws")
 
 TEST_CASE("slash_command_registry: register null command")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
   // Registering null should not throw, just be a no-op
   registry.register_command(nullptr);
@@ -178,7 +178,7 @@ TEST_CASE("slash_command_registry: register null command")
 
 TEST_CASE("slash_command_registry: thread safety")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
   // Clear state by creating new commands each time
   const int num_threads = 10;
@@ -190,7 +190,7 @@ TEST_CASE("slash_command_registry: thread safety")
       for (int j = 0; j < commands_per_thread; ++j) {
         std::string cmd_name = "thread_cmd_" + std::to_string(i) + "_" + std::to_string(j);
 
-        class dynamic_command : public mistral::console::slash_command
+        class dynamic_command : public mistral::slash_command::slash_command
         {
         public:
           explicit dynamic_command(std::string n) : name_(std::move(n)) {}
@@ -229,9 +229,9 @@ TEST_CASE("slash_command_registry: thread safety")
 
 TEST_CASE("slash_command_registry: re-register command overwrites")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  class cmd1 : public mistral::console::slash_command
+  class cmd1 : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "test_re_register"; }
@@ -246,7 +246,7 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
     }
   };
 
-  class cmd2 : public mistral::console::slash_command
+  class cmd2 : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "test_re_register"; }
@@ -264,16 +264,16 @@ TEST_CASE("slash_command_registry: re-register command overwrites")
   registry.register_command(std::make_unique<cmd1>());
   registry.register_command(std::make_unique<cmd2>());
 
-  const mistral::console::slash_command* cmd = registry.get_command("test_re_register");
+  const mistral::slash_command::slash_command* cmd = registry.get_command("test_re_register");
   REQUIRE(cmd != nullptr);
   CHECK(cmd->description() == "Second");
 }
 
 TEST_CASE("slash_command_registry: case sensitive lookup")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  class lower_cmd : public mistral::console::slash_command
+  class lower_cmd : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "testcase"; }
@@ -297,7 +297,7 @@ TEST_CASE("slash_command_registry: case sensitive lookup")
 
 TEST_CASE("slash_command_registry: empty metadata handling")
 {
-  class empty_cmd : public mistral::console::slash_command
+  class empty_cmd : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "empty_meta"; }
@@ -313,10 +313,10 @@ TEST_CASE("slash_command_registry: empty metadata handling")
     }
   };
 
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
   registry.register_command(std::make_unique<empty_cmd>());
 
-  const mistral::console::slash_command* cmd = registry.get_command("empty_meta");
+  const mistral::slash_command::slash_command* cmd = registry.get_command("empty_meta");
   REQUIRE(cmd != nullptr);
   CHECK(cmd->description() == "");
   CHECK(cmd->usage() == "");
@@ -325,9 +325,9 @@ TEST_CASE("slash_command_registry: empty metadata handling")
 
 TEST_CASE("slash_command_registry: get_command_names returns sorted list")
 {
-  mistral::console::slash_command_registry registry;
+  mistral::slash_command::slash_command_registry registry;
 
-  class z_cmd : public mistral::console::slash_command
+  class z_cmd : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "zebra"; }
@@ -342,7 +342,7 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
     }
   };
 
-  class a_cmd : public mistral::console::slash_command
+  class a_cmd : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "alpha"; }
@@ -357,7 +357,7 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
     }
   };
 
-  class m_cmd : public mistral::console::slash_command
+  class m_cmd : public mistral::slash_command::slash_command
   {
   public:
     std::string name() const override { return "middle"; }

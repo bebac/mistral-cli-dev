@@ -1,7 +1,7 @@
 #ifndef MISTRAL_LOAD_COMMAND_H
 #define MISTRAL_LOAD_COMMAND_H
 
-#include "console/slash_command.h"
+#include "slash_command/slash_command.h"
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
@@ -14,7 +14,7 @@ namespace mistral::agent
    * - If filename is not provided, defaults to "last_response.txt"
    * - Sets the loaded content as the last response in the agent system
    */
-  class load_command : public console::slash_command
+  class load_command : public slash_command::slash_command
   {
   public:
     std::string name() const override;

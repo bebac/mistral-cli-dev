@@ -551,7 +551,7 @@ TEST_SUITE_BEGIN("agent_system::slash_commands");
 // Helper struct for testing slash commands
 struct slash_command_executor : public dripcore::task {
   slash_command_executor(
-      mistral::console::slash_command* cmd,
+      mistral::slash_command::slash_command* cmd,
       std::string args,
       mistral::agent::agent_system& sys,
       std::string& out_result)
@@ -563,7 +563,7 @@ struct slash_command_executor : public dripcore::task {
     co_return;
   }
 
-  mistral::console::slash_command* cmd_;
+  mistral::slash_command::slash_command* cmd_;
   std::string args_;
   mistral::agent::agent_system& sys_;
   std::string& out_result_;
@@ -598,7 +598,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::console::slash_command*>(help_cmd),
+      const_cast<mistral::slash_command::slash_command*>(help_cmd),
       "",
       system,
       result);
@@ -622,7 +622,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::console::slash_command*>(clear_cmd),
+      const_cast<mistral::slash_command::slash_command*>(clear_cmd),
       "",
       system,
       result);
@@ -644,7 +644,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::console::slash_command*>(exit_cmd),
+      const_cast<mistral::slash_command::slash_command*>(exit_cmd),
       "",
       system,
       result);
@@ -666,7 +666,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::console::slash_command*>(model_cmd),
+      const_cast<mistral::slash_command::slash_command*>(model_cmd),
       "",
       system,
       result);
@@ -689,7 +689,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::console::slash_command*>(tools_cmd),
+      const_cast<mistral::slash_command::slash_command*>(tools_cmd),
       "",
       system,
       result);

@@ -1,7 +1,7 @@
 #ifndef MISTRAL_PATCHSET_VERIFY_COMMAND_H
 #define MISTRAL_PATCHSET_VERIFY_COMMAND_H
 
-#include "console/slash_command.h"
+#include "slash_command/slash_command.h"
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
@@ -15,7 +15,7 @@ namespace mistral::agent
    * - Validates patchset ID and edit blocks
    * - Returns structured verification results
    */
-  class patchset_verify_command : public console::slash_command
+  class patchset_verify_command : public slash_command::slash_command
   {
   public:
     std::string name() const override;

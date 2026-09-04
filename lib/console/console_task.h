@@ -1,8 +1,8 @@
 #ifndef MISTRAL_CONSOLE_TASK_H
 #define MISTRAL_CONSOLE_TASK_H
 
-#include <console/slash_command.h>
-#include <console/slash_command_registry.h>
+#include <slash_command/slash_command.h>
+#include <slash_command/slash_command_registry.h>
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -36,9 +36,9 @@ namespace mistral::console
     console_task(
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
-      std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch = nullptr,
+      std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch = nullptr,
       std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr,
-      std::shared_ptr<slash_command_registry> slash_cmd_registry = nullptr
+      std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry = nullptr
     );
 
     ~console_task();
@@ -50,9 +50,9 @@ namespace mistral::console
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
-    std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch_;
+    std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch_;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
-    std::shared_ptr<slash_command_registry> slash_cmd_registry_;
+    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry_;
     std::shared_ptr<console_state> state_;
   };
 

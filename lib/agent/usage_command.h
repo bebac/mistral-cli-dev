@@ -1,7 +1,7 @@
 #ifndef MISTRAL_USAGE_COMMAND_H
 #define MISTRAL_USAGE_COMMAND_H
 
-#include "console/slash_command.h"
+#include "slash_command/slash_command.h"
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
@@ -12,7 +12,7 @@ namespace mistral::agent
   /**
    * @brief Slash command to display API usage statistics.
    */
-  class usage_command : public console::slash_command
+  class usage_command : public slash_command::slash_command
   {
   public:
     std::string name() const override;

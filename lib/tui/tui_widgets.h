@@ -2,7 +2,7 @@
 #define MISTRAL_TUI_WIDGETS_H
 
 #include "cpptui.hpp"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command_registry.h"
 
 #include <algorithm>
 #include <cctype>
@@ -159,7 +159,7 @@ public:
 
   SlashCommandPopup() { focusable = false; }
 
-  void set_registry(const mistral::console::slash_command_registry* registry) {
+  void set_registry(const mistral::slash_command::slash_command_registry* registry) {
     registry_ = registry;
   }
 
@@ -417,7 +417,7 @@ private:
     return true;
   }
 
-  const mistral::console::slash_command_registry* registry_ = nullptr;
+  const mistral::slash_command::slash_command_registry* registry_ = nullptr;
   std::string filter_;
   std::vector<std::string> matched_commands_;
   int selected_index_ = 0;

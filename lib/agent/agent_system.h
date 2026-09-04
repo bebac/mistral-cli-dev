@@ -13,7 +13,7 @@
 #include "agent/agent_system_stats_task.h"
 #include "tools/patchset_store.h"
 #include "agent/edit_types.h"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command_registry.h"
 
 #include <dripcore/channel.h>
 #include <api/mistral_types.h>
@@ -120,7 +120,7 @@ namespace mistral::agent
     bool has_patchset() const;
 
     // Slash command registry
-    std::shared_ptr<console::slash_command_registry> slash_commands() { return slash_command_registry_; }
+    std::shared_ptr<slash_command::slash_command_registry> slash_commands() { return slash_command_registry_; }
 
     // Register built-in slash commands
     void register_slash_commands();
@@ -191,7 +191,7 @@ namespace mistral::agent
     json usage_stats_;
 
     // Slash command registry
-    std::shared_ptr<console::slash_command_registry> slash_command_registry_;
+    std::shared_ptr<slash_command::slash_command_registry> slash_command_registry_;
 
     // Patchset storage - only one at a time (the latest)
     std::optional<patchset_t> current_patchset_;

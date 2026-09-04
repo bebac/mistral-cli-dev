@@ -1,6 +1,6 @@
 #include "console/console_task.h"
-#include "console/slash_command.h"
-#include "console/slash_command_registry.h"
+#include "slash_command/slash_command.h"
+#include "slash_command/slash_command_registry.h"
 
 #include <isocline.h>
 
@@ -52,14 +52,14 @@ namespace mistral::console
     std::thread thread;
 
     // Slash command registry (shared with the isocline thread for completion/validation)
-    std::shared_ptr<slash_command_registry> slash_cmd_registry;
+    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry;
 
     // For passing the prompt string to the input thread
     std::string current_prompt;
     bool is_approval_prompt = false;
 
     // For passing slash commands from input thread to coroutine
-    std::optional<slash_command_request> pending_slash_command;
+    std::optional<slash_command::slash_command_request> pending_slash_command;
 
     // Thread-safe accessors
     void enqueue_input(std::string input)
@@ -91,13 +91,13 @@ namespace mistral::console
       return {current_prompt, is_approval_prompt};
     }
 
-    void set_pending_slash_command(slash_command_request req)
+    void set_pending_slash_command(slash_command::slash_command_request req)
     {
       std::lock_guard<std::mutex> lock(mtx);
       pending_slash_command.emplace(std::move(req));
     }
 
-    std::optional<slash_command_request> take_pending_slash_command()
+    std::optional<slash_command::slash_command_request> take_pending_slash_command()
     {
       std::lock_guard<std::mutex> lock(mtx);
       if (!pending_slash_command)
@@ -316,9 +316,9 @@ namespace mistral::console
   console_task::console_task(
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
-    std::shared_ptr<dripcore::channel<slash_command_request>> slash_cmd_request_ch,
+    std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch,
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
-    std::shared_ptr<slash_command_registry> slash_cmd_registry)
+    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry)
     :
     prompt_ch_(std::move(prompt_ch)),
     input_ch_(std::move(input_ch)),
