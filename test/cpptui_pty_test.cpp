@@ -30,12 +30,15 @@ TEST_CASE("cpptui PTY: Terminal construct and render")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   // The Terminal constructor writes escape sequences to enter raw mode.
   // Verify the alternate screen buffer escape sequence appears.
   REQUIRE(pty.wait_for_output("\033[?1049h", 5000));
 
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }
 
@@ -60,6 +63,8 @@ TEST_CASE("cpptui PTY: Ctrl+C exits the app")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   // Wait for the app to render.
   REQUIRE(pty.wait_for_output("Ctrl+C test", 5000));
 
@@ -71,6 +76,7 @@ TEST_CASE("cpptui PTY: Ctrl+C exits the app")
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
 
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }
 
@@ -125,6 +131,8 @@ TEST_CASE("cpptui PTY: keypress updates rendered output")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   // Wait for initial render.
   REQUIRE(drainer.wait_for("AAAA", 5000));
 
@@ -141,5 +149,6 @@ TEST_CASE("cpptui PTY: keypress updates rendered output")
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
 
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }

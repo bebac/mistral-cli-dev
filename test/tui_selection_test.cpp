@@ -9,27 +9,6 @@
 #include <thread>
 
 // ---------------------------------------------------------------------------
-// RAII guard: ensures the app thread is joined and PTY is restored even if
-// a REQUIRE macro throws (which would otherwise leave std::thread joinable,
-// triggering std::terminate).
-// ---------------------------------------------------------------------------
-struct app_cleanup {
-  pty_test::pty_terminal& pty;
-  std::atomic<bool>& app_exited;
-  std::thread& app_thread;
-  bool joined = false;
-
-  ~app_cleanup() {
-    if (!joined && app_thread.joinable()) {
-      pty.send_keys("q");
-      pty_test::drain_wait(app_exited, pty, 3000);
-      app_thread.join();
-      pty.restore();
-    }
-  }
-};
-
-// ---------------------------------------------------------------------------
 // Test 1: Mouse selection and Ctrl+C copy on a Label with UTF-8 text.
 //
 // Verifies that:
@@ -66,7 +45,7 @@ TEST_CASE("Selection PTY: mouse select + Ctrl+C copy (UTF-8)")
     app_exited.store(true, std::memory_order_release);
   });
 
-  app_cleanup guard{pty, app_exited, app_thread};
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
 
   REQUIRE(drainer.wait_for("café test", 5000));
 
@@ -134,7 +113,7 @@ TEST_CASE("Selection PTY: Ctrl+A select all + Ctrl+C copy (UTF-8)")
     app_exited.store(true, std::memory_order_release);
   });
 
-  app_cleanup guard{pty, app_exited, app_thread};
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
 
   REQUIRE(drainer.wait_for("café test", 5000));
 

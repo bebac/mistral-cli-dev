@@ -31,9 +31,11 @@ struct pty_terminal {
   int master_fd    = -1;
   int saved_stdin  = -1;
   int saved_stdout = -1;
+  int saved_stderr = -1;
 
   pty_terminal() {
     std::cout.flush();
+    std::cerr.flush();
 
     master_fd = ::posix_openpt(O_RDWR | O_NOCTTY);
     REQUIRE(master_fd >= 0);
@@ -54,10 +56,12 @@ struct pty_terminal {
     ws.ws_ypixel = 0;
     ::ioctl(slave_fd, TIOCSWINSZ, &ws);
 
-    saved_stdin  = ::dup(STDIN_FILENO);
-    saved_stdout = ::dup(STDOUT_FILENO);
+    saved_stdin   = ::dup(STDIN_FILENO);
+    saved_stdout  = ::dup(STDOUT_FILENO);
+    saved_stderr  = ::dup(STDERR_FILENO);
     ::dup2(slave_fd, STDIN_FILENO);
     ::dup2(slave_fd, STDOUT_FILENO);
+    ::dup2(slave_fd, STDERR_FILENO);
     ::close(slave_fd);
   }
 
@@ -77,6 +81,12 @@ struct pty_terminal {
       ::dup2(saved_stdout, STDOUT_FILENO);
       ::close(saved_stdout);
       saved_stdout = -1;
+    }
+    if (saved_stderr >= 0) {
+      std::cerr.flush();
+      ::dup2(saved_stderr, STDERR_FILENO);
+      ::close(saved_stderr);
+      saved_stderr = -1;
     }
   }
 
@@ -188,6 +198,55 @@ struct pty_drainer {
         std::chrono::steady_clock::now() - start).count();
       if (elapsed >= timeout_ms) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+
+  void clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    output_.clear();
+  }
+};
+
+// ---------------------------------------------------------------------------
+// app_cleanup: RAII guard that ensures the app thread is joined and the
+// PTY is restored even if a REQUIRE macro throws (which would otherwise
+// leave std::thread joinable, triggering std::terminate).
+//
+// Usage:
+//   pty_test::pty_terminal pty;
+//   std::atomic<bool> app_exited{false};
+//   pty_test::pty_drainer drainer(pty.fd());
+//   std::thread app_thread([&]() { ... app.run(root); ... });
+//   pty_test::app_cleanup guard{pty, app_exited, app_thread};
+//
+//   // ... test assertions ...
+//
+//   // Normal shutdown:
+//   pty.send_keys("q");
+//   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
+//   app_thread.join();
+//   guard.joined = true;  // tell guard we handled cleanup
+//   pty.restore();
+//
+// If a REQUIRE fails before guard.joined is set, the guard destructor
+// sends Ctrl+C and 'q' to quit the app, drains the PTY, joins the thread,
+// and restores stdio — preventing std::terminate.
+// ---------------------------------------------------------------------------
+struct app_cleanup {
+  pty_terminal& pty;
+  std::atomic<bool>& app_exited;
+  std::thread& app_thread;
+  bool joined = false;
+
+  ~app_cleanup() {
+    if (!joined && app_thread.joinable()) {
+      // Try both Ctrl+C (mandatory exit in cpp-tui) and 'q' (common
+      // registered quit key) to ensure the app exits.
+      pty.send_keys("\x03");
+      pty.send_keys("q");
+      drain_wait(app_exited, pty, 3000);
+      app_thread.join();
+      pty.restore();
     }
   }
 };

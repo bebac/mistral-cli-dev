@@ -445,6 +445,15 @@ int main(int argc, char* argv[])
   // Divider above input, below hint (turns amber in approval mode).
   auto input_divider_top = std::make_shared<Divider>();
 
+  // Slash command popup: appears above input, grows upward.
+  auto slash_divider = std::make_shared<Divider>();
+  slash_divider->visible = false;
+
+  auto slash_popup = std::make_shared<SlashCommandPopup>();
+  slash_popup->fixed_height = 0;
+  slash_popup->visible = false;
+  slash_popup->set_registry(agent_system.slash_commands().get());
+
   // Hint line: hidden in normal mode, shown only during approval.
   input_hint->visible = false;
 
@@ -480,6 +489,8 @@ int main(int argc, char* argv[])
   root->add(scroll);
   root->add(input_divider);
   root->add(input_hint);
+  root->add(slash_divider);
+  root->add(slash_popup);
   root->add(input_divider_top);
   root->add(input_row);
   root->add(std::make_shared<Divider>());
@@ -532,12 +543,18 @@ int main(int argc, char* argv[])
   // content, re-wrapping the entire text, and updating auto-scroll.
   // Called once per batch by tui_render_sink, or once per single
   // fragment by append_content (for non-batched callers).
+  // Track whether the user is at the bottom of the scroll area.
+  // Updated by flush_content, read by the approval timer to decide
+  // whether to re-scroll after the hint/divider become visible.
+  bool content_at_bottom = true;
+
   auto flush_content =
-    [content, scroll, &content_styled]() {
+    [content, scroll, &content_styled, &content_at_bottom]() {
       // Check if user is at the bottom before adding content.
       int visible_h = scroll->height > 0 ? scroll->height : 1;
       int ms = scroll->content_height - visible_h;
       bool was_at_bottom = (scroll->scroll_offset >= (ms < 0 ? 0 : ms));
+      content_at_bottom = was_at_bottom;
 
       content->set_styled(content_styled);
 
@@ -667,6 +684,20 @@ int main(int argc, char* argv[])
   input->on_approval_key = on_approval_key;
   input->on_approval_text_submit = on_approval_text_submit;
 
+  // Wire slash command mode.
+  input->set_slash_popup(slash_popup.get());
+  input->set_slash_divider(slash_divider.get());
+  input->is_agent_busy = [&agent_ready]() {
+    return !agent_ready.load(std::memory_order_acquire);
+  };
+  input->on_slash_command = [&](std::string command, std::string args) {
+    if (command == "exit") {
+      app.quit();
+      return;
+    }
+    // Other commands: stub for now (task 2b handles execution).
+  };
+
   // -----------------------------------------------------------------------
   // Auto-scroll logic: before new content arrives, check if the user is
   // at the bottom. If so, auto-scroll to the new bottom. If not (the user
@@ -730,6 +761,10 @@ int main(int argc, char* argv[])
   // and the signal_watcher_task does nothing — ESC is a harmless no-op.
   // -----------------------------------------------------------------------
   app.register_key(27, [&]() {
+    if (input->slash_mode_active()) {
+      input->cancel_slash_mode();
+      return;
+    }
     char cancel_byte = '1';
     ::write(g_sigint_pipe_write_fd, &cancel_byte, 1);
   });
@@ -752,6 +787,20 @@ int main(int argc, char* argv[])
         input_hint->text =
           "  approval \xc2\xb7 y=approve n=reject r=reject+msg a=all ?=help";
         input_hint->hint_fg = Theme::current().warning;
+
+        // The hint and divider becoming visible shrinks the scroll
+        // area by 2 lines. flush_content (which ran in the posted
+        // callback before this timer) set scroll_offset based on the
+        // old, larger scroll height — so the last 2 lines of the
+        // approval prompt are now hidden. Force a layout pass to
+        // update scroll dimensions, then re-scroll to bottom if the
+        // user was at the bottom.
+        if (content_at_bottom) {
+          if (auto cont = std::dynamic_pointer_cast<Container>(root)) {
+            cont->layout();
+          }
+          scroll->scroll_offset = max_scroll_offset();
+        }
       }
     } else if (state == 0) {
       // Normal mode — ensure UI is reset.

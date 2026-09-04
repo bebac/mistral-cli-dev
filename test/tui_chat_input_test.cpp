@@ -61,6 +61,8 @@ TEST_CASE("ChatInput PTY: text input and Alt+Enter submit")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   REQUIRE(drainer.wait_for("IDLE", 5000));
 
   // Type text — should appear in rendered output.
@@ -76,6 +78,7 @@ TEST_CASE("ChatInput PTY: text input and Alt+Enter submit")
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
 
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }
 
@@ -133,6 +136,8 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   REQUIRE(drainer.wait_for("IDLE", 5000));
 
   // Type text.
@@ -151,6 +156,7 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
 
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }
 
@@ -212,6 +218,8 @@ TEST_CASE("ChatInput PTY: single-key approval mode")
     app_exited.store(true, std::memory_order_release);
   });
 
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
   REQUIRE(drainer.wait_for("WAITING", 5000));
 
   // Press 'y' — should trigger on_approval_key, not insert 'y' into text.
@@ -224,5 +232,6 @@ TEST_CASE("ChatInput PTY: single-key approval mode")
   REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
 
   app_thread.join();
+  guard.joined = true;
   pty.restore();
 }
