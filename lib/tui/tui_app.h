@@ -1,6 +1,7 @@
 #ifndef MISTRAL_TUI_APP_H
 #define MISTRAL_TUI_APP_H
 
+#include "tui/content_area.h"
 #include "tui/thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
 #include "tui/tui_widgets.h"
@@ -164,29 +165,7 @@ private:
     header_->add(dot_);
     header_->add(std::make_shared<HorizontalSpacer>(1));
 
-    content_ = std::make_shared<Paragraph>();
-    content_->word_wrap = true;
-    content_->preserve_whitespace = true;
-    content_->fg_color = Theme::current().foreground;
-    content_->bg_color = Theme::current().background;
-
-    content_styled_.add(
-      "mistral-tui prototype\n"
-      "Type your message. Alt+Enter or double-Enter to send. "
-      "ESC to cancel. Ctrl+C to quit.\n\n");
-    content_->set_styled(content_styled_);
-
-    {
-      int w = content_->width > 0 ? content_->width : 80;
-      auto lines = Paragraph::wrap_text_static(
-        content_->text, w, content_->first_line_indent,
-        content_->hanging_indent, content_->preserve_whitespace);
-      content_->fixed_height = (int)lines.size();
-    }
-
-    scroll_ = std::make_shared<ScrollableVertical>();
-    scroll_->add(content_);
-    scroll_->focusable = false;
+    auto scroll_widget = content_area_.build();
 
     input_row_ = std::make_shared<Horizontal>();
     input_row_->fixed_height = 5;
@@ -239,7 +218,7 @@ private:
 
     root_->add(header_);
     root_->add(std::make_shared<Divider>());
-    root_->add(scroll_);
+    root_->add(scroll_widget);
     root_->add(input_divider_);
     root_->add(input_hint_);
     root_->add(slash_divider_);
@@ -279,25 +258,19 @@ private:
   void register_keybindings()
   {
     app_.register_key(1001, [this]() {
-      int visible_h = scroll_->height > 0 ? scroll_->height : 1;
-      scroll_->scroll_offset -= visible_h;
-      clamp_scroll();
+      content_area_.scroll_page_up();
     });
 
     app_.register_key(1002, [this]() {
-      int visible_h = scroll_->height > 0 ? scroll_->height : 1;
-      scroll_->scroll_offset += visible_h;
-      clamp_scroll();
+      content_area_.scroll_page_down();
     });
 
     app_.register_key(1065, [this]() {
-      scroll_->scroll_offset -= 1;
-      clamp_scroll();
+      content_area_.scroll_line_up();
     }, false, true);
 
     app_.register_key(1066, [this]() {
-      scroll_->scroll_offset += 1;
-      clamp_scroll();
+      content_area_.scroll_line_down();
     }, false, true);
 
     app_.register_key(27, [this]() {
@@ -326,12 +299,12 @@ private:
             " r=reject+msg a=all ?=help";
           input_hint_->hint_fg = cpptui::Theme::current().warning;
 
-          if (content_at_bottom_) {
+          if (content_area_.was_at_bottom()) {
             if (auto cont =
                   std::dynamic_pointer_cast<cpptui::Container>(root_)) {
               cont->layout();
             }
-            scroll_->scroll_offset = max_scroll_offset();
+            content_area_.scroll_to_bottom();
           }
         }
       } else if (state == 0) {
@@ -368,14 +341,14 @@ private:
       auto append_content_fn =
         [this](const std::string& fragment,
                mistral::agent::content_type type) {
-          append_content(fragment, type);
+          content_area_.append(fragment, type);
         };
       auto append_fn =
         [this](const std::string& fragment,
                mistral::agent::content_type type) {
-          append_fragment(fragment, type);
+          content_area_.append_fragment(fragment, type);
         };
-      auto flush_fn = [this]() { flush_content(); };
+      auto flush_fn = [this]() { content_area_.flush(); };
 
       sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
       sched.spawn<mistral::agent::agent_system_stats_task>(
@@ -409,72 +382,6 @@ private:
     });
   }
 
-  void append_fragment(const std::string& fragment, content_type type)
-  {
-    using ct = content_type;
-    switch (type) {
-      case ct::normal:
-        content_styled_.add(fragment);
-        break;
-      case ct::thinking:
-        content_styled_.colored(
-          fragment, cpptui::Theme::current().input_placeholder);
-        break;
-      case ct::tool_call:
-        content_styled_.colored_bold(
-          fragment, cpptui::Theme::current().primary);
-        break;
-      case ct::tool_result:
-        content_styled_.colored(
-          fragment, cpptui::Theme::current().primary);
-        break;
-      case ct::error:
-        content_styled_.colored_bold(
-          fragment, cpptui::Theme::current().error);
-        break;
-      case ct::warning:
-        content_styled_.colored(
-          fragment, cpptui::Theme::current().warning);
-        break;
-      case ct::user:
-        content_styled_.colored_bold(
-          fragment, cpptui::Theme::current().success);
-        break;
-      case ct::system:
-        content_styled_.colored(
-          fragment, cpptui::Theme::current().warning);
-        break;
-    }
-  }
-
-  void flush_content()
-  {
-    int visible_h = scroll_->height > 0 ? scroll_->height : 1;
-    int ms = scroll_->content_height - visible_h;
-    bool was_at_bottom = (scroll_->scroll_offset >= (ms < 0 ? 0 : ms));
-    content_at_bottom_ = was_at_bottom;
-
-    content_->set_styled(content_styled_);
-
-    int wrap_width = content_->width > 0 ? content_->width : 80;
-    auto lines = cpptui::Paragraph::wrap_text_static(
-      content_->text, wrap_width, content_->first_line_indent,
-      content_->hanging_indent, content_->preserve_whitespace);
-    content_->fixed_height = (int)lines.size();
-
-    if (was_at_bottom) {
-      int max_scroll = (int)lines.size() - visible_h;
-      if (max_scroll < 0) max_scroll = 0;
-      scroll_->scroll_offset = max_scroll;
-    }
-  }
-
-  void append_content(const std::string& fragment, content_type type)
-  {
-    append_fragment(fragment, type);
-    flush_content();
-  }
-
   void send_response(std::string response)
   {
     inq_.push(std::move(response));
@@ -487,7 +394,7 @@ private:
     if (approval_state_.load(std::memory_order_acquire) != 0) return;
     std::string text = input_->get_text();
     if (text.empty()) return;
-    append_content("\n> " + text + "\n", content_type::user);
+    content_area_.append("\n> " + text + "\n", content_type::user);
     input_->set_text("");
     agent_ready_.store(false, std::memory_order_release);
     send_response(std::move(text));
@@ -547,27 +454,12 @@ private:
     );
   }
 
-  int max_scroll_offset()
-  {
-    int visible_h = scroll_->height > 0 ? scroll_->height : 1;
-    int ms = scroll_->content_height - visible_h;
-    return ms < 0 ? 0 : ms;
-  }
-
-  void clamp_scroll()
-  {
-    if (scroll_->scroll_offset < 0) scroll_->scroll_offset = 0;
-    int ms = max_scroll_offset();
-    if (scroll_->scroll_offset > ms) scroll_->scroll_offset = ms;
-  }
-
   config cfg_;
 
   cpptui::App app_;
+  content_area content_area_;
   std::shared_ptr<cpptui::Label> dot_;
   std::shared_ptr<cpptui::Horizontal> header_;
-  std::shared_ptr<cpptui::Paragraph> content_;
-  std::shared_ptr<cpptui::ScrollableVertical> scroll_;
   std::shared_ptr<ChatInput> input_;
   std::shared_ptr<cpptui::Horizontal> input_row_;
   std::shared_ptr<InputHint> input_hint_;
@@ -577,9 +469,6 @@ private:
   std::shared_ptr<SlashCommandPopup> slash_popup_;
   std::shared_ptr<FooterBar> footer_;
   std::shared_ptr<cpptui::Vertical> root_;
-  cpptui::StyledText content_styled_;
-  bool content_at_bottom_ = true;
-
   thread_safe_queue<std::string> inq_;
   thread_safe_queue<mistral::slash_command::slash_command_request>
     slash_cmd_queue_;
