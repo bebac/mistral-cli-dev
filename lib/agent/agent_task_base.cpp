@@ -65,6 +65,12 @@ namespace mistral::agent
 
     while (!final_answer)
     {
+      // If the input channel has been closed (shutdown), don't start
+      // a new API request — exit the loop so teardown can proceed.
+      if (input_ch_ && input_ch_->is_closed()) {
+        break;
+      }
+
       // Create a fresh response channel for each request attempt.
       // This allows cancellation (closing the channel) without affecting
       // future requests, and ensures retries get a clean channel.
