@@ -169,17 +169,22 @@ namespace mistral::agent
         if (flush) flush();
 
         // Check if more items arrived while we were processing.
-        bool more = false;
+        // Clear pending under the mutex to avoid a race where
+        // enqueue() adds to the buffer between our empty check
+        // and clearing pending — which would leave the item
+        // stranded with no drain callback posted.
+        bool should_repost = false;
         {
           std::lock_guard<std::mutex> lock(mutex);
-          more = !buffer.empty();
+          should_repost = !buffer.empty();
+          if (!should_repost) {
+            pending.store(false, std::memory_order_release);
+          }
         }
-        if (more) {
+        if (should_repost) {
           post([self = shared_from_this()]() {
             self->drain();
           });
-        } else {
-          pending.store(false, std::memory_order_release);
         }
       }
     };
