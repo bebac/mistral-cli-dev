@@ -19,6 +19,7 @@
 #include "cpptui.hpp"
 #include "tui/tui_render_sink.h"
 #include "tui/tui_widgets.h"
+#include "slash_command/slash_command_executor_task.h"
 
 #include <atomic>
 #include <chrono>
@@ -161,6 +162,33 @@ struct input_queue
 };
 
 // ---------------------------------------------------------------------------
+// Thread-safe slash command queue: TUI thread → dripcore thread.
+// The TUI pushes slash command requests here and writes a wakeup byte to
+// a pipe. The slash_command_bridge_task (running in dripcore context)
+// reads the pipe, drains this queue, and sends to the executor task via
+// dripcore::channel.
+// ---------------------------------------------------------------------------
+struct slash_command_queue
+{
+  std::mutex mtx;
+  std::deque<mistral::slash_command::slash_command_request> requests;
+
+  void push(mistral::slash_command::slash_command_request req)
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    requests.push_back(std::move(req));
+  }
+
+  std::deque<mistral::slash_command::slash_command_request> drain()
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    std::deque<mistral::slash_command::slash_command_request> result;
+    result.swap(requests);
+    return result;
+  }
+};
+
+// ---------------------------------------------------------------------------
 // input_bridge_task: runs in dripcore context, bridges TUI input to the
 // agent's dripcore::channel. This is necessary because dripcore channels
 // can only be used from within a dripcore task context (they call
@@ -216,6 +244,104 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// slash_command_response_receiver: sub-task spawned by
+// slash_command_bridge_task. Continuously receives responses from the
+// slash command executor and posts them to the TUI content area.
+// ---------------------------------------------------------------------------
+class slash_command_response_receiver : public dripcore::task
+{
+public:
+  using post_fn = std::function<void(std::function<void()>)>;
+  using append_fn = std::function<void(const std::string&, mistral::agent::content_type)>;
+
+  slash_command_response_receiver(
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
+    post_fn post,
+    append_fn append_content
+  )
+    : slash_cmd_response_ch_(std::move(slash_cmd_response_ch))
+    , post_(std::move(post))
+    , append_content_(std::move(append_content))
+  {
+  }
+
+  dripcore::awaitable<> body() override
+  {
+    while (true)
+    {
+      auto response = co_await slash_cmd_response_ch_->recv(this);
+      if (!response) break;  // Channel closed.
+
+      post_([fn = append_content_, text = std::move(*response)]() {
+        fn("\n" + text + "\n", mistral::agent::content_type::system);
+      });
+    }
+
+    co_return;
+  }
+
+private:
+  std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
+  post_fn post_;
+  append_fn append_content_;
+};
+
+// ---------------------------------------------------------------------------
+// slash_command_bridge_task: runs in dripcore context, bridges the TUI
+// slash command queue to the executor task. On pipe readable, drains the
+// queue and sends requests to cmd_request_ch.
+// ---------------------------------------------------------------------------
+class slash_command_bridge_task : public dripcore::task
+{
+public:
+  slash_command_bridge_task(
+    int pipe_read_fd,
+    std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch,
+    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
+    slash_command_queue& queue
+  )
+    : pipe_read_fd_(pipe_read_fd)
+    , cmd_request_ch_(std::move(cmd_request_ch))
+    , slash_cmd_response_ch_(std::move(slash_cmd_response_ch))
+    , queue_(queue)
+  {
+  }
+
+  dripcore::awaitable<> body() override
+  {
+    // Main loop: wait for pipe wakeup, drain queue, send requests.
+    while (true)
+    {
+      co_await readable(pipe_read_fd_);
+
+      char buf[16];
+      ssize_t n = ::read(pipe_read_fd_, buf, sizeof(buf));
+
+      if (n <= 0) {
+        // EOF — pipe write end closed, shutdown.
+        cmd_request_ch_->close();
+        slash_cmd_response_ch_->close();
+        co_return;
+      }
+
+      // Drain all pending requests and send to executor.
+      auto requests = queue_.drain();
+      for (auto& req : requests) {
+        cmd_request_ch_->try_send(std::move(req));
+      }
+    }
+
+    co_return;
+  }
+
+private:
+  int pipe_read_fd_;
+  std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch_;
+  std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
+  slash_command_queue& queue_;
+};
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[])
@@ -265,6 +391,8 @@ int main(int argc, char* argv[])
   auto input_ch         = std::make_shared<dripcore::channel<std::string>>(1);
   auto request_ch       = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
   auto agent_response_ch = std::make_shared<dripcore::channel<std::string>>(32);
+  auto cmd_request_ch   = std::make_shared<dripcore::channel<mistral::slash_command::slash_command_request>>(4);
+  auto slash_cmd_response_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
   // Initialize agent system.
   auto& agent_system = mistral::agent::agent_system::instance();
@@ -339,6 +467,16 @@ int main(int argc, char* argv[])
     return 1;
   }
   input_queue inq;
+
+  // -----------------------------------------------------------------------
+  // Set up slash command pipe + queue for TUI → dripcore communication.
+  // -----------------------------------------------------------------------
+  int slash_cmd_pipe_fds[2];
+  if (::pipe(slash_cmd_pipe_fds) != 0) {
+    std::cerr << "error: failed to create slash command pipe" << std::endl;
+    return 1;
+  }
+  slash_command_queue slash_cmd_queue;
 
   // -----------------------------------------------------------------------
   // Agent-ready flag.
@@ -695,7 +833,13 @@ int main(int argc, char* argv[])
       app.quit();
       return;
     }
-    // Other commands: stub for now (task 2b handles execution).
+    // Safety net: don't execute slash commands while agent is busy.
+    if (!agent_ready.load(std::memory_order_acquire)) return;
+
+    // Push to slash command queue and wake the bridge task.
+    slash_cmd_queue.push({command, args});
+    char wakeup = '1';
+    ::write(slash_cmd_pipe_fds[1], &wakeup, 1);
   };
 
   // -----------------------------------------------------------------------
@@ -856,6 +1000,24 @@ int main(int argc, char* argv[])
     // Spawn input bridge task (TUI → dripcore).
     sched.spawn<input_bridge_task>(input_pipe_fds[0], input_ch, std::ref(inq));
 
+    // Spawn slash command executor task.
+    sched.spawn<mistral::slash_command::slash_command_executor_task>(
+      cmd_request_ch, slash_cmd_response_ch, agent_system.slash_commands()
+    );
+
+    // Spawn slash command response receiver (executor → TUI).
+    sched.spawn<slash_command_response_receiver>(
+      slash_cmd_response_ch,
+      [&app](std::function<void()> cb) { app.post(std::move(cb)); },
+      append_content
+    );
+
+    // Spawn slash command bridge task (TUI → executor).
+    sched.spawn<slash_command_bridge_task>(
+      slash_cmd_pipe_fds[0], cmd_request_ch, slash_cmd_response_ch,
+      std::ref(slash_cmd_queue)
+    );
+
     // Spawn prompt bridge task (dripcore → TUI).
     sched.spawn<prompt_bridge_task>(
       prompt_ch, std::ref(agent_ready), std::ref(approval_state),
@@ -907,6 +1069,7 @@ int main(int argc, char* argv[])
   g_sigint_pipe_write_fd = -1;
 
   ::close(input_pipe_fds[1]);
+  ::close(slash_cmd_pipe_fds[1]);
 
   // Close the sigint pipe write end so the signal_watcher_task sees
   // EOF and exits.  This must happen before joining — otherwise the
@@ -922,6 +1085,7 @@ int main(int argc, char* argv[])
 
   // Close remaining pipe read ends.
   ::close(input_pipe_fds[0]);
+  ::close(slash_cmd_pipe_fds[0]);
   ::close(sigint_pipe_fds[0]);
 
   return 0;
