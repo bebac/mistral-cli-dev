@@ -66,10 +66,15 @@ namespace mistral::tui
 
     // O(1) accumulation of a text fragment into the last block (if same kind)
     // or a new block. Does NOT re-wrap — just accumulates text.
-    void append_fragment(const std::string& fragment, content_type type)
+    // When force_new is true, always creates a new block even if the last
+    // block has the same kind. This is useful for loading historical
+    // conversations where each tool call/result should be a separate,
+    // individually collapsible block.
+    void append_fragment(const std::string& fragment, content_type type,
+                         bool force_new = false)
     {
       block_style style = map_content_type(type);
-      if (!blocks_.empty() && blocks_.back().kind == style.kind) {
+      if (!force_new && !blocks_.empty() && blocks_.back().kind == style.kind) {
         blocks_.back().text += fragment;
         blocks_.back().dirty = true;
       } else {

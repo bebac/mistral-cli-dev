@@ -564,4 +564,65 @@ TEST_CASE("clear allows appending after clear") {
   CHECK(log.total_lines() == 1);
 }
 
+// ---------------------------------------------------------------------------
+// force_new parameter
+// ---------------------------------------------------------------------------
+
+TEST_CASE("force_new creates separate block for same kind") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("tool call 1", content_type::tool_call, true);
+  log.append_fragment("tool call 2", content_type::tool_call, true);
+  log.append_fragment("tool call 3", content_type::tool_call, true);
+
+  REQUIRE(log.block_count() == 3);
+  CHECK(log.block_at(0).text == "tool call 1");
+  CHECK(log.block_at(1).text == "tool call 2");
+  CHECK(log.block_at(2).text == "tool call 3");
+  CHECK(log.block_at(0).kind == BlockKind::tool_call);
+  CHECK(log.block_at(1).kind == BlockKind::tool_call);
+  CHECK(log.block_at(2).kind == BlockKind::tool_call);
+}
+
+TEST_CASE("force_new then merge continues last block") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("result part 1", content_type::tool_result, true);
+  log.append_fragment(" part 2", content_type::tool_result, false);
+  log.append_fragment(" part 3", content_type::tool_result, false);
+
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).text == "result part 1 part 2 part 3");
+}
+
+TEST_CASE("force_new for tool results creates separate collapsible blocks") {
+  mistral::tui::ContentLog log;
+  // Simulate two parallel tool results
+  log.append_fragment("result A line 1\nresult A line 2",
+                      content_type::tool_result, true);
+  log.append_fragment("result B line 1\nresult B line 2",
+                      content_type::tool_result, true);
+
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).text == "result A line 1\nresult A line 2");
+  CHECK(log.block_at(1).text == "result B line 1\nresult B line 2");
+}
+
+TEST_CASE("force_new=false still merges same kind by default") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("a", content_type::normal);
+  log.append_fragment("b", content_type::normal);
+
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).text == "ab");
+}
+
+TEST_CASE("force_new creates new block even when last is same kind") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("first", content_type::normal);
+  log.append_fragment("second", content_type::normal, true);
+
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).text == "first");
+  CHECK(log.block_at(1).text == "second");
+}
+
 TEST_SUITE_END();

@@ -148,5 +148,20 @@ target_link_libraries(mistral-tui PRIVATE
     cpptui::cpptui
 )
 
+# -----------------------------------------------------------------------------
+# content_log_demo: standalone demo of ContentLog widget loading a chat log
+# -----------------------------------------------------------------------------
+
+add_executable(content_log_demo
+    src/content_log_demo.cpp
+)
+
+target_compile_features(content_log_demo PRIVATE cxx_std_20)
+
+target_link_libraries(content_log_demo PRIVATE
+    mistral-core
+    cpptui::cpptui
+)
+
 include(CTest)
 add_test(NAME run_tests COMMAND tests)
