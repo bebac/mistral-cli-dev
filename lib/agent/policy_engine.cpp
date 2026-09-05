@@ -454,6 +454,20 @@ policy_context policy_engine::normalize_context(const policy_context& ctx) const
     } else {
       normalized.command_args = {};
     }
+
+    // Extract cwd from exec tool arguments for policy matching.
+    // If not specified in tool arguments and not already set from
+    // working_directory, default to current working directory — the
+    // exec tool runs in the process's cwd when cwd is empty.
+    if (!normalized.normalized_cwd) {
+      if (ctx.tool_arguments.contains("cwd") &&
+          !ctx.tool_arguments["cwd"].get<std::string>().empty()) {
+        normalized.normalized_cwd = normalize_path(
+          ctx.tool_arguments["cwd"].get<std::string>());
+      } else {
+        normalized.normalized_cwd = normalize_path(".");
+      }
+    }
   }
 
   return normalized;

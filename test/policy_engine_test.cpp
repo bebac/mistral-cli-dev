@@ -1473,4 +1473,65 @@ TEST_CASE("No cwd in rule - any cwd allowed")
   CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
 }
 
+TEST_CASE("Exec rule with cwd matches when working_directory is empty")
+{
+  // Simulates the real-world scenario: evaluate_tool_policy sets
+  // working_directory to "" and the AI doesn't pass cwd in exec args.
+  // The rule has cwd="." which should match the current directory.
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "make", {}, ".");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "make"},
+      {"args", mistral::agent::json::array()}
+    },
+    .working_directory = ""
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Exec rule with cwd matches when cwd passed in tool arguments")
+{
+  // When the AI passes cwd in the exec tool arguments, it should be
+  // used for policy matching against the rule's cwd constraint.
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "make", {}, ".");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "make"},
+      {"args", mistral::agent::json::array()},
+      {"cwd", "."}
+    },
+    .working_directory = ""
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Exec rule with cwd does not match different cwd in tool arguments")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "make", {}, "build");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{
+      {"command", "make"},
+      {"args", mistral::agent::json::array()},
+      {"cwd", "src"}
+    },
+    .working_directory = ""
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
 TEST_SUITE_END();
