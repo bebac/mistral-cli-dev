@@ -110,7 +110,7 @@ target_link_libraries(mistral-cli PRIVATE
 # Tests
 # -----------------------------------------------------------------------------
 
-file(GLOB TEST_SOURCES "test/*.cpp")
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "test/*.cpp")
 
 add_executable(tests
     ${TEST_SOURCES}
