@@ -300,6 +300,16 @@ namespace mistral::net
 
       case http::event_type::data:
       {
+        // If the consumer closed the response channel (cancelled),
+        // fail the stream immediately so completion_ch is signaled
+        // and http_request_task unblocks instead of waiting for the
+        // full server response.
+        if (state->response_ch->is_closed()) {
+          state->fail("cancelled");
+          stream_registry_.erase(it);
+          return;
+        }
+
         auto& data = std::get<std::vector<std::byte>>(evt.payload);
         auto* first = reinterpret_cast<const char*>(data.data());
         state->response->body.append(first, first + data.size());
