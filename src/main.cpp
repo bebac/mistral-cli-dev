@@ -14,6 +14,7 @@
 #include "slash_command/slash_command_registry.h"
 #include "trace/trace.h"
 #include "common/signal_watcher_task.h"
+#include "common/wakeup_pipe.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
@@ -227,13 +228,9 @@ int main(int argc, char* argv[])
             << "Type your message, Ctrl-D to exit.\n" << std::endl;
 
   // Create self-pipe for SIGINT → dripcore event loop notification.
-  int sigint_pipe_fds[2];
-  if (::pipe(sigint_pipe_fds) != 0) {
-    std::cerr << "error: failed to create signal pipe" << std::endl;
-    return 1;
-  }
-  g_sigint_pipe_write_fd = sigint_pipe_fds[1];
-  agent_system.set_shutdown_pipe_fd(sigint_pipe_fds[1]);
+  mistral::common::wakeup_pipe sigint_pipe;
+  g_sigint_pipe_write_fd = sigint_pipe.write_fd();
+  agent_system.set_shutdown_pipe_fd(sigint_pipe.write_fd());
 
   // Install SIGINT handler.
   struct sigaction sa{};
@@ -263,13 +260,12 @@ int main(int argc, char* argv[])
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
   auto sink = std::make_shared<mistral::agent::console_render_sink>();
   sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink);
-  sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_fds[0]);
+  sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe.read_fd());
   sched.run();
 
-  // Restore default SIGINT handler and close signal pipe.
+  // Restore default SIGINT handler. wakeup_pipe destructor closes fds.
   signal(SIGINT, SIG_DFL);
-  ::close(sigint_pipe_fds[0]);
-  ::close(sigint_pipe_fds[1]);
+  g_sigint_pipe_write_fd = -1;
 
   return 0;
 }
