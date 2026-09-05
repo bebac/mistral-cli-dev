@@ -66,6 +66,18 @@ namespace mistral::agent
     void accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
     auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
 
+    // Shared tool-call helpers used by subclasses' agent_loop_do_tool_call.
+    // These extract common policy/execution logic so subclasses only
+    // need to handle sink output and approval flow.
+    static std::string accumulate_text(
+      const std::vector<api::message_content>& accumulated_content);
+    policy_result evaluate_tool_policy(
+      const api::tool_call& tc, const api::json& tool_args) const;
+    static api::json build_tool_rejection(
+      const std::string& status, const std::string& message);
+    auto execute_and_record_tool(const api::tool_call& tc)
+      -> dripcore::awaitable<std::string>;
+
     // Agent identifier
     std::string agent_id_;
 

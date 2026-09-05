@@ -144,13 +144,7 @@ namespace mistral::agent
         tool_args = api::json::object();
       }
 
-      policy_context ctx{
-        .tool_name = tc.function.name,
-        .tool_arguments = tool_args,
-        .working_directory = ""
-      };
-
-      auto policy_result = policy_engine_.evaluate(ctx);
+      auto policy_result = evaluate_tool_policy(tc, tool_args);
 
       if (policy_result.decision == policy_decision::DENY)
       {
@@ -159,11 +153,8 @@ namespace mistral::agent
           : "Tool call denied by policy";
         sink_->output_line(" \xe2\x86\x92 [DENIED] " + rejection_msg);
 
-        api::json rejection_result = {
-          {"status", "denied"},
-          {"message", rejection_msg}
-        };
-        chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
+        chat_.add_tool_result(tc.function.name, tc.id,
+          build_tool_rejection("denied", rejection_msg).dump());
         co_return;
       }
 
@@ -236,11 +227,8 @@ namespace mistral::agent
                  : "Tool call rejected by user");
             sink_->output_line(" \xe2\x86\x92 [REJECTED] " + rejection_msg);
 
-            api::json rejection_result = {
-              {"status", "rejected"},
-              {"message", rejection_msg}
-            };
-            chat_.add_tool_result(tc.function.name, tc.id, rejection_result.dump());
+            chat_.add_tool_result(tc.function.name, tc.id,
+              build_tool_rejection("rejected", rejection_msg).dump());
             co_return;
           }
 
@@ -256,8 +244,7 @@ namespace mistral::agent
         }
       }
 
-      auto res = co_await execute_tool(tc);
-      chat_.add_tool_result(tc.function.name, tc.id, res);
+      auto res = co_await execute_and_record_tool(tc);
       sink_->output_tool_result(res);
       co_return;
     }

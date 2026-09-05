@@ -245,23 +245,7 @@ namespace mistral::agent
   std::optional<std::pair<std::string, std::vector<file_edit_t>>>
   agent_task_base::try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content)
   {
-    // Pre-allocate string to avoid reallocations
-    size_t total_size = 0;
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
-        total_size += mc.content.size();
-      }
-    }
-
-    std::string accumulated_text;
-    accumulated_text.reserve(total_size);
-
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
-        accumulated_text += mc.content;
-      }
-    }
-
+    auto accumulated_text = accumulate_text(accumulated_content);
     auto parse_result = parse_edits_with_patchset(accumulated_text);
     if (parse_result) {
       auto& sys = agent_system::instance();
@@ -289,22 +273,7 @@ namespace mistral::agent
   std::optional<std::pair<std::string, std::vector<file_edit_t>>>
   agent_task_base::try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content)
   {
-    // Pre-allocate string to avoid reallocations
-    size_t total_size = 0;
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
-        total_size += mc.content.size();
-      }
-    }
-
-    std::string accumulated_text;
-    accumulated_text.reserve(total_size);
-
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
-        accumulated_text += mc.content;
-      }
-    }
+    auto accumulated_text = accumulate_text(accumulated_content);
 
     // Try to parse edit blocks without requiring a patchset ID marker
     auto edits = parse_edit_blocks(accumulated_text);
@@ -382,6 +351,53 @@ namespace mistral::agent
       co_return result.get<std::string>();
     }
     co_return result.dump();
+  }
+
+  std::string agent_task_base::accumulate_text(
+    const std::vector<api::message_content>& accumulated_content)
+  {
+    size_t total_size = 0;
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        total_size += mc.content.size();
+      }
+    }
+    std::string text;
+    text.reserve(total_size);
+    for (const auto& mc : accumulated_content) {
+      if (mc.type == "text") {
+        text += mc.content;
+      }
+    }
+    return text;
+  }
+
+  policy_result agent_task_base::evaluate_tool_policy(
+    const api::tool_call& tc, const api::json& tool_args) const
+  {
+    policy_context ctx{
+      .tool_name = tc.function.name,
+      .tool_arguments = tool_args,
+      .working_directory = ""
+    };
+    return policy_engine_.evaluate(ctx);
+  }
+
+  api::json agent_task_base::build_tool_rejection(
+    const std::string& status, const std::string& message)
+  {
+    return api::json{
+      {"status", status},
+      {"message", message}
+    };
+  }
+
+  auto agent_task_base::execute_and_record_tool(
+    const api::tool_call& tc) -> dripcore::awaitable<std::string>
+  {
+    auto res = co_await execute_tool(tc);
+    chat_.add_tool_result(tc.function.name, tc.id, res);
+    co_return res;
   }
 
   bool agent_task_base::is_retryable_error(const std::string& error)
