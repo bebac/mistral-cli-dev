@@ -2,94 +2,51 @@
 #define MISTRAL_TUI_APP_H
 
 #include "tui/content_area.h"
-#include "tui/thread_safe_queue.h"
-#include "tui/tui_render_sink.h"
+#include "tui/tui_backend.h"
 #include "tui/tui_widgets.h"
-#include "tui/bridge_tasks.h"
 #include "agent/agent_system.h"
-#include "agent/agent_system_task.h"
-#include "agent/agent_system_stats_task.h"
-#include "agent/interactive_agent_task.h"
-#include "slash_command/slash_command_executor_task.h"
-#include "common/signal_watcher_task.h"
-#include "http/http_coordinator_task.h"
-#include "api/mistral_types.h"
 #include "trace/trace.h"
 
 #include <cpptui.hpp>
-#include <dripcore/scheduler.h>
-#include <dripcore/channel.h>
 
-#include <atomic>
 #include <cctype>
 #include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <iostream>
-#include <signal.h>
-#include <stdexcept>
+#include <memory>
 #include <string>
-#include <thread>
 #include <unistd.h>
 
 namespace mistral::tui {
 
-inline int g_sigint_pipe_write_fd = -1;
-
-inline void sigint_handler(int)
-{
-  if (g_sigint_pipe_write_fd >= 0) {
-    char buf = '1';
-    ssize_t ret = ::write(g_sigint_pipe_write_fd, &buf, 1);
-    (void)ret;
-  }
-}
-
 class tui_app {
 public:
-  struct config {
-    std::string agent_id;
-    std::string host;
-    int port;
-    std::string api_key;
-    std::string theme_name;
-    std::string resolved_model;
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch;
-    std::shared_ptr<dripcore::channel<std::string>> input_ch;
-    std::shared_ptr<dripcore::channel<mistral::api::api_request>> request_ch;
-    std::shared_ptr<dripcore::channel<std::string>> agent_response_ch;
-    std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch;
-    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch;
-  };
-
-  explicit tui_app(config cfg)
+  explicit tui_app(tui_config cfg)
     : cfg_(std::move(cfg))
   {
-    if (::pipe(sigint_pipe_fds_) != 0) {
-      throw std::runtime_error("failed to create signal pipe");
-    }
-    g_sigint_pipe_write_fd = sigint_pipe_fds_[1];
-    mistral::agent::agent_system::instance().set_shutdown_pipe_fd(
-      sigint_pipe_fds_[1]);
-
-    struct sigaction sa{};
-    sa.sa_handler = sigint_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(SIGINT, &sa, nullptr);
-
-    if (::pipe(input_pipe_fds_) != 0) {
-      throw std::runtime_error("failed to create input pipe");
-    }
-
-    if (::pipe(slash_cmd_pipe_fds_) != 0) {
-      throw std::runtime_error("failed to create slash command pipe");
-    }
-
     std::freopen(".mistral-cli/tui-stderr.log", "w", stderr);
 
     build_widgets();
+
+    backend_ = std::make_unique<tui_backend>(
+      cfg_,
+      tui_backend::ui_callbacks{
+        [this](std::function<void()> cb) {
+          app_.post(std::move(cb));
+        },
+        [this](const std::string& fragment,
+               mistral::agent::content_type type) {
+          content_area_.append(fragment, type);
+        },
+        [this](const std::string& fragment,
+               mistral::agent::content_type type) {
+          content_area_.append_fragment(fragment, type);
+        },
+        [this]() { content_area_.flush(); }
+      }
+    );
+
     wire_input();
     register_keybindings();
     setup_timers();
@@ -97,8 +54,8 @@ public:
 
   ~tui_app()
   {
-    if (dripcore_thread_.joinable()) {
-      shutdown();
+    if (backend_) {
+      backend_->shutdown();
     }
   }
 
@@ -107,30 +64,14 @@ public:
 
   void run()
   {
-    launch_dripcore();
+    backend_->start();
     app_.run(root_);
     std::cout.flush();
   }
 
   void shutdown()
   {
-    if (!dripcore_thread_.joinable()) return;
-
-    char cancel_byte = '1';
-    ::write(sigint_pipe_fds_[1], &cancel_byte, 1);
-
-    signal(SIGINT, SIG_DFL);
-    g_sigint_pipe_write_fd = -1;
-
-    ::close(input_pipe_fds_[1]);
-    ::close(slash_cmd_pipe_fds_[1]);
-    ::close(sigint_pipe_fds_[1]);
-
-    dripcore_thread_.join();
-
-    ::close(input_pipe_fds_[0]);
-    ::close(slash_cmd_pipe_fds_[0]);
-    ::close(sigint_pipe_fds_[0]);
+    if (backend_) backend_->shutdown();
   }
 
 private:
@@ -240,7 +181,7 @@ private:
     input_->set_slash_popup(slash_popup_.get());
     input_->set_slash_divider(slash_divider_.get());
     input_->is_agent_busy = [this]() {
-      return !agent_ready_.load(std::memory_order_acquire);
+      return !backend_->agent_ready().load(std::memory_order_acquire);
     };
     input_->on_slash_command =
       [this](std::string command, std::string args) {
@@ -248,10 +189,8 @@ private:
           app_.quit();
           return;
         }
-        if (!agent_ready_.load(std::memory_order_acquire)) return;
-        slash_cmd_queue_.push({command, args});
-        char wakeup = '1';
-        ::write(slash_cmd_pipe_fds_[1], &wakeup, 1);
+        if (!backend_->agent_ready().load(std::memory_order_acquire)) return;
+        backend_->send_slash_command({command, args});
       };
   }
 
@@ -279,14 +218,14 @@ private:
         return;
       }
       char cancel_byte = '1';
-      ::write(g_sigint_pipe_write_fd, &cancel_byte, 1);
+      ::write(backend_->sigint_write_fd(), &cancel_byte, 1);
     });
   }
 
   void setup_timers()
   {
     app_.add_timer(50, [this]() {
-      int state = approval_state_.load(std::memory_order_acquire);
+      int state = backend_->approval_state().load(std::memory_order_acquire);
       if (state == 1) {
         if (input_->approval_mode_ != ChatInput::approval_mode::single_key) {
           input_->set_approval_mode(ChatInput::approval_mode::single_key);
@@ -315,7 +254,7 @@ private:
     });
 
     app_.add_timer(200, [this]() {
-      if (agent_ready_.load(std::memory_order_acquire)) {
+      if (backend_->agent_ready().load(std::memory_order_acquire)) {
         dot_->fg_color = cpptui::Theme::current().success;
       } else {
         dot_->fg_color = cpptui::Theme::current().border;
@@ -329,80 +268,20 @@ private:
     });
   }
 
-  void launch_dripcore()
-  {
-    dripcore_thread_ = std::thread([this]() {
-      dripcore::scheduler sched;
-      auto& agent_system = mistral::agent::agent_system::instance();
-
-      auto post_fn = [this](std::function<void()> cb) {
-        app_.post(std::move(cb));
-      };
-      auto append_content_fn =
-        [this](const std::string& fragment,
-               mistral::agent::content_type type) {
-          content_area_.append(fragment, type);
-        };
-      auto append_fn =
-        [this](const std::string& fragment,
-               mistral::agent::content_type type) {
-          content_area_.append_fragment(fragment, type);
-        };
-      auto flush_fn = [this]() { content_area_.flush(); };
-
-      sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
-      sched.spawn<mistral::agent::agent_system_stats_task>(
-        agent_system.stats_ch());
-      sched.spawn<mistral::net::http_coordinator_task>(
-        cfg_.host, cfg_.port, cfg_.api_key, cfg_.request_ch);
-      sched.spawn<mistral::tui::input_bridge_task>(
-        input_pipe_fds_[0], cfg_.input_ch, std::ref(inq_));
-      sched.spawn<mistral::slash_command::slash_command_executor_task>(
-        cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch,
-        agent_system.slash_commands());
-      sched.spawn<mistral::tui::slash_command_response_receiver>(
-        cfg_.slash_cmd_response_ch, post_fn, append_content_fn);
-      sched.spawn<mistral::tui::slash_command_bridge_task>(
-        slash_cmd_pipe_fds_[0], cfg_.cmd_request_ch,
-        cfg_.slash_cmd_response_ch, std::ref(slash_cmd_queue_));
-      sched.spawn<mistral::tui::prompt_bridge_task>(
-        cfg_.prompt_ch, std::ref(agent_ready_), std::ref(approval_state_),
-        post_fn, append_content_fn);
-
-      auto sink = std::make_shared<mistral::agent::tui_render_sink>(
-        post_fn, append_fn, flush_fn);
-      sched.spawn<mistral::agent::interactive_agent_task>(
-        cfg_.agent_id, cfg_.input_ch, cfg_.agent_response_ch,
-        cfg_.prompt_ch, sink);
-
-      sched.spawn<mistral::common::signal_watcher_task>(
-        sigint_pipe_fds_[0]);
-
-      sched.run();
-    });
-  }
-
-  void send_response(std::string response)
-  {
-    inq_.push(std::move(response));
-    char wakeup = '1';
-    ::write(input_pipe_fds_[1], &wakeup, 1);
-  }
-
   void send_input()
   {
-    if (approval_state_.load(std::memory_order_acquire) != 0) return;
+    if (backend_->approval_state().load(std::memory_order_acquire) != 0) return;
     std::string text = input_->get_text();
     if (text.empty()) return;
     content_area_.append("\n> " + text + "\n", content_type::user);
     input_->set_text("");
-    agent_ready_.store(false, std::memory_order_release);
-    send_response(std::move(text));
+    backend_->agent_ready().store(false, std::memory_order_release);
+    backend_->send_input(std::move(text));
   }
 
   void exit_approval_mode()
   {
-    approval_state_.store(0, std::memory_order_release);
+    backend_->approval_state().store(0, std::memory_order_release);
     input_->set_approval_mode(ChatInput::approval_mode::none);
     input_divider_->visible = false;
     input_divider_->override_fg = cpptui::Color();
@@ -419,8 +298,8 @@ private:
       std::tolower(static_cast<unsigned char>(ch)));
 
     if (lower == 'r') {
-      send_response("r");
-      approval_state_.store(2, std::memory_order_release);
+      backend_->send_input("r");
+      backend_->approval_state().store(2, std::memory_order_release);
       input_->set_approval_mode(ChatInput::approval_mode::text_input);
       input_->set_text("");
       input_hint_->text =
@@ -435,7 +314,7 @@ private:
     }
 
     exit_approval_mode();
-    send_response(std::string(1, lower));
+    backend_->send_input(std::string(1, lower));
 
     mistral::trace::logger::instance().trace(
       mistral::trace::category::approval,
@@ -447,17 +326,18 @@ private:
   {
     std::string text = input_->get_text();
     exit_approval_mode();
-    send_response(std::move(text));
+    backend_->send_input(std::move(text));
     mistral::trace::logger::instance().trace(
       mistral::trace::category::approval,
       "approval: text response sent"
     );
   }
 
-  config cfg_;
+  tui_config cfg_;
 
   cpptui::App app_;
   content_area content_area_;
+  std::unique_ptr<tui_backend> backend_;
   std::shared_ptr<cpptui::Label> dot_;
   std::shared_ptr<cpptui::Horizontal> header_;
   std::shared_ptr<ChatInput> input_;
@@ -469,17 +349,6 @@ private:
   std::shared_ptr<SlashCommandPopup> slash_popup_;
   std::shared_ptr<FooterBar> footer_;
   std::shared_ptr<cpptui::Vertical> root_;
-  thread_safe_queue<std::string> inq_;
-  thread_safe_queue<mistral::slash_command::slash_command_request>
-    slash_cmd_queue_;
-  std::atomic<bool> agent_ready_{true};
-  std::atomic<int> approval_state_{0};
-
-  int sigint_pipe_fds_[2] = {-1, -1};
-  int input_pipe_fds_[2] = {-1, -1};
-  int slash_cmd_pipe_fds_[2] = {-1, -1};
-
-  std::thread dripcore_thread_;
 };
 
 } // namespace mistral::tui

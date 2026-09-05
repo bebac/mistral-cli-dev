@@ -114,7 +114,7 @@ int main(int argc, char* argv[])
 
   std::string resolved_model = model_config.model_id;
 
-  mistral::tui::tui_app::config tui_cfg = {
+  mistral::tui::tui_config tui_cfg = {
     .agent_id            = agent_id,
     .host                = host,
     .port                = port,
