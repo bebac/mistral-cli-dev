@@ -108,26 +108,40 @@ namespace mistral::tui
   };
 
   // ---------------------------------------------------------------------------
-  // input_bridge_task: runs in dripcore context, bridges TUI input to the
-  // agent's dripcore::channel. This is necessary because dripcore channels
-  // can only be used from within a dripcore task context (they call
-  // executor::current() internally).
+  // pipe_bridge_task: generic dripcore task that bridges a thread-safe
+  // queue (fed from the UI thread) to a dripcore channel (consumed in
+  // the agent task). A self-pipe provides the cross-thread wakeup:
   //
-  // Protocol:
-  //   Pipe readable → drain input_queue, send each message to input_ch
-  //   Pipe EOF (write end closed) → close input_ch, exit
+  //   UI thread:  queue.push(item);  ::write(pipe_write_fd, "1", 1);
+  //   dripcore:   co_await readable(pipe_read_fd);
+  //               ::read(pipe_read_fd, ...);  // drain wakeup byte
+  //               items = queue.drain();
+  //               for (auto& item : items) target_ch->try_send(std::move(item));
+  //
+  // On pipe EOF (write end closed during shutdown), the target channel is
+  // closed and the optional on_eof callback is invoked (e.g. to close
+  // additional channels). The task then exits.
+  //
+  // This replaces the former input_bridge_task and slash_command_bridge_task
+  // which were structurally identical except for the element type and the
+  // set of channels to close on EOF.
   // ---------------------------------------------------------------------------
-  class input_bridge_task : public dripcore::task
+  template<typename T>
+  class pipe_bridge_task : public dripcore::task
   {
   public:
-    input_bridge_task(
+    using cleanup_fn = std::function<void()>;
+
+    pipe_bridge_task(
       int pipe_read_fd,
-      std::shared_ptr<dripcore::channel<std::string>> input_ch,
-      thread_safe_queue<std::string>& queue
+      std::shared_ptr<dripcore::channel<T>> target_ch,
+      thread_safe_queue<T>& queue,
+      cleanup_fn on_eof = nullptr
     )
       : pipe_read_fd_(pipe_read_fd)
-      , input_ch_(std::move(input_ch))
+      , target_ch_(std::move(target_ch))
       , queue_(queue)
+      , on_eof_(std::move(on_eof))
     {
     }
 
@@ -142,14 +156,15 @@ namespace mistral::tui
 
         if (n <= 0) {
           // EOF — pipe write end closed, shutdown.
-          input_ch_->close();
+          target_ch_->close();
+          if (on_eof_) on_eof_();
           co_return;
         }
 
-        // Drain all pending messages and send to agent.
-        auto messages = queue_.drain();
-        for (auto& msg : messages) {
-          input_ch_->try_send(std::move(msg));
+        // Drain all pending items and send to target channel.
+        auto items = queue_.drain();
+        for (auto& item : items) {
+          target_ch_->try_send(std::move(item));
         }
       }
 
@@ -158,14 +173,16 @@ namespace mistral::tui
 
   private:
     int pipe_read_fd_;
-    std::shared_ptr<dripcore::channel<std::string>> input_ch_;
-    thread_safe_queue<std::string>& queue_;
+    std::shared_ptr<dripcore::channel<T>> target_ch_;
+    thread_safe_queue<T>& queue_;
+    cleanup_fn on_eof_;
   };
 
   // ---------------------------------------------------------------------------
-  // slash_command_response_receiver: sub-task spawned by
-  // slash_command_bridge_task. Continuously receives responses from the
-  // slash command executor and posts them to the TUI content area.
+  // slash_command_response_receiver: sub-task spawned alongside
+  // pipe_bridge_task<slash_command_request>. Continuously receives
+  // responses from the slash command executor and posts them to the
+  // TUI content area.
   // ---------------------------------------------------------------------------
   class slash_command_response_receiver : public dripcore::task
   {
@@ -200,61 +217,6 @@ namespace mistral::tui
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
     post_fn post_;
     append_fn append_content_;
-  };
-
-  // ---------------------------------------------------------------------------
-  // slash_command_bridge_task: runs in dripcore context, bridges the TUI
-  // slash command queue to the executor task. On pipe readable, drains the
-  // queue and sends requests to cmd_request_ch.
-  // ---------------------------------------------------------------------------
-  class slash_command_bridge_task : public dripcore::task
-  {
-  public:
-    slash_command_bridge_task(
-      int pipe_read_fd,
-      std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch,
-      std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
-      thread_safe_queue<mistral::slash_command::slash_command_request>& queue
-    )
-      : pipe_read_fd_(pipe_read_fd)
-      , cmd_request_ch_(std::move(cmd_request_ch))
-      , slash_cmd_response_ch_(std::move(slash_cmd_response_ch))
-      , queue_(queue)
-    {
-    }
-
-    dripcore::awaitable<> body() override
-    {
-      // Main loop: wait for pipe wakeup, drain queue, send requests.
-      while (true)
-      {
-        co_await readable(pipe_read_fd_);
-
-        char buf[16];
-        ssize_t n = ::read(pipe_read_fd_, buf, sizeof(buf));
-
-        if (n <= 0) {
-          // EOF — pipe write end closed, shutdown.
-          cmd_request_ch_->close();
-          slash_cmd_response_ch_->close();
-          co_return;
-        }
-
-        // Drain all pending requests and send to executor.
-        auto requests = queue_.drain();
-        for (auto& req : requests) {
-          cmd_request_ch_->try_send(std::move(req));
-        }
-      }
-
-      co_return;
-    }
-
-  private:
-    int pipe_read_fd_;
-    std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch_;
-    std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
-    thread_safe_queue<mistral::slash_command::slash_command_request>& queue_;
   };
 
 } // namespace mistral::tui

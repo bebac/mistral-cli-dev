@@ -149,7 +149,7 @@ namespace mistral::tui
           agent_system.stats_ch());
         sched.spawn<mistral::net::http_coordinator_task>(
           cfg_.host, cfg_.port, cfg_.api_key, cfg_.request_ch);
-        sched.spawn<mistral::tui::input_bridge_task>(
+        sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(
           input_pipe_fds_[0], cfg_.input_ch, std::ref(inq_));
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
           cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch,
@@ -157,9 +157,11 @@ namespace mistral::tui
         sched.spawn<mistral::tui::slash_command_response_receiver>(
           cfg_.slash_cmd_response_ch, callbacks_.post,
           callbacks_.append_content);
-        sched.spawn<mistral::tui::slash_command_bridge_task>(
+        sched.spawn<mistral::tui::pipe_bridge_task<
+          mistral::slash_command::slash_command_request>>(
           slash_cmd_pipe_fds_[0], cfg_.cmd_request_ch,
-          cfg_.slash_cmd_response_ch, std::ref(slash_cmd_queue_));
+          std::ref(slash_cmd_queue_),
+          [ch = cfg_.slash_cmd_response_ch]() { ch->close(); });
         sched.spawn<mistral::tui::prompt_bridge_task>(
           cfg_.prompt_ch, std::ref(agent_ready_),
           std::ref(approval_state_), callbacks_.post,
