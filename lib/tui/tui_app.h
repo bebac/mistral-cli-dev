@@ -217,6 +217,27 @@ private:
         input_->cancel_slash_mode();
         return;
       }
+      if (input_->approval_mode_ != ChatInput::approval_mode::none) {
+        // ESC during approval mode: exit approval mode and send a
+        // reject response so the agent can continue.
+        if (input_->approval_mode_ == ChatInput::approval_mode::text_input) {
+          // In text_input mode the agent is waiting for the rejection
+          // message. Send an empty string so the agent uses the default
+          // rejection message.
+          exit_approval_mode();
+          backend_->send_input("");
+        } else {
+          // In single_key mode the agent is waiting for the approval
+          // response. Send 'n' (reject).
+          exit_approval_mode();
+          backend_->send_input("n");
+        }
+        mistral::trace::logger::instance().trace(
+          mistral::trace::category::approval,
+          "approval: ESC pressed, exiting approval mode"
+        );
+        return;
+      }
       char cancel_byte = '1';
       ::write(backend_->sigint_write_fd(), &cancel_byte, 1);
     });
@@ -246,6 +267,26 @@ private:
             content_area_.scroll_to_bottom();
           }
         }
+      } else if (state == 2) {
+        // State 2: user pressed 'r' (reject with message), agent is
+        // waiting for the rejection message. Ensure approval_mode_ is
+        // text_input so the UI stays in sync.
+        if (input_->approval_mode_ != ChatInput::approval_mode::text_input) {
+          input_->set_approval_mode(ChatInput::approval_mode::text_input);
+          input_->set_text("");
+          input_divider_->visible = true;
+          input_divider_->override_fg = cpptui::Theme::current().warning;
+          input_divider_top_->override_fg = cpptui::Theme::current().warning;
+          input_hint_->visible = true;
+          input_hint_->text =
+            "  Enter message for AI (or Enter for default):";
+          input_hint_->hint_fg = cpptui::Theme::current().warning;
+
+          mistral::trace::logger::instance().trace(
+            mistral::trace::category::approval,
+            "approval: timer recovered text_input mode (state=2)"
+          );
+        }
       } else if (state == 0) {
         if (input_->approval_mode_ != ChatInput::approval_mode::none) {
           exit_approval_mode();
@@ -270,7 +311,21 @@ private:
 
   void send_input()
   {
-    if (backend_->approval_state().load(std::memory_order_acquire) != 0) return;
+    if (backend_->approval_state().load(std::memory_order_acquire) != 0) {
+      // If approval_state is non-zero but the UI is not in approval mode,
+      // the state is stale (can happen due to a race condition between
+      // the backend thread setting approval_state and the timer updating
+      // approval_mode_). Reset it so the user can submit.
+      if (input_->approval_mode_ == ChatInput::approval_mode::none) {
+        backend_->approval_state().store(0, std::memory_order_release);
+        mistral::trace::logger::instance().trace(
+          mistral::trace::category::approval,
+          "approval: resetting stale approval_state in send_input"
+        );
+      } else {
+        return;
+      }
+    }
     std::string text = input_->get_text();
     if (text.empty()) return;
     content_area_.append("\n> " + text + "\n", content_type::user);
