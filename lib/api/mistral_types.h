@@ -210,6 +210,12 @@ namespace mistral::api
   {
     event_type type;
     std::string payload;  // JSON string for data, error message for error
+
+    // HTTP status code when type == error and the error originated from an
+    // HTTP response (e.g. 503, 502, 429). Absent for connection-level errors,
+    // parse errors, and non-error events. Used by is_retryable_error() to
+    // classify errors without fragile string matching.
+    std::optional<int> http_status;
   };
 
   struct api_request

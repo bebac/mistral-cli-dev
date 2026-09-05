@@ -86,7 +86,8 @@ namespace mistral::net
       if (response->status_code < 200 || response->status_code >= 300)
       {
         response_ch->try_send({api::event_type::error,
-          std::format("HTTP {}: {}", response->status_code, response->body)});
+          std::format("HTTP {}: {}", response->status_code, response->body),
+          response->status_code});
       }
       else if (!req_stream)
       {

@@ -108,7 +108,7 @@ namespace mistral::agent
           break;
         }
         if (evt->type == api::event_type::error) {
-          if (retry_count < max_retries && is_retryable_error(evt->payload)) {
+          if (retry_count < max_retries && is_retryable_error(*evt)) {
             retry_error = evt->payload;
             retry = true;
             break;
@@ -400,17 +400,21 @@ namespace mistral::agent
     co_return res;
   }
 
-  bool agent_task_base::is_retryable_error(const std::string& error)
+  bool agent_task_base::is_retryable_error(const api::api_event& evt)
   {
-    // HTTP 503 (service unavailable), 502 (bad gateway), 429 (rate limited)
-    if (error.starts_with("HTTP 503") ||
-        error.starts_with("HTTP 502") ||
-        error.starts_with("HTTP 429")) {
-      return true;
+    // HTTP status code errors: use the structured http_status field when
+    // available (set by the HTTP coordinator in stream_response_state::finalize).
+    // Retry on 503 (service unavailable), 502 (bad gateway), 429 (rate limited).
+    if (evt.http_status) {
+      int status = *evt.http_status;
+      return status == 503 || status == 502 || status == 429;
     }
+
     // Connection-level errors (server closed, network error, stream reset,
     // send failure — can happen if the server closes the connection between
-    // the connected() check and the actual send).
+    // the connected() check and the actual send). These don't have an HTTP
+    // status code, so we match on the error message string.
+    const auto& error = evt.payload;
     if (error.find("connection closed") != std::string::npos ||
         error.find("connection error") != std::string::npos ||
         error.find("stream reset") != std::string::npos ||
