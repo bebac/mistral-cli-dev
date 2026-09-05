@@ -1045,6 +1045,14 @@ int main(int argc, char* argv[])
   // -----------------------------------------------------------------------
   app.run(root);
 
+  // Flush terminal restoration escape sequences written by Terminal's
+  // destructor (disableRawMode). Without this, if the user presses Ctrl+C
+  // during dripcore_thread.join() (after SIGINT is restored to default),
+  // the process is killed immediately and the unflushed escape sequences
+  // are lost — leaving the terminal in raw mode with the alternate screen
+  // buffer still active.
+  std::cout.flush();
+
   // -----------------------------------------------------------------------
   // Shutdown: signal dripcore to stop and wait for it.
   //
