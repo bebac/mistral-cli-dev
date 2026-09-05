@@ -195,10 +195,11 @@ namespace mistral::api
     return j;
   }
 
-  // Existing to_json forwards with include_thinking=false (for API requests)
+  // Existing to_json forwards to message_to_json. Including or excluding thinking from
+  // api requests can be easily turn on or off.
   inline void to_json(json& j, const message& m)
   {
-    j = message_to_json(m, false);
+    j = message_to_json(m, true);
   }
 
   // ---- HTTP-level request/response types (for channel transport) ----
