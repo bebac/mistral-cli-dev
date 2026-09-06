@@ -79,10 +79,17 @@ namespace mistral::tui
   // Turn separators and final answer markers are special non-collapsible
   // blocks added via append_turn_separator() and append_final_answer_marker().
   //
-  // Render iterates all blocks and writes their cached_lines (or summary if
-  // collapsed) to the buffer. The parent ScrollableVertical adjusts this
-  // widget's y position by scroll_offset and handles clipping, so no
-  // scroll_offset access is needed.
+  // Render uses virtualized rendering: it queries the buffer's current
+  // clip rect to determine the visible line range, then binary-searches
+  // a cached block-offset array to find the first visible block. Only
+  // visible lines of visible blocks are rendered — O(log(num_blocks) +
+  // visible_lines) instead of O(total_lines). Blocks entirely above or
+  // below the viewport are skipped entirely.
+  //
+  // The cached block-offset array (block_offsets_) stores the starting
+  // content line of each block (including separator lines). It is
+  // invalidated whenever blocks change (via recalc_total_lines()) and
+  // rebuilt on demand in ensure_block_offsets().
   // ---------------------------------------------------------------------------
   class ContentLog : public cpptui::Widget
   {
@@ -263,51 +270,105 @@ namespace mistral::tui
     // Non-collapsible blocks: cached_lines as-is.
     void render(cpptui::Buffer& buffer) override
     {
-      if (width <= 0) return;
+      if (width <= 0 || blocks_.empty()) return;
       cpptui::Color bg = cpptui::Theme::current().background;
-      int current_y = y;
-      for (int i = 0; i < (int)blocks_.size(); ++i) {
-        const auto& block = blocks_[i];
-        if (i > 0 && needs_separator_before(blocks_[i-1].kind, block.kind)) {
-          render_blank_line(buffer, bg, current_y);
-          current_y++;
+
+      // Determine the visible content line range from the buffer's
+      // current clip rect. The clip is the intersection of the parent
+      // ScrollableVertical's viewport and this widget's area, so
+      // vis_top/vis_bottom are content-line indices (0-based from the
+      // top of the content).
+      cpptui::Rect clip = buffer.current_clip();
+      int vis_top = clip.y - y;
+      int vis_bottom = clip.y + clip.height - 1 - y;
+
+      // Entire content is outside the viewport.
+      if (vis_bottom < 0 || vis_top >= total_lines_) return;
+      if (vis_top < 0) vis_top = 0;
+
+      ensure_block_offsets();
+
+      // Binary search for the first block whose last line >= vis_top.
+      // block_offsets_[i] is the starting content line of block i.
+      int first_block = 0;
+      {
+        int lo = 0, hi = (int)blocks_.size() - 1;
+        while (lo <= hi) {
+          int mid = lo + (hi - lo) / 2;
+          int end = block_offsets_[mid] +
+                    block_line_count(blocks_[mid]) - 1;
+          if (end >= vis_top) {
+            first_block = mid;
+            hi = mid - 1;
+          } else {
+            lo = mid + 1;
+          }
         }
+      }
+
+      // Render visible blocks, skipping lines outside the viewport.
+      for (int i = first_block; i < (int)blocks_.size(); ++i) {
+        const auto& block = blocks_[i];
+        int block_start = block_offsets_[i];
+
+        // Separator line before this block (at block_start - 1).
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind, block.kind)) {
+          int sep_line = block_start - 1;
+          if (sep_line >= vis_top && sep_line <= vis_bottom) {
+            render_blank_line(buffer, bg, y + sep_line);
+          }
+        }
+
+        // Block is entirely below the viewport — done.
+        if (block_start > vis_bottom) break;
+
+        // Lines to skip at the top of this block (partial visibility).
+        int skip = std::max(0, vis_top - block_start);
+
         if (block.kind == BlockKind::turn_separator) {
-          std::string line = block.text;
-          while ((int)line.size() < width) line += '-';
-          render_line(buffer, line, block, bg, current_y);
-          current_y++;
+          if (skip == 0) {
+            std::string line = block.text;
+            while ((int)line.size() < width) line += '-';
+            render_line(buffer, line, block, bg, y + block_start);
+          }
         } else if (is_collapsible(block.kind)) {
           if (block.collapsed) {
-            std::string line = indent_str() + COLLAPSED_IND + " " +
-                               generate_summary(block);
-            render_line(buffer, line, block, bg, current_y);
-            current_y++;
+            if (skip == 0) {
+              std::string line = indent_str() + COLLAPSED_IND + " " +
+                                 generate_summary(block);
+              render_line(buffer, line, block, bg, y + block_start);
+            }
           } else {
             const std::string first_prefix = indent_str() +
               std::string(EXPANDED_IND) + " ";
             const std::string cont_prefix = std::string(PREFIX_WIDTH, ' ');
-            bool first = true;
+            int li = 0;
             for (const auto& cl : block.cached_lines) {
-              std::string line = (first ? first_prefix : cont_prefix) + cl;
-              render_line(buffer, line, block, bg, current_y);
-              current_y++;
-              first = false;
+              if (li >= skip && block_start + li <= vis_bottom) {
+                std::string line = (li == 0 ? first_prefix : cont_prefix) + cl;
+                render_line(buffer, line, block, bg, y + block_start + li);
+              }
+              li++;
             }
             // Tool blocks: render indented result lines
             if (block.kind == BlockKind::tool) {
               for (const auto& rl : block.result_cached_lines) {
-                std::string line = cont_prefix + rl;
-                render_line(buffer, line, block, bg, current_y);
-                current_y++;
+                if (li >= skip && block_start + li <= vis_bottom) {
+                  std::string line = cont_prefix + rl;
+                  render_line(buffer, line, block, bg, y + block_start + li);
+                }
+                li++;
               }
             }
           }
         } else {
           // Non-collapsible: user, text, error, warning, system
+          int li = 0;
           for (const auto& cl : block.cached_lines) {
-            render_line(buffer, cl, block, bg, current_y);
-            current_y++;
+            if (li >= skip && block_start + li <= vis_bottom) {
+              render_line(buffer, cl, block, bg, y + block_start + li);
+            }
+            li++;
           }
         }
       }
@@ -365,6 +426,7 @@ namespace mistral::tui
       blocks_.clear();
       total_lines_ = 0;
       fixed_height = 0;
+      offsets_valid_ = false;
     }
 
   private:
@@ -585,6 +647,26 @@ namespace mistral::tui
         total_lines_ += block_line_count(blocks_[i]);
       }
       fixed_height = total_lines_;
+      offsets_valid_ = false;
+    }
+
+    // Rebuild the cached block-offset array if invalidated.
+    // block_offsets_[i] stores the starting content line of block i,
+    // accounting for separator lines. Called from render() before the
+    // virtualized loop.
+    void ensure_block_offsets()
+    {
+      if (offsets_valid_) return;
+      block_offsets_.resize(blocks_.size());
+      int current = 0;
+      for (int i = 0; i < (int)blocks_.size(); ++i) {
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind, blocks_[i].kind)) {
+          current += 1;  // separator line before this block
+        }
+        block_offsets_[i] = current;
+        current += block_line_count(blocks_[i]);
+      }
+      offsets_valid_ = true;
     }
 
     // Maps content_type to BlockKind + theme color + bold.
@@ -623,6 +705,12 @@ namespace mistral::tui
 
     std::vector<ContentBlock> blocks_;
     int total_lines_ = 0;
+
+    // Cached block line offsets for virtualized rendering.
+    // block_offsets_[i] = starting content line of block i (including
+    // separator lines). Invalidated by recalc_total_lines() and clear().
+    std::vector<int> block_offsets_;
+    bool offsets_valid_ = false;
   };
 
 } // namespace mistral::tui
