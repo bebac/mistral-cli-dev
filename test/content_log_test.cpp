@@ -1,4 +1,5 @@
 #include "tui/content_log.h"
+#include "tui/content_area.h"
 #include "doctest/doctest.h"
 
 #include <cpptui.hpp>
@@ -1307,30 +1308,99 @@ TEST_CASE("empty text block removed before tool call") {
   CHECK(log.block_at(0).kind == BlockKind::tool);
 }
 
-TEST_CASE("leading newlines stripped from text blocks") {
+TEST_CASE("leading newlines not stripped for first text block") {
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
 
+  // First block — no previous block, so leading newlines are preserved.
   log.append_fragment("\n\n\nanswer text", content_type::normal);
   log.flush();
 
-  CHECK(log.block_at(0).text == "answer text");
-  CHECK(log.block_at(0).cached_lines.size() == 1);
-  CHECK(log.block_at(0).cached_lines[0] == "answer text");
+  CHECK(log.block_at(0).text == "\n\n\nanswer text");
+  CHECK(log.block_at(0).cached_lines.size() == 4);
+  CHECK(log.block_at(0).cached_lines[0] == "");
+  CHECK(log.block_at(0).cached_lines[1] == "");
+  CHECK(log.block_at(0).cached_lines[2] == "");
+  CHECK(log.block_at(0).cached_lines[3] == "answer text");
 }
 
-TEST_CASE("leading newlines stripped when merging text fragments") {
+TEST_CASE("leading newlines stripped at block-type boundary") {
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
 
+  // Previous block of different type — leading newlines should be stripped
+  // at the block-type boundary (thinking → text transition).
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("\n\n\nanswer text", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(1).text == "answer text");
+  CHECK(log.block_at(1).cached_lines.size() == 1);
+  CHECK(log.block_at(1).cached_lines[0] == "answer text");
+}
+
+TEST_CASE("leading newlines not stripped with force_new same kind") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("first", content_type::normal);
+  log.append_fragment("\n\nsecond", content_type::normal, true);
+  log.flush();
+
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).text == "first");
+  // force_new creates a new text block after an existing text block —
+  // same kind, so no block-type boundary, leading newlines preserved.
+  CHECK(log.block_at(1).text == "\n\nsecond");
+  CHECK(log.block_at(1).cached_lines.size() == 3);
+  CHECK(log.block_at(1).cached_lines[0] == "");
+  CHECK(log.block_at(1).cached_lines[1] == "");
+  CHECK(log.block_at(1).cached_lines[2] == "second");
+}
+
+TEST_CASE("leading newlines preserved when merging text fragments") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  // First fragment creates the block; no previous block so leading
+  // newlines are preserved (not stripped).
   log.append_fragment("\n", content_type::normal);
+  // Second fragment merges; its leading newline must be preserved.
   log.append_fragment("\nanswer", content_type::normal);
   log.flush();
 
-  CHECK(log.block_at(0).text == "answer");
-  CHECK(log.block_at(0).cached_lines.size() == 1);
+  CHECK(log.block_at(0).text == "\n\nanswer");
+  CHECK(log.block_at(0).cached_lines.size() == 3);
+  CHECK(log.block_at(0).cached_lines[0] == "");
+  CHECK(log.block_at(0).cached_lines[1] == "");
+  CHECK(log.block_at(0).cached_lines[2] == "answer");
+}
+
+TEST_CASE("blank lines preserved between paragraphs when streaming") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  // Simulate streaming where the API sends a newline-only fragment
+  // before content, followed by a paragraph break. No previous block,
+  // so all newlines are part of the content and preserved.
+  log.append_fragment("\n", content_type::normal);
+  log.append_fragment("\nfirst paragraph", content_type::normal);
+  log.append_fragment("\n\n", content_type::normal);
+  log.append_fragment("second paragraph", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(0).text == "\n\nfirst paragraph\n\nsecond paragraph");
+  CHECK(log.block_at(0).cached_lines.size() == 5);
+  CHECK(log.block_at(0).cached_lines[0] == "");
+  CHECK(log.block_at(0).cached_lines[1] == "");
+  CHECK(log.block_at(0).cached_lines[2] == "first paragraph");
+  CHECK(log.block_at(0).cached_lines[3] == "");
+  CHECK(log.block_at(0).cached_lines[4] == "second paragraph");
 }
 
 TEST_CASE("normalization gives consistent one blank line via separators") {
@@ -1338,6 +1408,8 @@ TEST_CASE("normalization gives consistent one blank line via separators") {
   log.width = 80;
   log.height = 24;
 
+  // Previous block of different type triggers leading newline stripping
+  log.append_fragment("thinking", content_type::thinking);
   // Simulate realistic flow with extra newlines from API
   log.append_fragment("\n\nanswer text\n\n", content_type::normal);
   log.flush();
@@ -1345,11 +1417,13 @@ TEST_CASE("normalization gives consistent one blank line via separators") {
   log.append_turn_separator(2);
   log.flush();
 
-  // Text block should be stripped of leading/trailing newlines
-  CHECK(log.block_at(0).text == "answer text");
-  CHECK(log.block_at(0).cached_lines.size() == 1);
-  // text (1) + separator (1) + turn_separator (1) = 3 total
-  CHECK(log.total_lines() == 3);
+  // Text block: leading newlines stripped (thinking→text transition),
+  // trailing newlines stripped by cleanup_last_text_block().
+  CHECK(log.block_at(1).text == "answer text");
+  CHECK(log.block_at(1).cached_lines.size() == 1);
+  // thinking collapsed (1) + separator (1) + text (1) + separator (1)
+  // + turn_separator (1) = 5 total
+  CHECK(log.total_lines() == 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -1584,6 +1658,84 @@ TEST_CASE("selection: select all via triple-click") {
   // Triple-click selects from 0 to chars.size() of flat_text
   // flat_text = line1 + "\n" + "" + "\n" + line2 = line1 + "\n\n" + line2
   CHECK(log.get_selected_text() == line1 + "\n\n" + line2);
+}
+
+// ---------------------------------------------------------------------------
+// content_area newline preservation (regression tests)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("content_area preserves newlines in streaming text fragments") {
+  mistral::tui::content_area area;
+  auto scroll = area.build();
+  scroll->width = 80;
+  scroll->height = 24;
+
+  // Access ContentLog through scroll's children to clear welcome text.
+  auto sv = std::dynamic_pointer_cast<cpptui::ScrollableVertical>(scroll);
+  REQUIRE(sv);
+  auto& children = sv->get_children();
+  REQUIRE(children.size() == 1);
+  auto log = std::dynamic_pointer_cast<mistral::tui::ContentLog>(children[0]);
+  REQUIRE(log);
+  log->clear();
+
+  // Simulate streaming where the API sends a fragment that starts
+  // with a newline (the line break between two lines of content).
+  // content_area::append_fragment must NOT strip this newline —
+  // it is part of the content, not inter-block spacing.
+  area.append_fragment("line1", content_type::normal);
+  area.append_fragment("\nline2", content_type::normal);
+  area.flush();
+
+  REQUIRE(log->block_count() == 1);
+  CHECK(log->block_at(0).text == "line1\nline2");
+  CHECK(log->block_at(0).cached_lines.size() == 2);
+  CHECK(log->block_at(0).cached_lines[0] == "line1");
+  CHECK(log->block_at(0).cached_lines[1] == "line2");
+}
+
+TEST_CASE("content_area preserves newlines in multi-line content streaming") {
+  mistral::tui::content_area area;
+  auto scroll = area.build();
+  scroll->width = 80;
+  scroll->height = 24;
+
+  auto sv = std::dynamic_pointer_cast<cpptui::ScrollableVertical>(scroll);
+  REQUIRE(sv);
+  auto& children = sv->get_children();
+  REQUIRE(children.size() == 1);
+  auto log = std::dynamic_pointer_cast<mistral::tui::ContentLog>(children[0]);
+  REQUIRE(log);
+  log->clear();
+
+  // Simulate streaming multi-line content (e.g. ASCII art) where a
+  // fragment starts with a newline — this is the exact scenario that
+  // was broken: the newline was stripped, causing lines to merge.
+  area.append_fragment("```\n", content_type::normal);
+  area.append_fragment("+-------+\n", content_type::normal);
+  area.append_fragment("\n|  none |\n", content_type::normal);
+  area.append_fragment("+-------+\n", content_type::normal);
+  area.append_fragment("```", content_type::normal);
+  area.flush();
+
+  REQUIRE(log->block_count() == 1);
+  // The text should preserve all newlines, including the blank line
+  // created by the fragment starting with "\n".
+  std::string expected =
+    "```\n"
+    "+-------+\n"
+    "\n"
+    "|  none |\n"
+    "+-------+\n"
+    "```";
+  CHECK(log->block_at(0).text == expected);
+  CHECK(log->block_at(0).cached_lines.size() == 6);
+  CHECK(log->block_at(0).cached_lines[0] == "```");
+  CHECK(log->block_at(0).cached_lines[1] == "+-------+");
+  CHECK(log->block_at(0).cached_lines[2] == "");
+  CHECK(log->block_at(0).cached_lines[3] == "|  none |");
+  CHECK(log->block_at(0).cached_lines[4] == "+-------+");
+  CHECK(log->block_at(0).cached_lines[5] == "```");
 }
 
 TEST_SUITE_END();

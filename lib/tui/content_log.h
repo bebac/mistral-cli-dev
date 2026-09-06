@@ -198,7 +198,13 @@ namespace mistral::tui
         ContentBlock block;
         block.kind = style.kind;
         block.text = fragment;
-        if (style.kind == BlockKind::text) {
+        // Only strip leading newlines at block-type boundaries (when
+        // the previous block is a different kind). This normalizes
+        // spacing between tool call, thinking, and text blocks. Don't
+        // strip for the first block or when force_new creates a
+        // same-kind block — those newlines are part of the content.
+        if (style.kind == BlockKind::text && !blocks_.empty() &&
+            blocks_.back().kind != BlockKind::text) {
           block.text = strip_leading_newlines(block.text);
         }
         block.color = style.color;
@@ -207,9 +213,6 @@ namespace mistral::tui
         blocks_.push_back(std::move(block));
       } else {
         blocks_.back().text += fragment;
-        if (blocks_.back().kind == BlockKind::text) {
-          blocks_.back().text = strip_leading_newlines(blocks_.back().text);
-        }
         blocks_.back().dirty = true;
       }
     }

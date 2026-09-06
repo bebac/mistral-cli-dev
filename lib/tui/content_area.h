@@ -57,29 +57,32 @@ namespace mistral::tui
 
     // O(1) accumulation of a text fragment into the ContentLog.
     //
-    // Strips leading newlines (inter-block spacing) since ContentLog
-    // handles spacing at render time via needs_separator_before().
     // For complete-message types (user, error, warning, system),
-    // also strips trailing newlines. Streaming types (normal, thinking,
-    // tool_call, tool_result) keep trailing newlines as they may be
-    // significant for line separation within a block.
+    // strips leading and trailing newlines — these are inter-block
+    // spacing that ContentLog handles at render time via
+    // needs_separator_before().
     //
-    // Empty fragments (after stripping) are skipped — these come from
-    // completed(), thinking_begin(), thinking_end() which send "\n"
-    // for inter-block spacing that ContentLog handles via separators.
+    // For streaming types (normal, thinking, tool_call, tool_result),
+    // fragments are passed as-is to ContentLog. Leading newlines are
+    // NOT stripped because they may be part of the content (e.g. blank
+    // lines between paragraphs, newlines in ASCII art). ContentLog
+    // handles leading newline stripping at block-type boundaries for
+    // text blocks, and strip_leading_ws for tool_call blocks.
+    //
+    // Empty fragments are skipped.
     void append_fragment(const std::string& fragment, content_type type)
     {
       std::string text = fragment;
 
-      // Strip leading newlines — inter-block spacing is handled by
-      // ContentLog's needs_separator_before() at render time.
-      size_t start = 0;
-      while (start < text.size() && text[start] == '\n') ++start;
-      if (start > 0) text = text.substr(start);
-
-      // For complete-message types, strip trailing newlines too.
+      // For complete-message types, strip leading and trailing
+      // newlines — these are inter-block spacing.
       if (type == content_type::user || type == content_type::error ||
           type == content_type::warning || type == content_type::system) {
+        // Strip leading newlines
+        size_t start = 0;
+        while (start < text.size() && text[start] == '\n') ++start;
+        if (start > 0) text = text.substr(start);
+        // Strip trailing newlines
         size_t end = text.size();
         while (end > 0 &&
                (text[end - 1] == '\n' || text[end - 1] == '\r')) {
@@ -88,8 +91,7 @@ namespace mistral::tui
         if (end < text.size()) text = text.substr(0, end);
       }
 
-      // Skip empty fragments (e.g. from completed() or thinking_begin()
-      // which send "\n" for inter-block spacing).
+      // Skip empty fragments.
       if (text.empty()) return;
 
       content_->append_fragment(text, type);
