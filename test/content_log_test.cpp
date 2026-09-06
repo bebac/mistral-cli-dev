@@ -750,7 +750,7 @@ TEST_CASE("multiple tool calls get status in order") {
 // complete_turn()
 // ---------------------------------------------------------------------------
 
-TEST_CASE("complete_turn is a no-op for text blocks") {
+TEST_CASE("complete_turn does not collapse text blocks") {
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -763,7 +763,7 @@ TEST_CASE("complete_turn is a no-op for text blocks") {
   CHECK(log.block_at(0).collapsed == false);
 }
 
-TEST_CASE("complete_turn does not collapse any blocks") {
+TEST_CASE("complete_turn does not collapse error blocks") {
   mistral::tui::ContentLog log;
   log.append_fragment("[error] oops", content_type::error);
   log.append_fragment("answer", content_type::normal);
@@ -771,6 +771,47 @@ TEST_CASE("complete_turn does not collapse any blocks") {
   log.complete_turn();
   CHECK(log.block_at(0).collapsed == false);
   CHECK(log.block_at(1).collapsed == false);
+}
+
+TEST_CASE("complete_turn collapses last thinking block") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("thinking content", content_type::thinking);
+  log.flush();
+  CHECK(log.block_at(0).collapsed == false);
+
+  log.complete_turn();
+  CHECK(log.block_at(0).collapsed == true);
+}
+
+TEST_CASE("complete_turn cleans up trailing empty text block") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("thinking content", content_type::thinking);
+  log.append_fragment("\n", content_type::normal);
+  log.flush();
+  CHECK(log.block_count() == 2);
+
+  log.complete_turn();
+  CHECK(log.block_count() == 1);
+  CHECK(log.block_at(0).collapsed == true);
+}
+
+TEST_CASE("complete_turn does not collapse already-collapsed tool blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("[tool] ls(.)", content_type::tool_call);
+  log.flush();
+  CHECK(log.block_at(0).collapsed == true);
+
+  log.complete_turn();
+  CHECK(log.block_at(0).collapsed == true);
 }
 
 // ---------------------------------------------------------------------------

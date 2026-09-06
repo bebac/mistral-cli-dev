@@ -48,13 +48,16 @@ namespace mistral::agent
     using post_fn = std::function<void(std::function<void()>)>;
     using append_fn = std::function<void(const std::string&, content_type)>;
     using flush_fn = std::function<void()>;
+    using completed_fn = std::function<void()>;
 
-    tui_render_sink(post_fn post, append_fn append, flush_fn flush)
+    tui_render_sink(post_fn post, append_fn append, flush_fn flush,
+                    completed_fn completed = {})
       : state_(std::make_shared<shared_state>())
     {
       state_->post = std::move(post);
       state_->append = std::move(append);
       state_->flush = std::move(flush);
+      state_->completed = std::move(completed);
     }
 
     void output(const std::string& text) override
@@ -110,6 +113,7 @@ namespace mistral::agent
 
     void completed() override
     {
+      state_->completed_pending.store(true, std::memory_order_release);
       state_->enqueue("\n", content_type::normal);
     }
 
@@ -131,9 +135,11 @@ namespace mistral::agent
       post_fn   post;
       append_fn append;
       flush_fn  flush;
+      completed_fn completed;
       std::mutex mutex;
       std::vector<fragment> buffer;
       std::atomic<bool> pending{false};
+      std::atomic<bool> completed_pending{false};
 
       // Called from the agent (dripcore) thread for every token.
       // Accumulates the fragment and ensures at most one drain callback
@@ -167,6 +173,14 @@ namespace mistral::agent
           append(f.text, f.type);
         }
         if (flush) flush();
+
+        // Call completed_fn if completed() was requested.
+        // Atomically get and clear the flag to avoid races with
+        // the agent thread setting it between our check and clear.
+        if (completed_pending.exchange(false,
+              std::memory_order_acq_rel) && completed) {
+          completed();
+        }
 
         // Check if more items arrived while we were processing.
         // Clear pending under the mutex to avoid a race where

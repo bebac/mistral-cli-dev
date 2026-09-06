@@ -21,6 +21,7 @@ namespace {
     std::mutex mutex;
     std::vector<std::pair<std::string, content_type>> appended;
     int flush_count = 0;
+    int completed_count = 0;
     std::vector<std::function<void()>> posted;
     int post_count = 0;
 
@@ -43,6 +44,13 @@ namespace {
       return [this]() {
         std::lock_guard<std::mutex> lock(mutex);
         ++flush_count;
+      };
+    }
+
+    mistral::agent::tui_render_sink::completed_fn make_completed() {
+      return [this]() {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++completed_count;
       };
     }
 
@@ -435,6 +443,67 @@ TEST_CASE("concurrent enqueue from multiple threads") {
 
   CHECK(h.appended.size() == static_cast<size_t>(N * T));
   CHECK(h.flush_count >= 1);
+}
+
+TEST_CASE("completed_fn is called after drain when completed() is invoked") {
+  sink_test_harness h;
+  mistral::agent::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush(),
+    h.make_completed());
+
+  sink.output("hello");
+  sink.completed();
+
+  h.run_all_posted();
+
+  CHECK(h.appended.size() >= 1);
+  CHECK(h.completed_count == 1);
+  CHECK(h.flush_count >= 1);
+}
+
+TEST_CASE("completed_fn is called even with pending fragments") {
+  sink_test_harness h;
+  mistral::agent::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush(),
+    h.make_completed());
+
+  sink.output("a");
+  sink.output("b");
+  sink.completed();
+
+  h.run_all_posted();
+
+  CHECK(h.appended.size() >= 2);
+  CHECK(h.completed_count == 1);
+}
+
+TEST_CASE("completed_fn not called without completed() invocation") {
+  sink_test_harness h;
+  mistral::agent::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush(),
+    h.make_completed());
+
+  sink.output("hello");
+  h.run_all_posted();
+
+  CHECK(h.completed_count == 0);
+}
+
+TEST_CASE("completed_fn called once per completed() call") {
+  sink_test_harness h;
+  mistral::agent::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush(),
+    h.make_completed());
+
+  sink.output("a");
+  sink.completed();
+  h.run_all_posted();
+
+  sink.output("b");
+  sink.completed();
+  h.run_all_posted();
+
+  CHECK(h.completed_count == 2);
 }
 
 TEST_SUITE_END();

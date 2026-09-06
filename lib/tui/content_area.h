@@ -121,6 +121,15 @@ namespace mistral::tui
       flush();
     }
 
+    // Finalize the current turn: auto-collapse the last thinking block,
+    // clean up trailing text, and update scroll position. Called when
+    // the render_sink's completed() callback fires.
+    void complete_turn()
+    {
+      content_->complete_turn();
+      flush();
+    }
+
     // Returns true if the last flush() found the user at the bottom.
     bool was_at_bottom() const { return at_bottom_; }
 

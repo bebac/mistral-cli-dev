@@ -376,10 +376,19 @@ namespace mistral::tui
 
     // --- Collapse/Expand ---
 
-    // No longer collapses text blocks. Text blocks are always expanded.
-    // Kept for API compatibility; currently a no-op.
+    // Finalize the current turn: auto-collapse the last block if it is
+    // an auto-collapsible type (thinking), clean up any trailing empty
+    // text block, and recalculate total lines. Called by content_area
+    // when the render_sink's completed() callback fires.
+    //
+    // Text blocks are always expanded and are NOT collapsed here.
+    // Tool blocks are always created collapsed, so no action needed.
+    // The last thinking block of a turn may still be expanded (no
+    // subsequent block triggered auto_collapse_previous), so this
+    // method ensures it gets collapsed.
     void complete_turn()
     {
+      auto_collapse_previous();
       recalc_total_lines();
     }
 

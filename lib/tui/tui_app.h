@@ -43,7 +43,8 @@ public:
                mistral::agent::content_type type) {
           content_area_.append_fragment(fragment, type);
         },
-        [this]() { content_area_.flush(); }
+        [this]() { content_area_.flush(); },
+        [this]() { content_area_.complete_turn(); }
       }
     );
 

@@ -93,6 +93,7 @@ namespace mistral::tui
       append_fn append_content;
       append_fn append_fragment;
       std::function<void()> flush;
+      std::function<void()> completed;
     };
 
     tui_backend(tui_config cfg, ui_callbacks callbacks)
@@ -156,7 +157,7 @@ namespace mistral::tui
 
         auto sink = std::make_shared<mistral::agent::tui_render_sink>(
           callbacks_.post, callbacks_.append_fragment,
-          callbacks_.flush);
+          callbacks_.flush, callbacks_.completed);
         sched.spawn<mistral::agent::interactive_agent_task>(
           cfg_.agent_id, cfg_.input_ch, cfg_.agent_response_ch,
           cfg_.prompt_ch, sink);
