@@ -111,7 +111,7 @@ namespace mistral::tui
     // Prefix width: indent (2) + indicator (1) + space (1) = 4.
     static constexpr int PREFIX_WIDTH = COLLAPSE_INDENT + 1 + 1;
 
-    ContentLog() { focusable = false; }
+    ContentLog() { focusable = true; tab_stop = false; }
 
     // O(1) accumulation of a text fragment into the last block (if same kind)
     // or a new block. Does NOT re-wrap — just accumulates text.
@@ -287,6 +287,7 @@ namespace mistral::tui
       if (vis_top < 0) vis_top = 0;
 
       ensure_block_offsets();
+      ensure_flat_text();
 
       // Binary search for the first block whose last line >= vis_top.
       // block_offsets_[i] is the starting content line of block i.
@@ -329,34 +330,48 @@ namespace mistral::tui
           if (skip == 0) {
             std::string line = block.text;
             while ((int)line.size() < width) line += '-';
-            render_line(buffer, line, block, bg, y + block_start);
+            render_line(buffer, line, block, bg, y + block_start,
+                        block_char_offsets_[i]);
           }
         } else if (is_collapsible(block.kind)) {
           if (block.collapsed) {
             if (skip == 0) {
               std::string line = indent_str() + COLLAPSED_IND + " " +
                                  generate_summary(block);
-              render_line(buffer, line, block, bg, y + block_start);
+              render_line(buffer, line, block, bg, y + block_start,
+                          block_char_offsets_[i], PREFIX_WIDTH);
             }
           } else {
             const std::string first_prefix = indent_str() +
               std::string(EXPANDED_IND) + " ";
             const std::string cont_prefix = std::string(PREFIX_WIDTH, ' ');
             int li = 0;
+            int line_char_offset = 0;
             for (const auto& cl : block.cached_lines) {
               if (li >= skip && block_start + li <= vis_bottom) {
                 std::string line = (li == 0 ? first_prefix : cont_prefix) + cl;
-                render_line(buffer, line, block, bg, y + block_start + li);
+                render_line(buffer, line, block, bg, y + block_start + li,
+                            block_char_offsets_[i] + line_char_offset,
+                            PREFIX_WIDTH);
               }
+              line_char_offset +=
+                (int)cpptui::TextHelper::count_codepoints(cl);
               li++;
             }
             // Tool blocks: render indented result lines
             if (block.kind == BlockKind::tool) {
+              int result_base = block_char_offsets_[i] +
+                (int)cpptui::TextHelper::count_codepoints(block.text) + 1;
+              int result_line_char_offset = 0;
               for (const auto& rl : block.result_cached_lines) {
                 if (li >= skip && block_start + li <= vis_bottom) {
                   std::string line = cont_prefix + rl;
-                  render_line(buffer, line, block, bg, y + block_start + li);
+                  render_line(buffer, line, block, bg, y + block_start + li,
+                              result_base + result_line_char_offset,
+                              PREFIX_WIDTH);
                 }
+                result_line_char_offset +=
+                  (int)cpptui::TextHelper::count_codepoints(rl);
                 li++;
               }
             }
@@ -364,10 +379,14 @@ namespace mistral::tui
         } else {
           // Non-collapsible: user, text, error, warning, system
           int li = 0;
+          int line_char_offset = 0;
           for (const auto& cl : block.cached_lines) {
             if (li >= skip && block_start + li <= vis_bottom) {
-              render_line(buffer, cl, block, bg, y + block_start + li);
+              render_line(buffer, cl, block, bg, y + block_start + li,
+                          block_char_offsets_[i] + line_char_offset);
             }
+            line_char_offset +=
+              (int)cpptui::TextHelper::count_codepoints(cl);
             li++;
           }
         }
@@ -436,6 +455,77 @@ namespace mistral::tui
       total_lines_ = 0;
       fixed_height = 0;
       offsets_valid_ = false;
+      flat_text_valid_ = false;
+    }
+
+    // --- Text selection ---
+
+    bool selectable = true;
+
+    bool has_selection() const override
+    {
+      return selection_state_.has_selection();
+    }
+
+    std::string get_selected_text() const
+    {
+      if (!has_selection()) return "";
+      ensure_flat_text();
+      int s, e;
+      selection_state_.get_range(s, e);
+      return cpptui::TextHelper::utf8_substr(flat_text_, s, e - s);
+    }
+
+    void clear_selection() { selection_state_.clear(); }
+
+    void on_blur() override
+    {
+      selection_state_.clear();
+      Widget::on_blur();
+    }
+
+    bool on_event(const cpptui::Event& event) override
+    {
+      if (!selectable) return false;
+      bool hit = contains(event.x, event.y);
+
+      if (event.is_mouse_event()) {
+        if (hit && event.mouse_left() && !event.mouse_motion()) {
+          set_focus(true);
+          ensure_flat_text();
+          int new_pos = visual_to_char_idx(event.x, event.y);
+          auto chars =
+            cpptui::TextHelper::prepare_text_for_render(flat_text_);
+          selection_state_.handle_mouse_press(chars, new_pos,
+                                               event.click_count);
+          return true;
+        }
+        if (selection_state_.mouse_down && event.mouse_drag()) {
+          selection_state_.handle_mouse_drag(
+            visual_to_char_idx(event.x, event.y));
+          return true;
+        }
+        if (event.mouse_release()) {
+          selection_state_.handle_mouse_release();
+        }
+        return false;
+      }
+
+      if (has_focus() && event.is_key_event()) {
+        if (event.is_select_all()) {
+          ensure_flat_text();
+          selection_state_.start = 0;
+          selection_state_.end =
+            (int)cpptui::TextHelper::count_codepoints(flat_text_);
+          return true;
+        }
+        if (event.is_copy()) {
+          if (has_selection())
+            cpptui::copy_to_clipboard(get_selected_text());
+          return true;
+        }
+      }
+      return false;
     }
 
   private:
@@ -569,25 +659,34 @@ namespace mistral::tui
     // Render a single line of a block to the buffer at the given y position.
     void render_line(cpptui::Buffer& buffer, const std::string& line,
                      const ContentBlock& block,
-                     const cpptui::Color& bg, int row_y)
+                     const cpptui::Color& bg, int row_y,
+                     int sel_char_offset = -1, int sel_skip_chars = 0)
     {
       cpptui::Color fg = block.color.is_default
         ? cpptui::Theme::current().foreground
         : block.color;
       auto chars = cpptui::TextHelper::prepare_text_for_render(line);
       int dx = 0;
-      for (const auto& ci : chars) {
+      for (size_t ci_idx = 0; ci_idx < chars.size(); ++ci_idx) {
+        const auto& ci = chars[ci_idx];
         if (dx >= width) break;
         cpptui::Cell c;
         c.content = ci.content;
         c.fg_color = fg;
         c.bg_color = bg;
         c.bold = block.bold;
+        if (sel_char_offset >= 0 && (int)ci_idx >= sel_skip_chars) {
+          int global_idx = sel_char_offset + ((int)ci_idx - sel_skip_chars);
+          if (selection_state_.is_selected(global_idx)) {
+            c.bg_color = cpptui::Theme::current().selection;
+            c.fg_color = cpptui::Color::contrast_color(c.bg_color);
+          }
+        }
         buffer.set(x + dx, row_y, c);
         if (ci.display_width == 2 && dx + 1 < width) {
           cpptui::Cell skip;
           skip.content = "";
-          skip.bg_color = bg;
+          skip.bg_color = c.bg_color;
           buffer.set(x + dx + 1, row_y, skip);
         }
         dx += ci.display_width;
@@ -657,6 +756,7 @@ namespace mistral::tui
       }
       fixed_height = total_lines_;
       offsets_valid_ = false;
+      flat_text_valid_ = false;
     }
 
     // Rebuild the cached block-offset array if invalidated.
@@ -720,6 +820,166 @@ namespace mistral::tui
     // separator lines). Invalidated by recalc_total_lines() and clear().
     std::vector<int> block_offsets_;
     bool offsets_valid_ = false;
+
+    // --- Text selection ---
+    cpptui::SelectionState selection_state_;
+
+    // Flat text cache for selection (concatenation of all block texts
+    // with newlines between them). Invalidated whenever blocks change
+    // (via recalc_total_lines); rebuilt on demand.
+    mutable std::string flat_text_;
+    mutable std::vector<int> block_char_offsets_;
+    mutable bool flat_text_valid_ = false;
+
+    // Rebuild the flat text and block char offsets if invalidated.
+    // The flat text is the concatenation of all block texts with
+    // newlines between them. For collapsed blocks, the summary is used.
+    // For tool blocks (expanded), call text + "\n" + result text.
+    // Turn separators contribute their text. block_char_offsets_[i]
+    // stores the starting char index of block i in flat_text_.
+    void ensure_flat_text() const
+    {
+      if (flat_text_valid_) return;
+      flat_text_.clear();
+      block_char_offsets_.assign(blocks_.size(), 0);
+
+      for (int i = 0; i < (int)blocks_.size(); ++i) {
+        if (i > 0) flat_text_ += "\n";
+        block_char_offsets_[i] = (int)flat_text_.size();
+
+        if (blocks_[i].kind == BlockKind::turn_separator) {
+          flat_text_ += blocks_[i].text;
+          continue;
+        }
+
+        if (is_collapsible(blocks_[i].kind) && blocks_[i].collapsed) {
+          flat_text_ += generate_summary(blocks_[i]);
+        } else {
+          flat_text_ += blocks_[i].text;
+          if (blocks_[i].kind == BlockKind::tool &&
+              !blocks_[i].result_text.empty()) {
+            flat_text_ += "\n";
+            flat_text_ += blocks_[i].result_text;
+          }
+        }
+      }
+      flat_text_valid_ = true;
+    }
+
+    // Map screen coordinates (vx, vy) to a character index in
+    // flat_text_. Clamps to [0, flat_text codepoint count].
+    int visual_to_char_idx(int vx, int vy)
+    {
+      ensure_flat_text();
+      ensure_block_offsets();
+
+      int content_line = vy - y;
+      if (content_line < 0) return 0;
+
+      for (int i = 0; i < (int)blocks_.size(); ++i) {
+        int block_start = block_offsets_[i];
+        int block_end = block_start +
+          block_line_count(blocks_[i]) - 1;
+
+        // Separator line before this block
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind,
+                                            blocks_[i].kind)) {
+          if (content_line == block_start - 1) {
+            return block_char_offsets_[i] > 0
+              ? block_char_offsets_[i] - 1 : 0;
+          }
+        }
+
+        if (content_line >= block_start &&
+            content_line <= block_end) {
+          int line_within = content_line - block_start;
+          int char_offset = block_char_offsets_[i];
+
+          if (blocks_[i].kind == BlockKind::turn_separator) {
+            int rel_x = vx - x;
+            auto chars = cpptui::TextHelper::prepare_text_for_render(
+              blocks_[i].text);
+            int idx = cpptui::TextHelper::visual_to_char_pos(
+              chars, rel_x);
+            return char_offset + idx;
+          }
+
+          if (is_collapsible(blocks_[i].kind) &&
+              blocks_[i].collapsed) {
+            std::string summary = generate_summary(blocks_[i]);
+            int rel_x = vx - x - PREFIX_WIDTH;
+            if (rel_x < 0) rel_x = 0;
+            auto chars =
+              cpptui::TextHelper::prepare_text_for_render(summary);
+            int idx = cpptui::TextHelper::visual_to_char_pos(
+              chars, rel_x);
+            return char_offset + idx;
+          }
+
+          // Expanded block — find the line within cached_lines
+          int line_char_offset = 0;
+          for (int li = 0;
+               li < (int)blocks_[i].cached_lines.size(); ++li) {
+            if (li == line_within) {
+              int rel_x;
+              if (is_collapsible(blocks_[i].kind)) {
+                rel_x = vx - x - PREFIX_WIDTH;
+              } else {
+                rel_x = vx - x;
+              }
+              if (rel_x < 0) rel_x = 0;
+              auto chars =
+                cpptui::TextHelper::prepare_text_for_render(
+                  blocks_[i].cached_lines[li]);
+              int idx = cpptui::TextHelper::visual_to_char_pos(
+                chars, rel_x);
+              return char_offset + line_char_offset + idx;
+            }
+            line_char_offset +=
+              (int)cpptui::TextHelper::count_codepoints(
+                blocks_[i].cached_lines[li]);
+          }
+
+          // Tool blocks: check result lines
+          if (blocks_[i].kind == BlockKind::tool) {
+            int call_lines =
+              (int)blocks_[i].cached_lines.size();
+            int result_line = line_within - call_lines;
+            if (result_line >= 0 && result_line <
+                (int)blocks_[i].result_cached_lines.size()) {
+              int rel_x = vx - x - PREFIX_WIDTH;
+              if (rel_x < 0) rel_x = 0;
+              int result_base = char_offset +
+                (int)cpptui::TextHelper::count_codepoints(
+                  blocks_[i].text) + 1;
+              int result_line_char_offset = 0;
+              for (int ri = 0; ri <= result_line; ++ri) {
+                if (ri == result_line) {
+                  auto chars =
+                    cpptui::TextHelper::prepare_text_for_render(
+                      blocks_[i].result_cached_lines[ri]);
+                  int idx =
+                    cpptui::TextHelper::visual_to_char_pos(
+                      chars, rel_x);
+                  return result_base +
+                    result_line_char_offset + idx;
+                }
+                result_line_char_offset +=
+                  (int)cpptui::TextHelper::count_codepoints(
+                    blocks_[i].result_cached_lines[ri]);
+              }
+            }
+          }
+
+          // Fallback: end of this block's text
+          return char_offset +
+            (int)cpptui::TextHelper::count_codepoints(
+              blocks_[i].text);
+        }
+      }
+
+      return (int)cpptui::TextHelper::count_codepoints(flat_text_);
+    }
   };
 
 } // namespace mistral::tui
