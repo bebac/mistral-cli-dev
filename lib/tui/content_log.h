@@ -125,13 +125,18 @@ namespace mistral::tui
                          bool force_new = false)
     {
       // --- Tool call: always create a new tool block ---
+      // Tool blocks are always created collapsed — the tool output is
+      // not useful to the human user. They can still be manually
+      // expanded via toggle_collapse() if needed.
       if (type == content_type::tool_call) {
+        cleanup_last_text_block();
         auto_collapse_previous();
         ContentBlock block;
         block.kind = BlockKind::tool;
         block.color = cpptui::Theme::current().primary;
         block.bold = true;
         block.text = strip_leading_ws(fragment);
+        block.collapsed = true;
         block.dirty = true;
         blocks_.push_back(std::move(block));
         return;
@@ -186,12 +191,18 @@ namespace mistral::tui
         ContentBlock block;
         block.kind = style.kind;
         block.text = fragment;
+        if (style.kind == BlockKind::text) {
+          block.text = strip_leading_newlines(block.text);
+        }
         block.color = style.color;
         block.bold = style.bold;
         block.dirty = true;
         blocks_.push_back(std::move(block));
       } else {
         blocks_.back().text += fragment;
+        if (blocks_.back().kind == BlockKind::text) {
+          blocks_.back().text = strip_leading_newlines(blocks_.back().text);
+        }
         blocks_.back().dirty = true;
       }
     }
@@ -199,6 +210,7 @@ namespace mistral::tui
     // Add a turn separator block: "---[N]" filled with '-' to full width.
     void append_turn_separator(int turn_number)
     {
+      cleanup_last_text_block();
       ContentBlock block;
       block.kind = BlockKind::turn_separator;
       block.text = "---[" + std::to_string(turn_number) + "]";
@@ -254,7 +266,12 @@ namespace mistral::tui
       if (width <= 0) return;
       cpptui::Color bg = cpptui::Theme::current().background;
       int current_y = y;
-      for (const auto& block : blocks_) {
+      for (int i = 0; i < (int)blocks_.size(); ++i) {
+        const auto& block = blocks_[i];
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind, block.kind)) {
+          render_blank_line(buffer, bg, current_y);
+          current_y++;
+        }
         if (block.kind == BlockKind::turn_separator) {
           std::string line = block.text;
           while ((int)line.size() < width) line += '-';
@@ -319,11 +336,15 @@ namespace mistral::tui
     }
 
     // Find the block index that contains the given line offset.
-    // Returns -1 if the line is outside all blocks.
+    // Returns -1 if the line is outside all blocks or on a separator line.
     int block_at_line(int line) const
     {
       int current = 0;
       for (int i = 0; i < (int)blocks_.size(); ++i) {
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind, blocks_[i].kind)) {
+          if (line == current) return -1;
+          current++;
+        }
         int bl = block_line_count(blocks_[i]);
         if (line >= current && line < current + bl) {
           return i;
@@ -362,18 +383,51 @@ namespace mistral::tui
 
     // Returns true if the block kind auto-collapses when the next block
     // is created (i.e. when the block is "done" streaming).
+    // Tool blocks are always created collapsed, so they don't need
+    // auto-collapse.
     static bool is_auto_collapsible(BlockKind kind)
     {
-      return kind == BlockKind::thinking ||
-             kind == BlockKind::tool;
+      return kind == BlockKind::thinking;
     }
 
     // Auto-collapse the last block if it is auto-collapsible.
+    // Also cleans up any trailing empty text block before collapsing.
     void auto_collapse_previous()
     {
+      cleanup_last_text_block();
       if (!blocks_.empty() && is_auto_collapsible(blocks_.back().kind)) {
         blocks_.back().collapsed = true;
       }
+    }
+
+    // Clean up the last text block: strip trailing newlines and remove
+    // it entirely if it becomes empty. Inter-block spacing is handled
+    // at render time via needs_separator_before, so text blocks no
+    // longer need trailing blank lines for visual separation.
+    void cleanup_last_text_block()
+    {
+      while (!blocks_.empty() && blocks_.back().kind == BlockKind::text) {
+        std::string stripped = strip_trailing_newlines(blocks_.back().text);
+        if (stripped.empty()) {
+          blocks_.pop_back();
+        } else {
+          if (stripped != blocks_.back().text) {
+            blocks_.back().text = stripped;
+            blocks_.back().dirty = true;
+          }
+          break;
+        }
+      }
+    }
+
+    // Returns true if a blank separator line should be rendered between
+    // the previous block and the current block. No separator between
+    // consecutive collapsible blocks (thinking/tool); separator between
+    // all other block-type transitions.
+    static bool needs_separator_before(BlockKind prev, BlockKind curr)
+    {
+      if (is_collapsible(prev) && is_collapsible(curr)) return false;
+      return true;
     }
 
     // Strip leading whitespace (spaces, newlines, tabs) from a string.
@@ -381,6 +435,29 @@ namespace mistral::tui
     {
       size_t start = s.find_first_not_of(" \n\t\r");
       if (start == std::string::npos) return "";
+      return s.substr(start);
+    }
+
+    // Strip all trailing newlines (and trailing spaces/tabs) from a string.
+    static std::string strip_trailing_newlines(const std::string& s)
+    {
+      size_t end = s.size();
+      while (end > 0 && (s[end - 1] == '\n' || s[end - 1] == '\r' ||
+                         s[end - 1] == ' '  || s[end - 1] == '\t')) {
+        --end;
+      }
+      return s.substr(0, end);
+    }
+
+    // Strip all leading newlines from a string. Inter-block spacing
+    // is handled at render time via needs_separator_before, so text
+    // blocks don't need leading blank lines for visual separation.
+    static std::string strip_leading_newlines(const std::string& s)
+    {
+      size_t start = 0;
+      while (start < s.size() && s[start] == '\n') {
+        ++start;
+      }
       return s.substr(start);
     }
 
@@ -404,6 +481,18 @@ namespace mistral::tui
                (int)block.result_cached_lines.size();
       }
       return (int)block.cached_lines.size();
+    }
+
+    // Render a blank separator line (all background) at the given y.
+    void render_blank_line(cpptui::Buffer& buffer,
+                           const cpptui::Color& bg, int row_y)
+    {
+      for (int i = 0; i < width; ++i) {
+        cpptui::Cell c;
+        c.content = " ";
+        c.bg_color = bg;
+        buffer.set(x + i, row_y, c);
+      }
     }
 
     // Render a single line of a block to the buffer at the given y position.
@@ -489,8 +578,11 @@ namespace mistral::tui
     void recalc_total_lines()
     {
       total_lines_ = 0;
-      for (const auto& block : blocks_) {
-        total_lines_ += block_line_count(block);
+      for (int i = 0; i < (int)blocks_.size(); ++i) {
+        if (i > 0 && needs_separator_before(blocks_[i-1].kind, blocks_[i].kind)) {
+          total_lines_ += 1;
+        }
+        total_lines_ += block_line_count(blocks_[i]);
       }
       fixed_height = total_lines_;
     }

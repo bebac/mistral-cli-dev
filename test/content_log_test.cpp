@@ -216,7 +216,8 @@ TEST_CASE("flush only re-wraps dirty blocks") {
   // Second block wrapped (thinking is collapsible, wrapped at width-4)
   CHECK(log.block_at(1).cached_lines.size() == 1);
   CHECK(log.block_at(1).cached_lines[0] == "second block");
-  CHECK(log.total_lines() == 2);
+  // text (1) + separator (1) + thinking (1) = 3
+  CHECK(log.total_lines() == 3);
 }
 
 TEST_CASE("append after flush re-wraps last block") {
@@ -275,13 +276,15 @@ TEST_CASE("flush updates total_lines correctly across multiple blocks") {
 
   log.append_fragment("thinking1", content_type::thinking);
   log.flush();
-  CHECK(log.total_lines() == 3);
+  // text (2) + separator (1) + thinking (1) = 4
+  CHECK(log.total_lines() == 4);
 
   // Append more to first block (same kind as block 0)
   // But since block 1 (thinking) is now last, this creates block 2
   log.append_fragment("more text", content_type::normal);
   log.flush();
-  CHECK(log.total_lines() == 4);
+  // text (2) + sep (1) + thinking collapsed (1) + sep (1) + text (1) = 6
+  CHECK(log.total_lines() == 6);
 }
 
 // ---------------------------------------------------------------------------
@@ -399,11 +402,14 @@ TEST_CASE("render multiple blocks on separate lines") {
   CHECK(buffer.get(3, 0).content == "e");
   CHECK(buffer.get(4, 0).content == "1");
 
-  // Second block (thinking, collapsible but not collapsed yet) on row 1
-  // Indented with "  ▼ " prefix
+  // Separator blank line on row 1 (text → thinking)
   CHECK(buffer.get(0, 1).content == " ");
-  CHECK(buffer.get(1, 1).content == " ");
-  CHECK(buffer.get(2, 1).content == "\xe2\x96\xbc"); // ▼
+
+  // Second block (thinking, collapsible but not collapsed yet) on row 2
+  // Indented with "  ▼ " prefix
+  CHECK(buffer.get(0, 2).content == " ");
+  CHECK(buffer.get(1, 2).content == " ");
+  CHECK(buffer.get(2, 2).content == "\xe2\x96\xbc"); // ▼
 }
 
 TEST_CASE("render applies error color and bold") {
@@ -632,10 +638,10 @@ TEST_CASE("interleaved tool calls and results pair correctly") {
   CHECK(log.block_at(2).tool_status == "\xe2\x9c\x93");
 
   REQUIRE(log.block_count() == 3);
-  // All previous tool blocks should be auto-collapsed.
+  // All tool blocks are always collapsed.
   CHECK(log.block_at(0).collapsed == true);
   CHECK(log.block_at(1).collapsed == true);
-  CHECK(log.block_at(2).collapsed == false);
+  CHECK(log.block_at(2).collapsed == true);
 }
 
 TEST_CASE("force_new=false still merges same kind by default") {
@@ -672,11 +678,12 @@ TEST_CASE("thinking block auto-collapses when next block is created") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("tool block auto-collapses when next block is created") {
+TEST_CASE("tool block is always collapsed") {
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] read()", content_type::tool_call);
   log.append_fragment("result", content_type::tool_result);
-  CHECK(log.block_at(0).collapsed == false);
+  // Tool blocks are collapsed from creation.
+  CHECK(log.block_at(0).collapsed == true);
 
   log.append_fragment("response", content_type::normal);
   REQUIRE(log.block_count() == 2);
@@ -693,14 +700,15 @@ TEST_CASE("text block does not auto-collapse when next block is created") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("force_new auto-collapses previous tool block") {
+TEST_CASE("force_new creates collapsed tool blocks") {
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] call1()", content_type::tool_call, true);
   log.append_fragment("result A", content_type::tool_result);
   log.append_fragment("[tool] call2()", content_type::tool_call, true);
   REQUIRE(log.block_count() == 2);
+  // Both tool blocks are always collapsed.
   CHECK(log.block_at(0).collapsed == true);
-  CHECK(log.block_at(1).collapsed == false);
+  CHECK(log.block_at(1).collapsed == true);
 }
 
 // ---------------------------------------------------------------------------
@@ -854,13 +862,17 @@ TEST_CASE("block_at_line finds correct block") {
   log.flush();
 
   // block 0: text, 2 lines (0-1)
-  // block 1: thinking, auto-collapsed, 1 line (2)
-  // block 2: text, 1 line (3)
+  // separator: 1 line (2)
+  // block 1: thinking, auto-collapsed, 1 line (3)
+  // separator: 1 line (4)
+  // block 2: text, 1 line (5)
   CHECK(log.block_at_line(0) == 0);
   CHECK(log.block_at_line(1) == 0);
-  CHECK(log.block_at_line(2) == 1);
-  CHECK(log.block_at_line(3) == 2);
-  CHECK(log.block_at_line(4) == -1);
+  CHECK(log.block_at_line(2) == -1); // separator
+  CHECK(log.block_at_line(3) == 1);
+  CHECK(log.block_at_line(4) == -1); // separator
+  CHECK(log.block_at_line(5) == 2);
+  CHECK(log.block_at_line(6) == -1);
 }
 
 TEST_CASE("block_at_line with collapsed blocks") {
@@ -961,7 +973,8 @@ TEST_CASE("render expanded tool shows call and result") {
   log.append_fragment("[tool] read()", content_type::tool_call);
   log.append_fragment(" \xe2\x86\x92 result line", content_type::tool_result);
   log.flush();
-  // Not collapsed (no next block)
+  // Tool blocks are always collapsed — expand manually for this test.
+  log.toggle_collapse(0);
 
   cpptui::Buffer buffer(80, 10);
   log.render(buffer);
@@ -1033,9 +1046,9 @@ TEST_CASE("total_lines accounts for collapsed blocks") {
   log.append_fragment("text", content_type::normal);
   log.flush();
 
-  // thinking collapsed (1 line) + text (1 line) = 2
-  CHECK(log.total_lines() == 2);
-  CHECK(log.fixed_height == 2);
+  // thinking collapsed (1 line) + separator (1) + text (1 line) = 3
+  CHECK(log.total_lines() == 3);
+  CHECK(log.fixed_height == 3);
 }
 
 TEST_CASE("total_lines with mixed collapsed and expanded blocks") {
@@ -1051,10 +1064,13 @@ TEST_CASE("total_lines with mixed collapsed and expanded blocks") {
   log.flush();
 
   // block 0: thinking collapsed (1)
+  // separator (1)
   // block 1: text expanded (2)
+  // separator (1)
   // block 2: tool collapsed (1)
+  // separator (1)
   // block 3: text expanded (1)
-  CHECK(log.total_lines() == 5);
+  CHECK(log.total_lines() == 8);
 }
 
 TEST_CASE("total_lines with expanded tool block includes result lines") {
@@ -1066,8 +1082,233 @@ TEST_CASE("total_lines with expanded tool block includes result lines") {
   log.append_fragment("r1\nr2\nr3", content_type::tool_result);
   log.flush();
 
-  // tool block not collapsed: 1 call line + 3 result lines = 4
-  CHECK(log.total_lines() == 4);
+  // tool block always collapsed: 1 line
+  CHECK(log.total_lines() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Blank line spacing between text blocks and tool calls / turn separators
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Render-time separator lines between block-type transitions
+// ---------------------------------------------------------------------------
+
+TEST_CASE("separator line between text and tool call") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("some text", content_type::normal);
+  log.flush();
+  REQUIRE(log.block_at(0).cached_lines.size() == 1);
+
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.flush();
+
+  // Text block trailing newlines stripped, no trailing blank line in text
+  CHECK(log.block_at(0).text == "some text");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+  // text (1) + separator (1) + tool collapsed (1) = 3 total
+  CHECK(log.total_lines() == 3);
+}
+
+TEST_CASE("separator line between text and turn separator") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("final answer", content_type::normal);
+  log.flush();
+  REQUIRE(log.block_at(0).cached_lines.size() == 1);
+
+  log.append_turn_separator(2);
+  log.flush();
+
+  // Text block trailing newlines stripped
+  CHECK(log.block_at(0).text == "final answer");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+  // text (1) + separator (1) + turn_separator (1) = 3 total
+  CHECK(log.total_lines() == 3);
+}
+
+TEST_CASE("no separator between consecutive thinking and tool blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.append_fragment("result", content_type::tool_result);
+  log.append_fragment("more thinking", content_type::thinking);
+  log.flush();
+
+  // block 0: thinking collapsed (1)
+  // block 1: tool collapsed (1) — no separator (thinking→tool)
+  // block 2: thinking collapsed (1) — no separator (tool→thinking)
+  CHECK(log.total_lines() == 3);
+}
+
+TEST_CASE("separator between user and thinking") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("> user msg", content_type::user);
+  log.append_fragment("thinking", content_type::thinking);
+  log.flush();
+
+  // user (1) + separator (1) + thinking collapsed (1) = 3
+  CHECK(log.total_lines() == 3);
+}
+
+TEST_CASE("separator between thinking and text") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("answer", content_type::normal);
+  log.flush();
+
+  // thinking collapsed (1) + separator (1) + text (1) = 3
+  CHECK(log.total_lines() == 3);
+}
+
+TEST_CASE("render shows separator blank line between text and thinking") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 10;
+
+  log.append_fragment("text", content_type::normal);
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("answer", content_type::normal);
+  log.flush();
+
+  // thinking auto-collapsed when "answer" block was created
+  CHECK(log.block_at(1).collapsed == true);
+
+  cpptui::Buffer buffer(80, 10);
+  log.render(buffer);
+
+  // Row 0: text block
+  CHECK(buffer.get(0, 0).content == "t");
+  // Row 1: separator (blank line) between text and thinking
+  CHECK(buffer.get(0, 1).content == " ");
+  // Row 2: collapsed thinking block
+  CHECK(buffer.get(2, 2).content == "\xe2\x96\xb6"); // ▶
+  // Row 3: separator (blank line) between thinking and text
+  CHECK(buffer.get(0, 3).content == " ");
+  // Row 4: answer text
+  CHECK(buffer.get(0, 4).content == "a");
+}
+
+TEST_CASE("render shows no separator between thinking and tool") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 10;
+
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.append_fragment("result", content_type::tool_result);
+  log.append_fragment("answer", content_type::normal);
+  log.flush();
+
+  // Both auto-collapsed when "answer" block was created
+  CHECK(log.block_at(0).collapsed == true);
+  CHECK(log.block_at(1).collapsed == true);
+
+  cpptui::Buffer buffer(80, 10);
+  log.render(buffer);
+
+  // Row 0: collapsed thinking
+  CHECK(buffer.get(2, 0).content == "\xe2\x96\xb6"); // ▶
+  // Row 1: collapsed tool (no separator between thinking and tool)
+  CHECK(buffer.get(2, 1).content == "\xe2\x96\xb6"); // ▶
+  // Row 2: separator between tool and text
+  CHECK(buffer.get(0, 2).content == " ");
+  // Row 3: answer text
+  CHECK(buffer.get(0, 3).content == "a");
+}
+
+TEST_CASE("trailing newlines stripped from text before tool call") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("text\n\n\n", content_type::normal);
+  log.flush();
+
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.flush();
+
+  CHECK(log.block_at(0).text == "text");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+}
+
+TEST_CASE("empty text block removed before tool call") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("\n", content_type::normal);
+  log.flush();
+
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.flush();
+
+  // The empty text block should have been removed
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).kind == BlockKind::tool);
+}
+
+TEST_CASE("leading newlines stripped from text blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("\n\n\nanswer text", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(0).text == "answer text");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+  CHECK(log.block_at(0).cached_lines[0] == "answer text");
+}
+
+TEST_CASE("leading newlines stripped when merging text fragments") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("\n", content_type::normal);
+  log.append_fragment("\nanswer", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(0).text == "answer");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+}
+
+TEST_CASE("normalization gives consistent one blank line via separators") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  // Simulate realistic flow with extra newlines from API
+  log.append_fragment("\n\nanswer text\n\n", content_type::normal);
+  log.flush();
+
+  log.append_turn_separator(2);
+  log.flush();
+
+  // Text block should be stripped of leading/trailing newlines
+  CHECK(log.block_at(0).text == "answer text");
+  CHECK(log.block_at(0).cached_lines.size() == 1);
+  // text (1) + separator (1) + turn_separator (1) = 3 total
+  CHECK(log.total_lines() == 3);
 }
 
 TEST_SUITE_END();

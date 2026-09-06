@@ -147,7 +147,7 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
       queue.push_back({"", content_type::system, true,
                        special_type::turn_separator, turn_number});
       std::string text = extract_content_string(msg["content"]);
-      add_text_chunks(queue, "\n> " + text + "\n", content_type::user);
+      add_text_chunks(queue, "> " + text, content_type::user);
     }
     else if (role == "assistant") {
       // Content can be a string or an array of message_content objects.
@@ -155,8 +155,6 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
         const auto& content = msg["content"];
         if (content.is_string()) {
           if (!content.get<std::string>().empty()) {
-            // Blank line before final answer.
-            add_text_chunks(queue, "\n", content_type::normal);
             add_text_chunks(queue, content.get<std::string>(),
                             content_type::normal);
           }
@@ -173,16 +171,11 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
               else if (thinking.is_array() && !thinking.empty()) {
                 thinking_text = thinking[0].value("text", "");
               }
-              // Surround thinking with newlines to separate from text.
-              add_text_chunks(queue, "\n", content_type::normal);
               add_text_chunks(queue, thinking_text, content_type::thinking);
-              add_text_chunks(queue, "\n", content_type::normal);
             }
             else if (type == "text") {
               std::string text = mc.value("text", "");
               if (!text.empty()) {
-                // Blank line before final answer.
-                add_text_chunks(queue, "\n", content_type::normal);
                 add_text_chunks(queue, text, content_type::normal);
               }
             }
@@ -198,7 +191,7 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
           std::string args = tc["function"].value("arguments", "");
           std::string id = tc.value("id", "");
           queue.push_back({
-            "\n[tool] " + name + "(" + args + ")",
+            "[tool] " + name + "(" + args + ")",
             content_type::tool_call,
             true
           });
