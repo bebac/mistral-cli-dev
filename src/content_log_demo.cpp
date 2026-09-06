@@ -10,6 +10,7 @@
 // Keys:
 //   ↑/↓       line scroll
 //   PgUp/PgDn page scroll
+//   Tab       toggle collapse/expand block at viewport top
 //   q         quit
 
 #include "tui/content_log.h"
@@ -220,7 +221,7 @@ int main(int argc, char* argv[])
   auto divider_bottom = std::make_shared<Divider>();
 
   auto footer = std::make_shared<FooterBar>();
-  footer->left_text = "\xe2\x86\x91\xe2\x86\x93 scroll \xc2\xb7 PgUp/PgDn page";
+  footer->left_text = "\xe2\x86\x91\xe2\x86\x93 scroll \xc2\xb7 PgUp/PgDn page \xc2\xb7 Tab collapse";
   footer->right_text = "q quit";
   // Show just the filename, not the full path.
   auto pos = chat_path.find_last_of('/');
@@ -275,6 +276,21 @@ int main(int argc, char* argv[])
     clamp_scroll();
   });
 
+  // Tab — toggle collapse/expand block at viewport top.
+  app.register_key(9, [&]() {
+    int block_idx = content_log->block_at_line(scroll->scroll_offset);
+    if (block_idx >= 0) {
+      content_log->toggle_collapse(block_idx);
+      content_log->flush();
+      if (auto cont =
+            std::dynamic_pointer_cast<cpptui::Container>(root)) {
+        cont->layout();
+      }
+      clamp_scroll();
+      app.update();
+    }
+  });
+
   // q — quit.
   app.register_exit_key('q');
   // Ctrl+C — quit.
@@ -304,6 +320,12 @@ int main(int argc, char* argv[])
       for (int i = 0; i < fragments_per_tick && !queue.empty(); ++i) {
         auto frag = queue.front();
         queue.erase(queue.begin());
+        // Turn boundary: when a new user message starts,
+        // complete the previous turn (collapses final answer text).
+        if (frag.type == content_type::user &&
+            content_log->block_count() > 0) {
+          content_log->complete_turn();
+        }
         content_log->append_fragment(frag.text, frag.type, frag.force_new);
       }
       content_log->flush();
@@ -315,6 +337,15 @@ int main(int argc, char* argv[])
       app.update();
 
       if (queue.empty()) {
+        // Complete the final turn.
+        content_log->complete_turn();
+        content_log->flush();
+        if (auto cont =
+              std::dynamic_pointer_cast<cpptui::Container>(root)) {
+          cont->layout();
+        }
+        scroll_to_bottom();
+        app.update();
         stream_phase = 2;
       }
     }

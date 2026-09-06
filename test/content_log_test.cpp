@@ -625,4 +625,330 @@ TEST_CASE("force_new creates new block even when last is same kind") {
   CHECK(log.block_at(1).text == "second");
 }
 
+// ---------------------------------------------------------------------------
+// Auto-collapse on new block creation
+// ---------------------------------------------------------------------------
+
+TEST_CASE("thinking block auto-collapses when next block is created") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("thinking content", content_type::thinking);
+  CHECK(log.block_at(0).collapsed == false);
+
+  log.append_fragment("response", content_type::normal);
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).collapsed == true);
+  CHECK(log.block_at(1).collapsed == false);
+}
+
+TEST_CASE("tool_result block auto-collapses when next block is created") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("result", content_type::tool_result, true);
+  CHECK(log.block_at(0).collapsed == false);
+
+  log.append_fragment("response", content_type::normal);
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).collapsed == true);
+  CHECK(log.block_at(1).collapsed == false);
+}
+
+TEST_CASE("text block does not auto-collapse when next block is created") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("text content", content_type::normal);
+  log.append_fragment("thinking", content_type::thinking);
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).collapsed == false);
+  CHECK(log.block_at(1).collapsed == false);
+}
+
+TEST_CASE("force_new auto-collapses previous tool_result block") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("result A", content_type::tool_result, true);
+  log.append_fragment("result B", content_type::tool_result, true);
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).collapsed == true);
+  CHECK(log.block_at(1).collapsed == false);
+}
+
+// ---------------------------------------------------------------------------
+// Tool call status
+// ---------------------------------------------------------------------------
+
+TEST_CASE("tool_call status updated when tool_result arrives") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("\n[tool] read(path=\"test.txt\")",
+                      content_type::tool_call, true);
+  CHECK(log.block_at(0).tool_status.empty());
+
+  log.append_fragment(" \xe2\x86\x92 result content",
+                      content_type::tool_result, true);
+  REQUIRE(log.block_count() == 2);
+  CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
+  CHECK(log.block_at(0).text.find("\xe2\x9c\x93") != std::string::npos);
+}
+
+TEST_CASE("multiple tool calls get status in order") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] call1()", content_type::tool_call, true);
+  log.append_fragment("[tool] call2()", content_type::tool_call, true);
+
+  log.append_fragment(" \xe2\x86\x92 result1",
+                      content_type::tool_result, true);
+  CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
+  CHECK(log.block_at(1).tool_status.empty());
+
+  log.append_fragment(" \xe2\x86\x92 result2",
+                      content_type::tool_result, true);
+  CHECK(log.block_at(1).tool_status == "\xe2\x9c\x93");
+}
+
+// ---------------------------------------------------------------------------
+// complete_turn()
+// ---------------------------------------------------------------------------
+
+TEST_CASE("complete_turn collapses all text blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("answer text", content_type::normal);
+  log.flush();
+  CHECK(log.block_at(0).collapsed == false);
+
+  log.complete_turn();
+  CHECK(log.block_at(0).collapsed == true);
+}
+
+TEST_CASE("complete_turn does not collapse non-text blocks") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("[error] oops", content_type::error);
+  log.append_fragment("answer", content_type::normal);
+
+  log.complete_turn();
+  CHECK(log.block_at(0).collapsed == false);
+  CHECK(log.block_at(1).collapsed == true);
+}
+
+TEST_CASE("complete_turn updates total_lines for collapsed blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("line1\nline2\nline3", content_type::normal);
+  log.flush();
+  CHECK(log.total_lines() == 3);
+
+  log.complete_turn();
+  CHECK(log.total_lines() == 1);
+  CHECK(log.fixed_height == 1);
+}
+
+// ---------------------------------------------------------------------------
+// toggle_collapse()
+// ---------------------------------------------------------------------------
+
+TEST_CASE("toggle_collapse expands collapsed thinking block") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("thinking content", content_type::thinking);
+  log.append_fragment("text", content_type::normal);
+  CHECK(log.block_at(0).collapsed == true);
+
+  log.flush();
+  bool toggled = log.toggle_collapse(0);
+  CHECK(toggled == true);
+  CHECK(log.block_at(0).collapsed == false);
+}
+
+TEST_CASE("toggle_collapse collapses expanded block") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("text content", content_type::normal);
+  log.flush();
+  CHECK(log.block_at(0).collapsed == false);
+
+  bool toggled = log.toggle_collapse(0);
+  CHECK(toggled == true);
+  CHECK(log.block_at(0).collapsed == true);
+}
+
+TEST_CASE("toggle_collapse fails for non-collapsible block") {
+  mistral::tui::ContentLog log;
+  log.append_fragment("> user message", content_type::user);
+
+  bool toggled = log.toggle_collapse(0);
+  CHECK(toggled == false);
+  CHECK(log.block_at(0).collapsed == false);
+}
+
+TEST_CASE("toggle_collapse fails for invalid index") {
+  mistral::tui::ContentLog log;
+  CHECK(log.toggle_collapse(-1) == false);
+  CHECK(log.toggle_collapse(0) == false);
+  CHECK(log.toggle_collapse(999) == false);
+}
+
+TEST_CASE("toggle_collapse updates total_lines") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("line1\nline2\nline3", content_type::normal);
+  log.flush();
+  CHECK(log.total_lines() == 3);
+
+  log.toggle_collapse(0);
+  CHECK(log.total_lines() == 1);
+
+  log.toggle_collapse(0);
+  CHECK(log.total_lines() == 3);
+}
+
+// ---------------------------------------------------------------------------
+// block_at_line()
+// ---------------------------------------------------------------------------
+
+TEST_CASE("block_at_line finds correct block") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("line1\nline2", content_type::normal);
+  log.append_fragment("thinking", content_type::thinking);
+  log.append_fragment("text", content_type::normal);
+  log.flush();
+
+  // block 0: text, 2 lines (0-1)
+  // block 1: thinking, auto-collapsed, 1 line (2)
+  // block 2: text, 1 line (3)
+  CHECK(log.block_at_line(0) == 0);
+  CHECK(log.block_at_line(1) == 0);
+  CHECK(log.block_at_line(2) == 1);
+  CHECK(log.block_at_line(3) == 2);
+  CHECK(log.block_at_line(4) == -1);
+}
+
+TEST_CASE("block_at_line with collapsed blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("a\nb\nc\nd\ne", content_type::normal);
+  log.flush();
+  log.toggle_collapse(0);
+
+  CHECK(log.block_at_line(0) == 0);
+  CHECK(log.block_at_line(1) == -1);
+}
+
+// ---------------------------------------------------------------------------
+// Collapsed block rendering
+// ---------------------------------------------------------------------------
+
+TEST_CASE("render collapsed block shows summary line") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 10;
+
+  log.append_fragment("thinking content here", content_type::thinking);
+  log.append_fragment("text", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(0).collapsed == true);
+
+  cpptui::Buffer buffer(80, 10);
+  log.render(buffer);
+
+  // Summary starts with the thinking emoji
+  std::string first_char = buffer.get(0, 0).content;
+  CHECK(first_char == "\xf0\x9f\x92\xad");
+}
+
+TEST_CASE("render collapsed text block shows first line and count") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 10;
+
+  log.append_fragment("Hello world\nline2\nline3", content_type::normal);
+  log.flush();
+  log.toggle_collapse(0);
+
+  cpptui::Buffer buffer(80, 10);
+  log.render(buffer);
+
+  std::string line_content;
+  for (int i = 0; i < 80; ++i) {
+    line_content += buffer.get(i, 0).content;
+  }
+  CHECK(line_content.find("Hello world") != std::string::npos);
+  CHECK(line_content.find("(3 lines)") != std::string::npos);
+}
+
+TEST_CASE("render collapsed tool_result shows first line and count") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 10;
+
+  log.append_fragment(" \xe2\x86\x92 file content line 1\nline2\nline3",
+                      content_type::tool_result, true);
+  log.append_fragment("text", content_type::normal);
+  log.flush();
+
+  CHECK(log.block_at(0).collapsed == true);
+
+  cpptui::Buffer buffer(80, 10);
+  log.render(buffer);
+
+  std::string line_content;
+  for (int i = 0; i < 80; ++i) {
+    line_content += buffer.get(i, 0).content;
+  }
+  CHECK(line_content.find("(3 lines)") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// total_lines with collapsed blocks
+// ---------------------------------------------------------------------------
+
+TEST_CASE("total_lines accounts for collapsed blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("a\nb\nc", content_type::thinking);
+  log.append_fragment("text", content_type::normal);
+  log.flush();
+
+  // thinking collapsed (1 line) + text (1 line) = 2
+  CHECK(log.total_lines() == 2);
+  CHECK(log.fixed_height == 2);
+}
+
+TEST_CASE("total_lines with mixed collapsed and expanded blocks") {
+  mistral::tui::ContentLog log;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_fragment("a\nb\nc", content_type::thinking);
+  log.append_fragment("text1\ntext2", content_type::normal);
+  log.append_fragment("r1\nr2\nr3", content_type::tool_result, true);
+  log.append_fragment("final", content_type::normal);
+  log.flush();
+
+  // block 0: thinking collapsed (1)
+  // block 1: text expanded (2)
+  // block 2: tool_result collapsed (1)
+  // block 3: text expanded (1)
+  CHECK(log.total_lines() == 5);
+}
+
 TEST_SUITE_END();
