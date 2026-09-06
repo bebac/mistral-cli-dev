@@ -1352,4 +1352,238 @@ TEST_CASE("normalization gives consistent one blank line via separators") {
   CHECK(log.total_lines() == 3);
 }
 
+// ---------------------------------------------------------------------------
+// Text selection
+// ---------------------------------------------------------------------------
+
+TEST_CASE("selection: single text block with blank line") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 24;
+
+  std::string line1 = "There are currently **no open tasks** in the system.";
+  std::string line2 =
+    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
+  log.flush();
+
+  REQUIRE(log.block_count() == 1);
+  REQUIRE(log.block_at(0).cached_lines.size() == 3);
+
+  // Mouse press at start of line 0
+  cpptui::Event press;
+  press.type = cpptui::EventType::Mouse;
+  press.x = 0;
+  press.y = 0;
+  press.button = 0;  // left click
+  press.click_count = 1;
+  log.on_event(press);
+
+  // Mouse drag to end of line 0
+  cpptui::Event drag;
+  drag.type = cpptui::EventType::Mouse;
+  drag.x = (int)line1.size() - 1;
+  drag.y = 0;
+  drag.button = 32;  // motion with left button
+  log.on_event(drag);
+
+  // Mouse release
+  cpptui::Event release;
+  release.type = cpptui::EventType::Mouse;
+  release.x = (int)line1.size() - 1;
+  release.y = 0;
+  release.button = 3;  // release
+  log.on_event(release);
+
+  REQUIRE(log.has_selection());
+  CHECK(log.get_selected_text() == line1);
+}
+
+TEST_CASE("selection: text block after turn separator") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 24;
+
+  log.append_turn_separator(1);
+  std::string line1 = "There are currently **no open tasks** in the system.";
+  std::string line2 =
+    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
+  log.flush();
+
+  REQUIRE(log.block_count() == 2);
+  // Line 0: turn separator
+  // Line 1: separator (blank)
+  // Line 2: first text line
+  // Line 3: empty line
+  // Line 4: second text line
+
+  // Mouse press at start of text line (y=2)
+  cpptui::Event press;
+  press.type = cpptui::EventType::Mouse;
+  press.x = 0;
+  press.y = 2;
+  press.button = 0;
+  press.click_count = 1;
+  log.on_event(press);
+
+  // Mouse drag to end of text line (y=2)
+  cpptui::Event drag;
+  drag.type = cpptui::EventType::Mouse;
+  drag.x = (int)line1.size() - 1;
+  drag.y = 2;
+  drag.button = 32;
+  log.on_event(drag);
+
+  // Mouse release
+  cpptui::Event release;
+  release.type = cpptui::EventType::Mouse;
+  release.x = (int)line1.size() - 1;
+  release.y = 2;
+  release.button = 3;
+  log.on_event(release);
+
+  REQUIRE(log.has_selection());
+  CHECK(log.get_selected_text() == line1);
+}
+
+TEST_CASE("selection: select across blank line in multi-line block") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 24;
+
+  std::string line1 = "There are currently **no open tasks** in the system.";
+  std::string line2 =
+    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
+  log.flush();
+
+  // Select from start of line 0 to start of line 2 (crosses \n\n)
+  cpptui::Event press;
+  press.type = cpptui::EventType::Mouse;
+  press.x = 0;
+  press.y = 0;
+  press.button = 0;
+  press.click_count = 1;
+  log.on_event(press);
+
+  cpptui::Event drag;
+  drag.type = cpptui::EventType::Mouse;
+  drag.x = 0;
+  drag.y = 2;
+  drag.button = 32;
+  log.on_event(drag);
+
+  cpptui::Event release;
+  release.type = cpptui::EventType::Mouse;
+  release.x = 0;
+  release.y = 2;
+  release.button = 3;
+  log.on_event(release);
+
+  REQUIRE(log.has_selection());
+  // Should include line1 + \n\n + first char of line2
+  CHECK(log.get_selected_text() == line1 + "\n\nB");
+}
+
+TEST_CASE("selection: text after collapsed tool block with UTF-8 status") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 24;
+
+  // User message
+  log.append_fragment("> list tasks", content_type::user);
+
+  // Tool call + result (creates collapsed tool block with ✓ status)
+  log.append_fragment("[tool] task_list()", content_type::tool_call);
+  log.append_fragment("no tasks found\n", content_type::tool_result);
+
+  // AI text response
+  std::string line1 = "There are currently **no open tasks** in the system.";
+  std::string line2 =
+    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
+  log.flush();
+
+  // Block layout:
+  // Block 0: user "> list tasks"         (1 line)
+  // Block 1: tool (collapsed, has ✓)     (1 line)
+  // Block 2: text                        (3 lines)
+  // Content lines:
+  // 0: "> list tasks"
+  // 1: separator
+  // 2: [tool] task_list() ✓  (collapsed summary)
+  // 3: separator
+  // 4: "There are currently..."
+  // 5: ""
+  // 6: "Both..."
+
+  // Mouse press at start of text line (y=4)
+  cpptui::Event press;
+  press.type = cpptui::EventType::Mouse;
+  press.x = 0;
+  press.y = 4;
+  press.button = 0;
+  press.click_count = 1;
+  log.on_event(press);
+
+  // Mouse drag to end of text line (y=4)
+  cpptui::Event drag;
+  drag.type = cpptui::EventType::Mouse;
+  drag.x = (int)line1.size() - 1;
+  drag.y = 4;
+  drag.button = 32;
+  log.on_event(drag);
+
+  // Mouse release
+  cpptui::Event release;
+  release.type = cpptui::EventType::Mouse;
+  release.x = (int)line1.size() - 1;
+  release.y = 4;
+  release.button = 3;
+  log.on_event(release);
+
+  REQUIRE(log.has_selection());
+  // The ✓ in the tool summary is 3 bytes but 1 codepoint.
+  // If block_char_offsets_ used flat_text_.size() (bytes) instead of
+  // count_codepoints (codepoints), the selection would be off by 2.
+  CHECK(log.get_selected_text() == line1);
+}
+
+TEST_CASE("selection: select all via triple-click") {
+  mistral::tui::ContentLog log;
+  log.x = 0;
+  log.y = 0;
+  log.width = 80;
+  log.height = 24;
+
+  std::string line1 = "There are currently **no open tasks** in the system.";
+  std::string line2 =
+    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
+  log.flush();
+
+  // Triple-click selects all text in the flat text
+  cpptui::Event press;
+  press.type = cpptui::EventType::Mouse;
+  press.x = 0;
+  press.y = 0;
+  press.button = 0;
+  press.click_count = 3;
+  log.on_event(press);
+
+  REQUIRE(log.has_selection());
+  // Triple-click selects from 0 to chars.size() of flat_text
+  // flat_text = line1 + "\n" + "" + "\n" + line2 = line1 + "\n\n" + line2
+  CHECK(log.get_selected_text() == line1 + "\n\n" + line2);
+}
+
 TEST_SUITE_END();

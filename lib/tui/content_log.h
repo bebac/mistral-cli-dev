@@ -355,13 +355,13 @@ namespace mistral::tui
                             PREFIX_WIDTH);
               }
               line_char_offset +=
-                (int)cpptui::TextHelper::count_codepoints(cl);
+                (int)cpptui::TextHelper::count_codepoints(cl) + 1;
               li++;
             }
             // Tool blocks: render indented result lines
             if (block.kind == BlockKind::tool) {
               int result_base = block_char_offsets_[i] +
-                (int)cpptui::TextHelper::count_codepoints(block.text) + 1;
+                line_char_offset;
               int result_line_char_offset = 0;
               for (const auto& rl : block.result_cached_lines) {
                 if (li >= skip && block_start + li <= vis_bottom) {
@@ -371,7 +371,7 @@ namespace mistral::tui
                               PREFIX_WIDTH);
                 }
                 result_line_char_offset +=
-                  (int)cpptui::TextHelper::count_codepoints(rl);
+                  (int)cpptui::TextHelper::count_codepoints(rl) + 1;
                 li++;
               }
             }
@@ -386,7 +386,7 @@ namespace mistral::tui
                           block_char_offsets_[i] + line_char_offset);
             }
             line_char_offset +=
-              (int)cpptui::TextHelper::count_codepoints(cl);
+              (int)cpptui::TextHelper::count_codepoints(cl) + 1;
             li++;
           }
         }
@@ -507,6 +507,11 @@ namespace mistral::tui
         }
         if (event.mouse_release()) {
           selection_state_.handle_mouse_release();
+        }
+        if (hit && event.mouse_right()) {
+          if (has_selection())
+            cpptui::copy_to_clipboard(get_selected_text());
+          return true;
         }
         return false;
       }
@@ -845,7 +850,8 @@ namespace mistral::tui
 
       for (int i = 0; i < (int)blocks_.size(); ++i) {
         if (i > 0) flat_text_ += "\n";
-        block_char_offsets_[i] = (int)flat_text_.size();
+        block_char_offsets_[i] =
+          (int)cpptui::TextHelper::count_codepoints(flat_text_);
 
         if (blocks_[i].kind == BlockKind::turn_separator) {
           flat_text_ += blocks_[i].text;
@@ -855,11 +861,37 @@ namespace mistral::tui
         if (is_collapsible(blocks_[i].kind) && blocks_[i].collapsed) {
           flat_text_ += generate_summary(blocks_[i]);
         } else {
-          flat_text_ += blocks_[i].text;
-          if (blocks_[i].kind == BlockKind::tool &&
-              !blocks_[i].result_text.empty()) {
-            flat_text_ += "\n";
-            flat_text_ += blocks_[i].result_text;
+          // Build flat text from cached_lines (joined with \n) instead
+          // of raw block.text.  The cached_lines are the wrapped version
+          // of block.text — they don't contain the \n characters that
+          // separate paragraphs in the original text.  By building the
+          // flat text from cached_lines, the character offsets used in
+          // visual_to_char_idx and render (which accumulate codepoint
+          // counts of cached_lines + 1 per \n) are consistent with the
+          // flat text.
+          if (blocks_[i].cached_lines.empty()) {
+            // Block not yet flushed — fall back to raw text
+            flat_text_ += blocks_[i].text;
+            if (blocks_[i].kind == BlockKind::tool &&
+                !blocks_[i].result_text.empty()) {
+              flat_text_ += "\n";
+              flat_text_ += blocks_[i].result_text;
+            }
+          } else {
+            for (size_t li = 0;
+                 li < blocks_[i].cached_lines.size(); ++li) {
+              if (li > 0) flat_text_ += "\n";
+              flat_text_ += blocks_[i].cached_lines[li];
+            }
+            if (blocks_[i].kind == BlockKind::tool &&
+                !blocks_[i].result_text.empty()) {
+              flat_text_ += "\n";
+              for (size_t ri = 0;
+                   ri < blocks_[i].result_cached_lines.size(); ++ri) {
+                if (ri > 0) flat_text_ += "\n";
+                flat_text_ += blocks_[i].result_cached_lines[ri];
+              }
+            }
           }
         }
       }
@@ -937,7 +969,7 @@ namespace mistral::tui
             }
             line_char_offset +=
               (int)cpptui::TextHelper::count_codepoints(
-                blocks_[i].cached_lines[li]);
+                blocks_[i].cached_lines[li]) + 1;
           }
 
           // Tool blocks: check result lines
@@ -950,8 +982,7 @@ namespace mistral::tui
               int rel_x = vx - x - PREFIX_WIDTH;
               if (rel_x < 0) rel_x = 0;
               int result_base = char_offset +
-                (int)cpptui::TextHelper::count_codepoints(
-                  blocks_[i].text) + 1;
+                line_char_offset;
               int result_line_char_offset = 0;
               for (int ri = 0; ri <= result_line; ++ri) {
                 if (ri == result_line) {
@@ -966,15 +997,14 @@ namespace mistral::tui
                 }
                 result_line_char_offset +=
                   (int)cpptui::TextHelper::count_codepoints(
-                    blocks_[i].result_cached_lines[ri]);
+                    blocks_[i].result_cached_lines[ri]) + 1;
               }
             }
           }
 
           // Fallback: end of this block's text
           return char_offset +
-            (int)cpptui::TextHelper::count_codepoints(
-              blocks_[i].text);
+            std::max(0, line_char_offset - 1);
         }
       }
 
