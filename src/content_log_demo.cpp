@@ -12,6 +12,7 @@
 //   PgUp/PgDn page scroll
 //   Tab       toggle collapse/expand block at viewport top
 //   q         quit
+//
 
 #include "tui/content_log.h"
 #include "tui/tui_widgets.h"
@@ -22,6 +23,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,10 +35,14 @@ using content_type = mistral::agent::content_type;
 // force_new controls whether a new block is created even if the last block
 // has the same kind — used to separate individual tool calls/results.
 // ---------------------------------------------------------------------------
+enum class special_type { none, turn_separator };
+
 struct stream_fragment {
   std::string text;
   content_type type;
   bool force_new;
+  special_type special = special_type::none;
+  int turn_number = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -61,7 +67,8 @@ static void add_text_chunks(std::vector<stream_fragment>& queue,
         end = space + 1;
       }
     }
-    queue.push_back({text.substr(pos, end - pos), type, first});
+    queue.push_back({text.substr(pos, end - pos), type, first,
+                     special_type::none, 0});
     first = false;
     pos = end;
   }
@@ -114,6 +121,19 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
     return false;
   }
 
+  // Build a map of tool_call_id → result text from all tool messages.
+  // This lets us interleave each tool_call with its matching result.
+  std::map<std::string, std::string> tool_results;
+  for (const auto& msg : data) {
+    if (msg.value("role", "") == "tool") {
+      std::string id = msg.value("tool_call_id", "");
+      std::string text = extract_content_string(msg["content"]);
+      tool_results[id] = text;
+    }
+  }
+
+  int turn_number = 0;
+
   for (const auto& msg : data) {
     std::string role = msg.value("role", "");
 
@@ -122,6 +142,10 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
     }
 
     if (role == "user") {
+      turn_number++;
+      // Emit turn separator before each user message.
+      queue.push_back({"", content_type::system, true,
+                       special_type::turn_separator, turn_number});
       std::string text = extract_content_string(msg["content"]);
       add_text_chunks(queue, "\n> " + text + "\n", content_type::user);
     }
@@ -130,8 +154,12 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
       if (msg.contains("content")) {
         const auto& content = msg["content"];
         if (content.is_string()) {
-          add_text_chunks(queue, content.get<std::string>(),
-                          content_type::normal);
+          if (!content.get<std::string>().empty()) {
+            // Blank line before final answer.
+            add_text_chunks(queue, "\n", content_type::normal);
+            add_text_chunks(queue, content.get<std::string>(),
+                            content_type::normal);
+          }
         }
         else if (content.is_array()) {
           for (const auto& mc : content) {
@@ -152,40 +180,38 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
             }
             else if (type == "text") {
               std::string text = mc.value("text", "");
-              add_text_chunks(queue, text, content_type::normal);
+              if (!text.empty()) {
+                // Blank line before final answer.
+                add_text_chunks(queue, "\n", content_type::normal);
+                add_text_chunks(queue, text, content_type::normal);
+              }
             }
           }
         }
       }
 
-      // Tool calls — each one is its own block (force_new=true).
+      // Tool calls — each one creates a new tool block, immediately
+      // followed by its matching result (interleaved by tool_call_id).
       if (msg.contains("tool_calls") && msg["tool_calls"].is_array()) {
         for (const auto& tc : msg["tool_calls"]) {
           std::string name = tc["function"].value("name", "");
           std::string args = tc["function"].value("arguments", "");
-          // Single fragment, force_new=true for individual block.
+          std::string id = tc.value("id", "");
           queue.push_back({
             "\n[tool] " + name + "(" + args + ")",
             content_type::tool_call,
             true
           });
+          // Emit matching result immediately after the call.
+          auto it = tool_results.find(id);
+          if (it != tool_results.end()) {
+            add_text_chunks(queue, " \xe2\x86\x92 " + it->second + "\n",
+                            content_type::tool_result, 200);
+          }
         }
       }
     }
-    else if (role == "tool") {
-      std::string text = extract_content_string(msg["content"]);
-      // Each tool result is its own block (force_new=true) so each
-      // can be individually collapsed/expanded.
-      add_text_chunks(queue, " \xe2\x86\x92 " + text + "\n",
-                      content_type::tool_result, 200);
-      // Mark the first chunk as force_new to start a new block.
-      if (!queue.empty()) queue.back().force_new = true;
-      // Actually we need to set force_new on the FIRST chunk, not last.
-      // add_text_chunks sets force_new=true on first, false on rest.
-      // But we need to ensure it starts a new block even if previous
-      // was also tool_result. The first chunk already has force_new=true
-      // from add_text_chunks, so this is correct.
-    }
+    // Tool role messages are consumed via the tool_results map above.
   }
 
   return true;
@@ -320,13 +346,12 @@ int main(int argc, char* argv[])
       for (int i = 0; i < fragments_per_tick && !queue.empty(); ++i) {
         auto frag = queue.front();
         queue.erase(queue.begin());
-        // Turn boundary: when a new user message starts,
-        // complete the previous turn (collapses final answer text).
-        if (frag.type == content_type::user &&
-            content_log->block_count() > 0) {
-          content_log->complete_turn();
+        // Handle special fragment types.
+        if (frag.special == special_type::turn_separator) {
+          content_log->append_turn_separator(frag.turn_number);
+        } else {
+          content_log->append_fragment(frag.text, frag.type, frag.force_new);
         }
-        content_log->append_fragment(frag.text, frag.type, frag.force_new);
       }
       content_log->flush();
       if (auto cont =
@@ -337,8 +362,6 @@ int main(int argc, char* argv[])
       app.update();
 
       if (queue.empty()) {
-        // Complete the final turn.
-        content_log->complete_turn();
         content_log->flush();
         if (auto cont =
               std::dynamic_pointer_cast<cpptui::Container>(root)) {
