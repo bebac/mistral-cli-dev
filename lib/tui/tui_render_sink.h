@@ -19,10 +19,11 @@ namespace mistral::agent
     thinking,      // AI thinking/reasoning
     tool_call,     // Tool call header (e.g. "[tool] write(...)")
     tool_result,   // Tool result or status (e.g. "→ result")
+    tool_approval, // Tool approval prompt (attached to last tool block)
     error,         // Error messages
     warning,       // Warning messages
     user,          // User input echo
-    system,        // System messages (approval prompts, etc.)
+    system,        // System messages (non-approval)
   };
 
   // TUI render sink: routes agent output to the TUI content widget via

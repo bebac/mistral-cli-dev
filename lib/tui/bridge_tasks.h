@@ -71,7 +71,7 @@ namespace mistral::tui
             msg->substr(std::string("[APPROVAL_PROMPT]").length());
           approval_state_.store(1, std::memory_order_release);
           post_([fn = append_content_, text = std::move(prompt_text)]() {
-            fn(text, mistral::agent::content_type::system);
+            fn(text, mistral::agent::content_type::tool_approval);
           });
         }
         else if (*msg == "mistral")
