@@ -587,6 +587,19 @@ namespace mistral::tui
 
       if (event.is_mouse_event()) {
         if (hit && event.mouse_left() && !event.mouse_motion()) {
+          // Check if click landed on a collapsible block's indicator
+          // prefix (indent + indicator + space = PREFIX_WIDTH columns).
+          // Only the first line of a collapsible block has the ▶/▼
+          // indicator, so we check that the click is on that line.
+          int content_line = event.y - y;
+          ensure_block_offsets();
+          int block_idx = block_at_line(content_line);
+          if (block_idx >= 0 && is_collapsible(blocks_[block_idx].kind) &&
+              content_line == block_offsets_[block_idx] &&
+              event.x >= x && event.x < x + PREFIX_WIDTH) {
+            toggle_collapse(block_idx);
+            return true;
+          }
           set_focus(true);
           ensure_flat_text();
           int new_pos = visual_to_char_idx(event.x, event.y);
