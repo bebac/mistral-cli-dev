@@ -13,4 +13,4 @@
 [submodule "third_party/cpp-tui"]
 	path = third_party/cpp-tui
 	url = git@github.com:bebac/cpp-tui.git
-	branch = mistral-fixes
+	branch = mistral-fixes-2

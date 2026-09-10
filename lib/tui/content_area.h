@@ -6,11 +6,34 @@
 
 #include <cpptui.hpp>
 
+#include <functional>
 #include <memory>
 #include <string>
 
 namespace mistral::tui
 {
+  // ---------------------------------------------------------------------------
+  // resize_aware_scroll: ScrollableVertical that detects terminal width
+  // changes.
+  //
+  // cpptui never dispatches Resize events to widgets — its App loop only
+  // relayouts the tree and re-renders. However, App::run() calls layout()
+  // on every redraw (including the first redraw after a resize debounce),
+  // and Container::layout() is virtual, so overriding it provides an exact
+  // hook to re-wrap content before it is rendered at the new size.
+  // ---------------------------------------------------------------------------
+  class resize_aware_scroll : public cpptui::ScrollableVertical
+  {
+  public:
+    std::function<void()> on_layout;
+
+    void layout() override
+    {
+      cpptui::ScrollableVertical::layout();
+      if (on_layout) on_layout();
+    }
+  };
+
   // content_area: manages the scrollable content region of the TUI.
   //
   // Owns the ContentLog widget (block-based content with cached
@@ -48,9 +71,13 @@ namespace mistral::tui
         content_type::normal);
       content_->flush();
 
-      scroll_ = std::make_shared<cpptui::ScrollableVertical>();
-      scroll_->add(content_);
-      scroll_->focusable = false;
+      auto scroll = std::make_shared<resize_aware_scroll>();
+      scroll->add(content_);
+      scroll->focusable = false;
+      // Re-wrap content when the terminal is resized (see
+      // resize_aware_scroll).
+      scroll->on_layout = [this]() { check_resize(); };
+      scroll_ = scroll;
 
       return scroll_;
     }
@@ -108,11 +135,16 @@ namespace mistral::tui
       at_bottom_ = was_at_bottom;
 
       content_->flush();
+      last_flushed_width_ = content_->width;
 
       if (was_at_bottom) {
         int max_scroll = content_->total_lines() - visible_h;
         if (max_scroll < 0) max_scroll = 0;
         scroll_->scroll_offset = max_scroll;
+      } else {
+        // Re-wrapping changes the line count; keep the scroll offset
+        // within the new content range.
+        clamp_scroll();
       }
     }
 
@@ -182,9 +214,27 @@ namespace mistral::tui
       if (scroll_->scroll_offset > ms) scroll_->scroll_offset = ms;
     }
 
+    // Detects terminal width changes and re-wraps the content.
+    //
+    // cpptui does not dispatch Resize events to widgets — it only
+    // relayouts the tree and re-renders. Called from the
+    // resize_aware_scroll layout hook: compares the ContentLog's
+    // current width (updated by layout) against the width used at the
+    // last flush() and re-wraps all blocks when they differ.
+    void check_resize()
+    {
+      if (!content_) return;
+      if (content_->width != last_flushed_width_) {
+        flush();
+      }
+    }
+
     std::shared_ptr<ContentLog> content_;
     std::shared_ptr<cpptui::ScrollableVertical> scroll_;
     bool at_bottom_ = true;
+    // Width of the ContentLog at the last flush(); used by check_resize()
+    // to detect terminal resizes.
+    int last_flushed_width_ = 0;
   };
 
 } // namespace mistral::tui

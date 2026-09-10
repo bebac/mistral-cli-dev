@@ -314,19 +314,21 @@ namespace mistral::tui
         int wrap_w = is_collapsible(block.kind) ? w - PREFIX_WIDTH : w;
         if (wrap_w < 1) wrap_w = 1;
 
-        if (block.dirty) {
+        // Re-wrap when the block is dirty OR the cached wrapping was
+        // produced at a different width (e.g. after a terminal resize).
+        if (block.dirty || block.cached_width != wrap_w) {
           block.cached_lines = cpptui::Paragraph::wrap_text_static(
             block.text, wrap_w, 0, 0, true);
           block.cached_width = wrap_w;
           block.dirty = false;
         }
-        if (block.result_dirty) {
+        if (block.result_dirty || block.result_cached_width != wrap_w) {
           block.result_cached_lines = cpptui::Paragraph::wrap_text_static(
             block.result_text, wrap_w, 0, 0, true);
           block.result_cached_width = wrap_w;
           block.result_dirty = false;
         }
-        if (block.approval_dirty) {
+        if (block.approval_dirty || block.approval_cached_width != wrap_w) {
           block.approval_cached_lines = cpptui::Paragraph::wrap_text_static(
             block.approval_prompt, wrap_w, 0, 0, true);
           block.approval_cached_width = wrap_w;

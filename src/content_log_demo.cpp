@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -211,6 +212,26 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
 }
 
 // ---------------------------------------------------------------------------
+// resize_aware_scroll: ScrollableVertical that detects terminal width
+// changes. cpptui never dispatches Resize events to widgets, but
+// App::run() calls layout() on every redraw (including the first redraw
+// after a resize), and Container::layout() is virtual, so overriding it
+// provides an exact hook to re-wrap content before it is rendered at
+// the new size.
+// ---------------------------------------------------------------------------
+class resize_aware_scroll : public cpptui::ScrollableVertical
+{
+public:
+  std::function<void()> on_layout;
+
+  void layout() override
+  {
+    cpptui::ScrollableVertical::layout();
+    if (on_layout) on_layout();
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[])
@@ -232,7 +253,7 @@ int main(int argc, char* argv[])
     return 1;
   }
 
-  auto scroll = std::make_shared<cpptui::ScrollableVertical>();
+  auto scroll = std::make_shared<resize_aware_scroll>();
   scroll->add(content_log);
   scroll->focusable = false;
 
@@ -263,6 +284,19 @@ int main(int argc, char* argv[])
     if (max_scroll < 0) max_scroll = 0;
     if (scroll->scroll_offset > max_scroll)
       scroll->scroll_offset = max_scroll;
+  };
+
+  // Terminal resize handling (see resize_aware_scroll): re-wrap when the
+  // layout-assigned width differs from the width used at the last
+  // flush(). flush() re-wraps all blocks whose cached wrapping was
+  // produced at another width.
+  int last_flushed_width = 0;
+  scroll->on_layout = [&]() {
+    if (content_log->width == last_flushed_width) return;
+    last_flushed_width = content_log->width;
+    content_log->flush();
+    clamp_scroll();
+    app.update();
   };
 
   auto scroll_to_bottom = [&]() {
