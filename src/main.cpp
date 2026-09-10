@@ -1,6 +1,6 @@
 #include "http/tls_connection.h"
 #include "http/http_coordinator_task.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 #include "agent/interactive_agent_task.h"
 #include "agent/agent_system.h"
 #include "agent/agent_system_task.h"

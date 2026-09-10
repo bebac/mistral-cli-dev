@@ -7,7 +7,7 @@
 #include "http/http_read_task.h"
 #include "http/http_write_task.h"
 #include "http/tls_connection.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 #include "trace/trace.h"
 
 #include <dripcore/task.h>

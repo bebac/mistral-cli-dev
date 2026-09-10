@@ -12,7 +12,7 @@
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
 #include "http/http_coordinator_task.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>

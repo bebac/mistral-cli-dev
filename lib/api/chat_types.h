@@ -1,10 +1,10 @@
-#ifndef MISTRAL_API_H
-#define MISTRAL_API_H
+#ifndef API_CHAT_TYPES_H
+#define API_CHAT_TYPES_H
 
-#include "api/mistral_types.h"
+#include "api/types.h"
 
+#include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace mistral::api
@@ -24,20 +24,6 @@ namespace mistral::api
     std::optional<float> randomness;
   };
 
-  // Build the JSON body for POST /v1/chat/completions.
-  // The provider parameter controls message serialization format:
-  // "mistral" uses Mistral's thinking content array format,
-  // any other value uses OpenAI-compatible format with reasoning_content.
-  std::string build_chat_request(
-    const std::string& model,
-    const std::vector<message>& messages,
-    const json& tools_schema,
-    bool stream = true,
-    const std::optional<std::string>& prompt_cache_key = std::nullopt,
-    const sampling_params& params = {},
-    const std::string& provider = "mistral"
-  );
-
   // Parsed content from a streaming delta chunk.
   struct stream_delta
   {
@@ -48,9 +34,6 @@ namespace mistral::api
     std::string finish_reason;                  // "stop", "tool_calls", or empty
   };
 
-  // Parse a single SSE data JSON into a stream_delta.
-  stream_delta parse_stream_delta(const json& j);
-
   // Parse a non-streaming response into message content + tool calls.
   struct chat_response
   {
@@ -60,4 +43,4 @@ namespace mistral::api
   };
 } // namespace mistral::api
 
-#endif // MISTRAL_API_H
+#endif // API_CHAT_TYPES_H

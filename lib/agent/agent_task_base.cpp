@@ -29,7 +29,7 @@ namespace mistral::agent
     // Set model, api_version, provider, and system prompt
     model_ = agent_system::instance().resolve_model_id(agent_cfg.model);
     api_version_ = model_cfg.api_version;
-    provider_ = model_cfg.provider;
+    provider_ = api::provider_registry::create(model_cfg.provider);
     system_prompt_ = agent_system::instance().resolve_system_prompt(agent_cfg, model_);
 
     // Resolve sampling parameters (model defaults + agent overrides)
@@ -79,7 +79,7 @@ namespace mistral::agent
       response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
 
       // Build and send API request.
-      auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_, provider_);
+      auto body = provider_->build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
 
       agent_loop_on_sending_chat_request();
 
@@ -130,7 +130,7 @@ namespace mistral::agent
             }
           }
 
-          auto delta = api::parse_stream_delta(j);
+          auto delta = provider_->parse_stream_delta(j);
 
           // Handle content
           for (const auto& mc : delta.content) {

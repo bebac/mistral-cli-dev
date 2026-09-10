@@ -1,7 +1,7 @@
 #ifndef MISTRAL_CONVERSATION_H
 #define MISTRAL_CONVERSATION_H
 
-#include "api/mistral_types.h"
+#include "api/types.h"
 
 #include <string>
 #include <vector>

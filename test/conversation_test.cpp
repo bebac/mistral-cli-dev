@@ -1,7 +1,8 @@
 #include "doctest/doctest.h"
 #include "agent/conversation.h"
 #include "agent/tool_registry.h"
-#include "api/mistral_api.h"
+#include "api/provider.h"
+#include "api/provider_registry.h"
 
 TEST_CASE("conversation: basic message flow")
 {
@@ -188,15 +189,17 @@ TEST_CASE("conversation: sliding window without system message")
   CHECK(chat.messages()[1].content[0].content == "assistant3");
 }
 
-TEST_CASE("mistral_api: build_chat_request")
+TEST_CASE("mistral_provider: build_chat_request")
 {
   using namespace mistral::api;
+
+  auto prov = provider_registry::create("mistral");
 
   std::vector<message> msgs = {
     {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
   };
 
-  auto body = build_chat_request("test-model", msgs, json::array(), true);
+  auto body = prov->build_chat_request("test-model", msgs, json::array(), true, std::nullopt, {});
   auto j = json::parse(body);
 
   CHECK(j["model"] == "test-model");
@@ -204,9 +207,11 @@ TEST_CASE("mistral_api: build_chat_request")
   CHECK(j["messages"].size() == 1);
 }
 
-TEST_CASE("mistral_api: parse_stream_delta")
+TEST_CASE("mistral_provider: parse_stream_delta")
 {
   using namespace mistral::api;
+
+  auto prov = provider_registry::create("mistral");
 
   json j = {
     {"choices", {{
@@ -215,9 +220,97 @@ TEST_CASE("mistral_api: parse_stream_delta")
     }}}
   };
 
-  auto delta = parse_stream_delta(j);
+  auto delta = prov->parse_stream_delta(j);
   REQUIRE(delta.content.size() == 1);
   CHECK(delta.content[0].type == "text");
   CHECK(delta.content[0].content == "Hello");
   CHECK(delta.finish_reason.empty());
+}
+
+TEST_CASE("openai_provider: build_chat_request includes stream_options")
+{
+  using namespace mistral::api;
+
+  auto prov = provider_registry::create("openai");
+
+  std::vector<message> msgs = {
+    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
+  };
+
+  auto body = prov->build_chat_request("test-model", msgs, json::array(), true, std::nullopt, {});
+  auto j = json::parse(body);
+
+  CHECK(j["model"] == "test-model");
+  CHECK(j["stream"] == true);
+  CHECK(j["messages"].size() == 1);
+  CHECK(j.contains("stream_options"));
+  CHECK(j["stream_options"]["include_usage"] == true);
+  // OpenAI-compatible providers should not send Mistral-specific fields
+  CHECK_FALSE(j.contains("safe_prompt"));
+  CHECK_FALSE(j.contains("randomness"));
+  CHECK_FALSE(j.contains("prompt_cache_key"));
+}
+
+TEST_CASE("openai_provider: build_chat_request omits stream_options for non-stream")
+{
+  using namespace mistral::api;
+
+  auto prov = provider_registry::create("openai");
+
+  std::vector<message> msgs = {
+    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
+  };
+
+  auto body = prov->build_chat_request("test-model", msgs, json::array(), false, std::nullopt, {});
+  auto j = json::parse(body);
+
+  CHECK(j["stream"] == false);
+  CHECK_FALSE(j.contains("stream_options"));
+}
+
+TEST_CASE("openai_provider: parse_stream_delta handles reasoning_content")
+{
+  using namespace mistral::api;
+
+  auto prov = provider_registry::create("openai");
+
+  json j = {
+    {"choices", {{
+      {"delta", {{"reasoning_content", "thinking about this"}}},
+      {"finish_reason", nullptr}
+    }}}
+  };
+
+  auto delta = prov->parse_stream_delta(j);
+  REQUIRE(delta.content.size() == 1);
+  CHECK(delta.content[0].type == "thinking");
+  CHECK(delta.content[0].content == "thinking about this");
+}
+
+TEST_CASE("openai_provider: parse_stream_delta handles string content")
+{
+  using namespace mistral::api;
+
+  auto prov = provider_registry::create("openai");
+
+  json j = {
+    {"choices", {{
+      {"delta", {{"content", "Hello"}}},
+      {"finish_reason", nullptr}
+    }}}
+  };
+
+  auto delta = prov->parse_stream_delta(j);
+  REQUIRE(delta.content.size() == 1);
+  CHECK(delta.content[0].type == "text");
+  CHECK(delta.content[0].content == "Hello");
+  CHECK(delta.finish_reason.empty());
+}
+
+TEST_CASE("provider_registry: unknown provider defaults to openai")
+{
+  using namespace mistral::api;
+
+  auto prov = provider_registry::create("unknown-provider");
+  CHECK(prov->id() == "openai");
 }

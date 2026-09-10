@@ -2,7 +2,7 @@
 #define MISTRAL_HTTP_WRITE_TASK_H
 
 #include "http/http_client.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>

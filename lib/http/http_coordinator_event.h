@@ -1,7 +1,7 @@
 #ifndef MISTRAL_HTTP_COORDINATOR_EVENT_H
 #define MISTRAL_HTTP_COORDINATOR_EVENT_H
 
-#include "api/mistral_types.h"
+#include "api/types.h"
 
 #include <dripcore/channel.h>
 

@@ -9,7 +9,7 @@
 #include "tools/task_tools.h"
 #include "template/template_engine.h"
 
-#include <api/mistral_api.h>
+#include <api/chat_types.h>
 
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>

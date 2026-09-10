@@ -10,8 +10,8 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "agent/render_sink.h"
-#include "api/mistral_api.h"
-#include "api/mistral_types.h"
+
+#include "api/types.h"
 #include "common/string_utils.h"
 
 #include <dripcore/task.h>

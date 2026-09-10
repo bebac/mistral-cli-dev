@@ -8,8 +8,9 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "agent/edit_parser.h"
-#include "api/mistral_api.h"
-#include "api/mistral_types.h"
+#include "api/provider.h"
+#include "api/provider_registry.h"
+#include "api/types.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>
@@ -84,7 +85,7 @@ namespace mistral::agent
     // Configuration-derived properties
     std::string model_;
     std::string api_version_;
-    std::string provider_;
+    std::unique_ptr<api::provider> provider_;
     std::string system_prompt_;
     api::sampling_params sampling_params_;
     tool_registry tools_;

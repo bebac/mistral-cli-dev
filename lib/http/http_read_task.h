@@ -3,7 +3,7 @@
 
 #include "http/http_client.h"
 #include "http/http_coordinator_event.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 #include "trace/trace.h"
 
 #include <dripcore/task.h>

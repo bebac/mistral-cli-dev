@@ -2,7 +2,7 @@
 #define MISTRAL_HTTP_REQUEST_TASK_H
 
 #include "http/http_coordinator_event.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 
 #include <dripcore/task.h>
 #include <dripcore/channel.h>

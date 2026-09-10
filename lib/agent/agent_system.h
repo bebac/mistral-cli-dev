@@ -16,8 +16,8 @@
 #include "slash_command/slash_command_registry.h"
 
 #include <dripcore/channel.h>
-#include <api/mistral_types.h>
-#include <api/mistral_api.h>
+#include <api/types.h>
+#include <api/chat_types.h>
 
 #include <string>
 #include <memory>

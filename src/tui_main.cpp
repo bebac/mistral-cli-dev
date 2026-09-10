@@ -1,6 +1,6 @@
 #include "tui/tui_app.h"
 #include "http/tls_connection.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "trace/trace.h"

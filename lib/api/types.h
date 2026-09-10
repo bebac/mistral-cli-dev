@@ -1,5 +1,5 @@
-#ifndef MISTRAL_API_TYPES_H
-#define MISTRAL_API_TYPES_H
+#ifndef API_TYPES_H
+#define API_TYPES_H
 
 #include <dripcore/channel.h>
 #include <nlohmann/json.hpp>
@@ -261,7 +261,11 @@ namespace mistral::api
       // empty result). An empty string is universally accepted for tool
       // messages; null matches what OpenAI emits for contentless
       // assistant messages.
-      j["content"] = (m.role == "tool") ? "" : nullptr;
+      if (m.role == "tool") {
+        j["content"] = "";
+      } else {
+        j["content"] = json(nullptr);
+      }
     }
 
     // Add reasoning_content as top-level field for assistant messages
@@ -326,4 +330,4 @@ namespace mistral::api
   };
 } // namespace mistral::api
 
-#endif // MISTRAL_API_TYPES_H
+#endif // API_TYPES_H

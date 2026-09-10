@@ -1,7 +1,7 @@
 #include "agent/agent_task_base.h"
 #include "agent/agent_system.h"
 #include "agent/edit_parser.h"
-#include "api/mistral_types.h"
+#include "api/types.h"
 #include "doctest/doctest.h"
 
 #include <string>
