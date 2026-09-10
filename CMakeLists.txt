@@ -45,6 +45,7 @@ target_include_directories(nlohmann_json INTERFACE
 
 add_library(mistral-core STATIC
     lib/http/tls_connection.cpp
+    lib/api/provider_base.cpp
     lib/api/providers/mistral_provider.cpp
     lib/api/providers/openai_provider.cpp
     lib/api/provider_registry.cpp
