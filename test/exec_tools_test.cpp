@@ -245,6 +245,38 @@ TEST_CASE("exec_tools: timeout with output before timeout")
   CHECK(result["timed_out"].get<bool>() == true);
 }
 
+TEST_CASE("exec_tools: stdout is capped to avoid blowing the context window")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // seq 1 20000 produces well over 64 KiB of output
+  auto result = run_async_exec(tools, "seq", {"1", "20000"});
+
+  CHECK(result.contains("exit_code"));
+  CHECK(result["exit_code"].get<int>() == 0);
+  CHECK(result.contains("stdout_truncated"));
+  CHECK(result["stdout_truncated"].get<bool>() == true);
+  CHECK(result["stdout"].get<std::string>().size() == 64 * 1024);
+}
+
+TEST_CASE("exec_tools: stderr is capped to avoid blowing the context window")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // yes | head -c writes 128 KiB to stderr, then stops (SIGPIPE on yes)
+  auto result = run_async_exec(
+    tools, "sh", {"-c", "yes 'error message' | head -c 131072 >&2"});
+
+  CHECK(result.contains("exit_code"));
+  CHECK(result.contains("stderr_truncated"));
+  CHECK(result["stderr_truncated"].get<bool>() == true);
+  CHECK(result["stderr"].get<std::string>().size() == 64 * 1024);
+}
+
 TEST_CASE("exec_tools: default timeout is 30 seconds")
 {
   using namespace mistral::tools;

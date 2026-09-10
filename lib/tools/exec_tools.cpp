@@ -4,6 +4,7 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <algorithm>
 #include <cstring>
 #include <signal.h>
 #include <filesystem>
@@ -19,6 +20,11 @@ namespace mistral::tools
 {
   namespace
   {
+    // Maximum bytes of stdout/stderr kept in the result. Excess output is
+    // still drained from the pipe (so the child never blocks on a full pipe
+    // buffer) but discarded, to avoid blowing the model's context window.
+    constexpr size_t k_max_output_bytes = 64 * 1024;
+
     // RAII wrapper for file descriptors
     class fd_guard
     {
@@ -229,6 +235,8 @@ namespace mistral::tools
     // Read stdout and stderr from child with timeout
     std::string stdout_content;
     std::string stderr_content;
+    bool stdout_truncated = false;
+    bool stderr_truncated = false;
     bool timed_out = false;
 
     auto start_time = std::chrono::steady_clock::now();
@@ -239,7 +247,16 @@ namespace mistral::tools
         std::array<char, 4096> buffer;
         ssize_t n;
         while ((n = read(stdout_read_fd, buffer.data(), buffer.size())) > 0) {
-          stdout_content.append(buffer.data(), n);
+          // Cap how much we keep; keep draining the pipe so the child
+          // never blocks on a full pipe buffer.
+          if (stdout_content.size() < k_max_output_bytes) {
+            size_t remaining = k_max_output_bytes - stdout_content.size();
+            size_t to_append = std::min(remaining, static_cast<size_t>(n));
+            stdout_content.append(buffer.data(), to_append);
+            if (stdout_content.size() >= k_max_output_bytes) {
+              stdout_truncated = true;
+            }
+          }
         }
         // Ignore EAGAIN (no data available)
         if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -252,7 +269,9 @@ namespace mistral::tools
               {"error", std::format("stdout read failed: {}", strerror(errno))},
               {"exit_code", -1},
               {"stdout", stdout_content},
-              {"stderr", stderr_content}
+              {"stderr", stderr_content},
+              {"stdout_truncated", stdout_truncated},
+              {"stderr_truncated", stderr_truncated}
             };
           }
         }
@@ -263,7 +282,16 @@ namespace mistral::tools
         std::array<char, 4096> buffer;
         ssize_t n;
         while ((n = read(stderr_read_fd, buffer.data(), buffer.size())) > 0) {
-          stderr_content.append(buffer.data(), n);
+          // Cap how much we keep; keep draining the pipe so the child
+          // never blocks on a full pipe buffer.
+          if (stderr_content.size() < k_max_output_bytes) {
+            size_t remaining = k_max_output_bytes - stderr_content.size();
+            size_t to_append = std::min(remaining, static_cast<size_t>(n));
+            stderr_content.append(buffer.data(), to_append);
+            if (stderr_content.size() >= k_max_output_bytes) {
+              stderr_truncated = true;
+            }
+          }
         }
         // Ignore EAGAIN (no data available)
         if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -276,7 +304,9 @@ namespace mistral::tools
               {"error", std::format("stderr read failed: {}", strerror(errno))},
               {"exit_code", -1},
               {"stdout", stdout_content},
-              {"stderr", stderr_content}
+              {"stderr", stderr_content},
+              {"stdout_truncated", stdout_truncated},
+              {"stderr_truncated", stderr_truncated}
             };
           }
         }
@@ -302,7 +332,9 @@ namespace mistral::tools
           {"error", std::format("waitpid failed: {}", strerror(errno))},
           {"exit_code", -1},
           {"stdout", stdout_content},
-          {"stderr", stderr_content}
+          {"stderr", stderr_content},
+          {"stdout_truncated", stdout_truncated},
+          {"stderr_truncated", stderr_truncated}
         };
       }
 
@@ -338,6 +370,8 @@ namespace mistral::tools
         {"exit_code", -1},
         {"stdout", stdout_content},
         {"stderr", stderr_content},
+        {"stdout_truncated", stdout_truncated},
+        {"stderr_truncated", stderr_truncated},
         {"command", command},
         {"args", args},
         {"timed_out", true}
@@ -353,6 +387,8 @@ namespace mistral::tools
         {"exit_code", -1},
         {"stdout", stdout_content},
         {"stderr", stderr_content},
+        {"stdout_truncated", stdout_truncated},
+        {"stderr_truncated", stderr_truncated},
         {"command", command},
         {"args", args},
         {"timed_out", false}
@@ -372,6 +408,8 @@ namespace mistral::tools
       {"exit_code", exit_code},
       {"stdout", stdout_content},
       {"stderr", stderr_content},
+      {"stdout_truncated", stdout_truncated},
+      {"stderr_truncated", stderr_truncated},
       {"command", command},
       {"args", args},
       {"timed_out", false}
