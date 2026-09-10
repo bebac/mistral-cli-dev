@@ -384,7 +384,8 @@ namespace mistral::agent
           co_return json(std::string("Error: ") + e.what());
         }
       }
-      co_return json(std::format("Error: tool '{}' not found", name));
+      auto display = name.size() > 80 ? name.substr(0, 77) + "..." : name;
+      co_return json(std::format("Error: tool '{}' not found", display));
     }
 
     // Get tool definitions array for the API request.

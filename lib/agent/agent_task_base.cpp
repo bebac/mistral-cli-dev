@@ -141,7 +141,20 @@ namespace mistral::agent
           // Accumulate tool calls from deltas.
           if (delta.tool_calls) {
             for (auto &tc : *delta.tool_calls) {
-              accumulate_tool_call(accumulated_tool_calls, std::move(tc));
+              auto orphaned = accumulate_tool_call(accumulated_tool_calls, std::move(tc));
+              if (orphaned) {
+                // The server sent text as function.name on a subsequent
+                // chunk — recover it as content so it isn't lost.
+                std::cerr << std::format(
+                  "[agent] warning: recovered orphaned function.name text ({} chars)\n",
+                  orphaned->size());
+                api::message_content mc{
+                  .type = "text",
+                  .content = std::move(*orphaned)
+                };
+                agent_loop_on_message_content(mc);
+                accumulate_message_content(accumulated_content, std::move(mc));
+              }
             }
           }
 
@@ -209,6 +222,18 @@ namespace mistral::agent
             (void)api::json::parse(tc.function.arguments);
           } catch (...) {
             tc.function.arguments = "{}";
+          }
+        }
+
+        for (auto& tc : stored_tool_calls) {
+          if (!tc.function.name.empty() && !tools_.has_tool(tc.function.name)) {
+            std::cerr << std::format(
+              "[agent] warning: unknown tool '{}' (length {})\n",
+              tc.function.name.substr(0, 80),
+              tc.function.name.size());
+            if (tc.function.name.size() > 80) {
+              tc.function.name = tc.function.name.substr(0, 77) + "...";
+            }
           }
         }
 
@@ -340,14 +365,19 @@ namespace mistral::agent
     accumulated.push_back(std::move(mc));
   }
 
-  void agent_task_base::accumulate_tool_call(std::vector<api::tool_call> &accumulated, api::tool_call tc)
+  std::optional<std::string> agent_task_base::accumulate_tool_call(
+    std::vector<api::tool_call>& accumulated, api::tool_call tc)
   {
     if (!tc.id.empty())
     {
       // First chunk of a new tool call (has id, possibly name).
       accumulated.push_back(std::move(tc));
+      return std::nullopt;
     }
-    else if (tc.index.has_value())
+
+    std::optional<std::string> orphaned_name;
+
+    if (tc.index.has_value())
     {
       // OpenAI-compatible streaming: use index to find the matching
       // tool call, even if chunks from different calls are interleaved.
@@ -355,9 +385,19 @@ namespace mistral::agent
         [&](const api::tool_call& c) { return c.index == tc.index; });
       if (it != accumulated.end())
       {
-        if (!tc.function.name.empty())
+        // Per the OpenAI streaming spec, function.name is sent only in
+        // the first chunk (with id). Only set if not already present,
+        // to prevent contamination from malformed server responses
+        // where text content bleeds into the function.name field.
+        if (it->function.name.empty() && !tc.function.name.empty())
         {
-          it->function.name += tc.function.name;
+          it->function.name = tc.function.name;
+        }
+        else if (!tc.function.name.empty())
+        {
+          // Name already set but server sent another name fragment —
+          // this is malformed. Recover the text as content.
+          orphaned_name = std::move(tc.function.name);
         }
         it->function.arguments += tc.function.arguments;
       }
@@ -365,13 +405,19 @@ namespace mistral::agent
     else if (!accumulated.empty())
     {
       // Fallback: append to last (Mistral format, no index field).
-      auto &last = accumulated.back();
-      if (!tc.function.name.empty())
+      auto& last = accumulated.back();
+      if (last.function.name.empty() && !tc.function.name.empty())
       {
-        last.function.name += tc.function.name;
+        last.function.name = tc.function.name;
+      }
+      else if (!tc.function.name.empty())
+      {
+        orphaned_name = std::move(tc.function.name);
       }
       last.function.arguments += tc.function.arguments;
     }
+
+    return orphaned_name;
   }
 
   auto agent_task_base::execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>
