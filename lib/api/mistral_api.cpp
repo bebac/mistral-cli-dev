@@ -8,12 +8,27 @@ namespace mistral::api
     const json& tools_schema,
     bool stream,
     const std::optional<std::string>& prompt_cache_key,
-    const sampling_params& params)
+    const sampling_params& params,
+    const std::string& provider)
   {
     json body;
     body["model"]    = model;
-    body["messages"]  = messages;
     body["stream"]    = stream;
+
+    // Serialize messages based on provider format
+    json messages_arr = json::array();
+    for (const auto& msg : messages)
+    {
+      if (provider == "mistral")
+      {
+        messages_arr.push_back(message_to_json(msg, true));
+      }
+      else
+      {
+        messages_arr.push_back(message_to_json_openai_compatible(msg));
+      }
+    }
+    body["messages"] = messages_arr;
 
     // Apply sampling parameters if provided
     if (params.reasoning_effort) {
@@ -40,15 +55,25 @@ namespace mistral::api
     if (params.seed) {
       body["seed"] = *params.seed;
     }
-    if (params.safe_prompt) {
-      body["safe_prompt"] = *params.safe_prompt;
-    }
-    if (params.randomness) {
-      body["randomness"] = *params.randomness;
+
+    // Mistral-specific fields — only sent for the Mistral provider
+    if (provider == "mistral")
+    {
+      if (params.safe_prompt) {
+        body["safe_prompt"] = *params.safe_prompt;
+      }
+      if (params.randomness) {
+        body["randomness"] = *params.randomness;
+      }
+      if (prompt_cache_key) {
+        body["prompt_cache_key"] = *prompt_cache_key;
+      }
     }
 
-    if (prompt_cache_key) {
-      body["prompt_cache_key"] = *prompt_cache_key;
+    // OpenAI-compatible providers: request usage in stream
+    if (provider != "mistral" && stream)
+    {
+      body["stream_options"] = {{"include_usage", true}};
     }
 
     if (!tools_schema.empty()) {
@@ -133,6 +158,22 @@ namespace mistral::api
       }
     }
 
+    // Handle OpenAI-compatible "reasoning_content" field (e.g. GreenPT / GLM).
+    // Some providers send thinking/reasoning as a separate top-level string
+    // field in the delta, rather than inside the content array.
+    if (delta.contains("reasoning_content") && !delta["reasoning_content"].is_null()) {
+      const auto& reasoning_json = delta["reasoning_content"];
+      if (reasoning_json.is_string()) {
+        std::string text = reasoning_json.get<std::string>();
+        if (!text.empty()) {
+          message_content mc;
+          mc.type = "thinking";
+          mc.content = std::move(text);
+          result.content.push_back(std::move(mc));
+        }
+      }
+    }
+
     if (delta.contains("tool_calls") && delta["tool_calls"].is_array()) {
       std::vector<tool_call> calls;
       for (const auto& tc : delta["tool_calls"]) {
@@ -154,6 +195,9 @@ namespace mistral::api
         }
         if (tc.contains("extra_content"))  {
           call.extra_content = tc["extra_content"];
+        }
+        if (tc.contains("index") && !tc["index"].is_null()) {
+          call.index = tc["index"].get<int>();
         }
         calls.push_back(std::move(call));
       }

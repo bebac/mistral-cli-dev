@@ -140,8 +140,11 @@ namespace mistral::agent
       }
       catch (const std::exception &e)
       {
-        sink_->output_warning(std::string("Failed to parse tool arguments: ") + e.what());
-        tool_args = api::json::object();
+        std::string error_msg = std::string("Failed to parse tool arguments: ") + e.what();
+        sink_->output_warning(error_msg);
+        chat_.add_tool_result(tc.function.name, tc.id,
+          build_tool_rejection("error", error_msg).dump());
+        co_return;
       }
 
       auto policy_result = evaluate_tool_policy(tc, tool_args);

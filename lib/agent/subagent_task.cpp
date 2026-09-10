@@ -52,7 +52,10 @@ namespace mistral::agent
     }
     catch (const std::exception &e)
     {
-      tool_args = api::json::object();
+      std::string error_msg = std::string("Failed to parse tool arguments: ") + e.what();
+      chat_.add_tool_result(tc.function.name, tc.id,
+        build_tool_rejection("error", error_msg).dump());
+      co_return;
     }
 
     auto policy_result = evaluate_tool_policy(tc, tool_args);

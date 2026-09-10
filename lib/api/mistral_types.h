@@ -101,6 +101,7 @@ namespace mistral::api
     std::string type = "function";
     tool_call_function function;
     std::optional<json> extra_content; // google, v1beta/openai reqiures this for thought_signature
+    std::optional<int> index; // OpenAI-compatible streaming: identifies which tool call a chunk belongs to
   };
 
   inline void to_json(json& j, const tool_call_function& f)
@@ -129,6 +130,9 @@ namespace mistral::api
     j.at("function").get_to(tc.function);
     if (j.contains("extra_content")) {
       tc.extra_content = j["extra_content"];
+    }
+    if (j.contains("index") && !j["index"].is_null()) {
+      tc.index = j["index"].get<int>();
     }
   }
 
@@ -200,6 +204,86 @@ namespace mistral::api
   inline void to_json(json& j, const message& m)
   {
     j = message_to_json(m, true);
+  }
+
+  // Serialize a message in OpenAI-compatible format.
+  // Thinking content is extracted into a top-level `reasoning_content` string
+  // field instead of being included as content array blocks (Mistral format).
+  // This is required for OpenAI-compatible providers (e.g. GreenPT, DeepSeek)
+  // that expect reasoning as a separate field, not as content array entries.
+  inline json message_to_json_openai_compatible(const message& m)
+  {
+    json j = {{"role", m.role}};
+
+    // Extract thinking content and text content separately
+    std::string reasoning_content;
+    std::vector<message_content> text_content;
+
+    for (const auto& mc : m.content)
+    {
+      if (mc.type == "thinking")
+      {
+        if (!reasoning_content.empty()) reasoning_content += " ";
+        reasoning_content += mc.content;
+      }
+      else if (!mc.content.empty())
+      {
+        text_content.push_back(mc);
+      }
+    }
+
+    // Set content
+    if (!text_content.empty())
+    {
+      if (text_content.size() == 1 && text_content[0].type == "text")
+      {
+        j["content"] = text_content[0].content;
+      }
+      else
+      {
+        json content_arr = json::array();
+        for (const auto& mc : text_content)
+        {
+          json block = {{"type", mc.type}};
+          if (mc.type == "text")
+          {
+            block["text"] = mc.content;
+          }
+          content_arr.push_back(block);
+        }
+        j["content"] = content_arr;
+      }
+    }
+    else
+    {
+      // Always emit a content field. Strict OpenAI-compatible servers
+      // reject tool messages without one (e.g. a tool that returned an
+      // empty result). An empty string is universally accepted for tool
+      // messages; null matches what OpenAI emits for contentless
+      // assistant messages.
+      j["content"] = (m.role == "tool") ? "" : nullptr;
+    }
+
+    // Add reasoning_content as top-level field for assistant messages
+    if (m.role == "assistant" && !reasoning_content.empty())
+    {
+      j["reasoning_content"] = reasoning_content;
+    }
+
+    if (m.tool_calls && !m.tool_calls->empty())
+    {
+      j["tool_calls"] = *m.tool_calls;
+    }
+    if (m.name)
+    {
+      j["name"] = *m.name;
+    }
+    if (m.tool_call_id)
+    {
+      j["tool_call_id"] = *m.tool_call_id;
+    }
+
+    return j;
   }
 
   // ---- HTTP-level request/response types (for channel transport) ----

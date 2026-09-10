@@ -92,10 +92,13 @@ namespace mistral::net
       else if (!req_stream)
       {
         response_ch->try_send({api::event_type::data, std::move(response->body)});
-        response_ch->try_send({api::event_type::done, {}});
       }
-      // For successful streaming, the SSE parser already sent [DONE].
+      // Always send done on stream close. For streaming requests the SSE
+      // parser may have already sent done on [DONE], but some providers
+      // close the stream without a [DONE] sentinel, so this guarantees
+      // the consumer's event loop terminates.
       response->done = true;
+      response_ch->try_send({api::event_type::done, {}});
       if (completion_ch) completion_ch->try_send(true);
     }
 

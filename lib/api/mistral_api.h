@@ -25,13 +25,17 @@ namespace mistral::api
   };
 
   // Build the JSON body for POST /v1/chat/completions.
+  // The provider parameter controls message serialization format:
+  // "mistral" uses Mistral's thinking content array format,
+  // any other value uses OpenAI-compatible format with reasoning_content.
   std::string build_chat_request(
     const std::string& model,
     const std::vector<message>& messages,
     const json& tools_schema,
     bool stream = true,
     const std::optional<std::string>& prompt_cache_key = std::nullopt,
-    const sampling_params& params = {}
+    const sampling_params& params = {},
+    const std::string& provider = "mistral"
   );
 
   // Parsed content from a streaming delta chunk.

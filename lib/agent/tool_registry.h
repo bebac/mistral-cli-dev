@@ -368,7 +368,13 @@ namespace mistral::agent
     dripcore::awaitable<json> dispatch(const json& tool_call)
     {
       auto name = tool_call["function"]["name"].get<std::string>();
-      auto args = json::parse(tool_call["function"]["arguments"].get<std::string>());
+
+      json args;
+      try {
+        args = json::parse(tool_call["function"]["arguments"].get<std::string>());
+      } catch (const std::exception& e) {
+        co_return json(std::string("Error: failed to parse tool arguments: ") + e.what());
+      }
 
       auto it = tools_.find(name);
       if (it != tools_.end()) {

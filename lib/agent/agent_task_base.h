@@ -84,6 +84,7 @@ namespace mistral::agent
     // Configuration-derived properties
     std::string model_;
     std::string api_version_;
+    std::string provider_;
     std::string system_prompt_;
     api::sampling_params sampling_params_;
     tool_registry tools_;

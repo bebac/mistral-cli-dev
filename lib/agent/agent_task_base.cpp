@@ -2,6 +2,7 @@
 
 #include "common/string_utils.h"
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 
@@ -25,9 +26,10 @@ namespace mistral::agent
     const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
     const auto& model_cfg = agent_system::instance().get_model_config(agent_cfg.model);
 
-    // Set model, api_version, and system prompt
+    // Set model, api_version, provider, and system prompt
     model_ = agent_system::instance().resolve_model_id(agent_cfg.model);
     api_version_ = model_cfg.api_version;
+    provider_ = model_cfg.provider;
     system_prompt_ = agent_system::instance().resolve_system_prompt(agent_cfg, model_);
 
     // Resolve sampling parameters (model defaults + agent overrides)
@@ -77,7 +79,7 @@ namespace mistral::agent
       response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
 
       // Build and send API request.
-      auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
+      auto body = api::build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_, provider_);
 
       agent_loop_on_sending_chat_request();
 
@@ -151,6 +153,9 @@ namespace mistral::agent
             agent_loop_on_error("got finish_reason 'error'");
             // TODO - Should this end the loop?
           }
+          else if (!delta.finish_reason.empty()) {
+            std::cerr << "[agent] unexpected finish reason '" << delta.finish_reason << "'" << std::endl;
+          }
         }
         catch (const std::exception& e) {
           agent_loop_on_error(std::format("malformed SSE data '{}' {}", evt->payload, e.what()));
@@ -192,10 +197,25 @@ namespace mistral::agent
         // in_thinking_ true and missing the newline separator.
         if (in_thinking_) thinking_end();
 
+        // Sanitize tool call arguments for storage. The assistant message
+        // is sent back in the conversation history on subsequent API requests.
+        // If function.arguments contains invalid JSON, OpenAI-compatible
+        // providers (e.g. GreenPT) reject the entire request, causing the
+        // agent to silently fail on all future messages. Replace invalid
+        // JSON with an empty object so the stored message is always valid.
+        auto stored_tool_calls = accumulated_tool_calls;
+        for (auto& tc : stored_tool_calls) {
+          try {
+            (void)api::json::parse(tc.function.arguments);
+          } catch (...) {
+            tc.function.arguments = "{}";
+          }
+        }
+
         // Add assistant message with accumulated content and tool calls.
         chat_.add_assistant_message(
           std::move(accumulated_content),
-          std::vector<api::tool_call>(accumulated_tool_calls)
+          std::move(stored_tool_calls)
         );
 
         // Execute each tool call.
@@ -324,10 +344,27 @@ namespace mistral::agent
   {
     if (!tc.id.empty())
     {
+      // First chunk of a new tool call (has id, possibly name).
       accumulated.push_back(std::move(tc));
+    }
+    else if (tc.index.has_value())
+    {
+      // OpenAI-compatible streaming: use index to find the matching
+      // tool call, even if chunks from different calls are interleaved.
+      auto it = std::find_if(accumulated.begin(), accumulated.end(),
+        [&](const api::tool_call& c) { return c.index == tc.index; });
+      if (it != accumulated.end())
+      {
+        if (!tc.function.name.empty())
+        {
+          it->function.name += tc.function.name;
+        }
+        it->function.arguments += tc.function.arguments;
+      }
     }
     else if (!accumulated.empty())
     {
+      // Fallback: append to last (Mistral format, no index field).
       auto &last = accumulated.back();
       if (!tc.function.name.empty())
       {
