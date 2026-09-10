@@ -65,6 +65,10 @@ namespace mistral::agent
     json resolve_tool_policy(
         const agent_config& agent_cfg) const;
 
+    // Resolve tool schema options (model defaults + agent overrides).
+    // These are client-side schema generation options, not API request params.
+    tool_schema_options resolve_tool_schema_options(const agent_config& agent_cfg) const;
+
     // Agent configuration access
     const agent_config& get_agent_config(const std::string& agent_id) const;
     bool has_agent_config(const std::string& agent_id) const;

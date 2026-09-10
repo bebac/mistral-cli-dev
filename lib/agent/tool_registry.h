@@ -100,7 +100,7 @@ namespace mistral::agent
   public:
     virtual ~tool_interface() = default;
     virtual dripcore::awaitable<json> execute(const json& args) = 0;
-    virtual json get_schema(const std::string& tool_name) = 0;
+    virtual json get_schema(const std::string& tool_name, bool strict = false) = 0;
     virtual std::shared_ptr<tool_interface> clone() const = 0;
   };
 
@@ -127,7 +127,7 @@ namespace mistral::agent
       }
     }
 
-    json get_schema(const std::string& tool_name) override
+    json get_schema(const std::string& tool_name, bool strict = false) override
     {
       json properties = json::object();
       json required_list = json::array();
@@ -141,24 +141,38 @@ namespace mistral::agent
 
           if (info.default_value) {
             property["default"] = json::parse(*info.default_value);
-          } else {
+          }
+          // In strict mode all properties must be listed in "required",
+          // even those with default values.
+          if (!info.default_value || strict) {
             required_list.push_back(info.name);
           }
           properties[info.name] = property;
         }.template operator()<Args>(),
         ...);
+
+      json parameters = {
+        {"type", "object"},
+        {"properties", properties},
+        {"required", required_list}
+      };
+      if (strict) {
+        parameters["additionalProperties"] = false;
+      }
+
+      json function = {
+        {"name", tool_name},
+        {"description", description_},
+        {"parameters", parameters}
+      };
+      if (strict) {
+        function["strict"] = true;
+      }
+
       // Mistral API format: {"type":"function","function":{...}}
       return {
         {"type", "function"},
-        {"function", {
-          {"name", tool_name},
-          {"description", description_},
-          {"parameters", {
-            {"type", "object"},
-            {"properties", properties},
-            {"required", required_list}
-          }}
-        }}
+        {"function", function}
       };
     }
 
@@ -332,6 +346,7 @@ namespace mistral::agent
 
     // Copy constructor - creates a deep copy of the registry
     tool_registry(const tool_registry& other)
+      : strict_mode_(other.strict_mode_)
     {
       for (const auto& [name, tool] : other.tools_) {
         // Clone the tool_wrapper by re-registering with the same parameters
@@ -346,6 +361,7 @@ namespace mistral::agent
     {
       if (this != &other) {
         tools_.clear();
+        strict_mode_ = other.strict_mode_;
         for (const auto& [name, tool] : other.tools_) {
           tools_[name] = tool->clone();
         }
@@ -393,9 +409,24 @@ namespace mistral::agent
     {
       json schema = json::array();
       for (const auto& [name, tool] : tools_) {
-        schema.push_back(tool->get_schema(name));
+        schema.push_back(tool->get_schema(name, strict_mode_));
       }
       return schema;
+    }
+
+    // Enable/disable strict mode for tool schema generation.
+    // When enabled, tool schemas include "strict": true,
+    // "additionalProperties": false, and list all properties
+    // (including optional ones) in "required".
+    void set_strict_mode(bool enabled)
+    {
+      strict_mode_ = enabled;
+    }
+
+    // Check whether strict mode is enabled
+    bool strict_mode() const
+    {
+      return strict_mode_;
     }
 
     // Check if a tool is registered
@@ -425,6 +456,7 @@ namespace mistral::agent
 
   private:
     std::map<std::string, std::shared_ptr<tool_interface>> tools_;
+    bool strict_mode_ = false;
   };
 
 } // namespace mistral::agent

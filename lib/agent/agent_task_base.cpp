@@ -38,6 +38,10 @@ namespace mistral::agent
     // Create tool registry with filtered tools
     tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
 
+    // Apply tool schema options (client-side, not part of the API request)
+    auto schema_opts = agent_system::instance().resolve_tool_schema_options(agent_cfg);
+    tools_.set_strict_mode(schema_opts.strict_mode);
+
     // Set up policy engine from resolved tool policy
     auto tool_policy_config = agent_system::instance().resolve_tool_policy(agent_cfg);
     policy_engine_.load_configuration(tool_policy_config);

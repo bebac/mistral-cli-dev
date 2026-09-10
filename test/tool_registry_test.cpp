@@ -16,6 +16,10 @@ namespace mistral::agent
     json add(int a, int b) { return {{"result", a + b}}; }
     json greet(std::string name) { return {{"result", "Hello, " + name}}; }
     json multiply(int a, int b) { return {{"result", a * b}}; }
+    json greet_titled(std::string name, std::string title)
+    {
+      return {{"result", "Hello, " + title + " " + name}};
+    }
   };
 
   // Helper to run an async dispatch call from a test
@@ -319,4 +323,158 @@ TEST_CASE("tool_registry: add_tool directly")
   });
 
   CHECK(result["result"] == 30);
+}
+
+TEST_CASE("tool_registry: strict mode off by default")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "greet_titled",
+    "Greet someone with a title",
+    &tool_inst, &test_tool::greet_titled,
+    arg("name", "Name to greet"),
+    arg("title", "Optional title", std::string("Mr."))
+  );
+
+  CHECK(registry.strict_mode() == false);
+
+  auto schema = registry.get_schema();
+  REQUIRE(schema.is_array());
+  REQUIRE(schema.size() == 1);
+
+  auto tool_def = schema[0];
+
+  // No "strict" field in the function object
+  CHECK(tool_def["function"].contains("strict") == false);
+
+  // No "additionalProperties" in parameters
+  CHECK(tool_def["function"]["parameters"].contains("additionalProperties") == false);
+
+  // Only required args (non-default) are in "required"
+  auto required = tool_def["function"]["parameters"]["required"];
+  CHECK(required == json::array({"name"}));
+
+  // Optional arg (with default) is still present in properties
+  auto props = tool_def["function"]["parameters"]["properties"];
+  CHECK(props.contains("name") == true);
+  CHECK(props.contains("title") == true);
+  CHECK(props["title"]["default"] == "Mr.");
+}
+
+TEST_CASE("tool_registry: strict mode on includes strict and additionalProperties")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "greet_titled",
+    "Greet someone with a title",
+    &tool_inst, &test_tool::greet_titled,
+    arg("name", "Name to greet"),
+    arg("title", "Optional title", std::string("Mr."))
+  );
+
+  registry.set_strict_mode(true);
+  CHECK(registry.strict_mode() == true);
+
+  auto schema = registry.get_schema();
+  REQUIRE(schema.is_array());
+  REQUIRE(schema.size() == 1);
+
+  auto tool_def = schema[0];
+
+  // "strict": true inside the function object
+  CHECK(tool_def["function"]["strict"] == true);
+
+  // "additionalProperties": false on parameters
+  CHECK(tool_def["function"]["parameters"]["additionalProperties"] == false);
+
+  // ALL property names (including those with defaults) are in "required"
+  auto required = tool_def["function"]["parameters"]["required"];
+  CHECK(required.size() == 2);
+  CHECK(required[0] == "name");
+  CHECK(required[1] == "title");
+}
+
+TEST_CASE("tool_registry: strict mode does not affect argument parsing")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "greet_titled",
+    "Greet someone with a title",
+    &tool_inst, &test_tool::greet_titled,
+    arg("name", "Name to greet"),
+    arg("title", "Optional title", std::string("Mr."))
+  );
+
+  registry.set_strict_mode(true);
+
+  // Dispatch omitting the optional arg — default value must still be used
+  auto result = run_async_dispatch(registry, {
+    {"function", {
+      {"name", "greet_titled"},
+      {"arguments", R"({"name": "World"})"}
+    }}
+  });
+
+  CHECK(result["result"] == "Hello, Mr. World");
+
+  // Dispatch providing the optional arg explicitly
+  result = run_async_dispatch(registry, {
+    {"function", {
+      {"name", "greet_titled"},
+      {"arguments", R"({"name": "World", "title": "Dr."})"}
+    }}
+  });
+
+  CHECK(result["result"] == "Hello, Dr. World");
+}
+
+TEST_CASE("tool_registry: strict mode is per-registry, not global")
+{
+  using namespace mistral::agent;
+
+  test_tool tool_inst;
+
+  tool_registry strict_registry;
+  strict_registry.register_tool(
+    "greet_titled",
+    "Greet someone with a title",
+    &tool_inst, &test_tool::greet_titled,
+    arg("name", "Name to greet"),
+    arg("title", "Optional title", std::string("Mr."))
+  );
+  strict_registry.set_strict_mode(true);
+
+  tool_registry plain_registry;
+  plain_registry.register_tool(
+    "greet_titled",
+    "Greet someone with a title",
+    &tool_inst, &test_tool::greet_titled,
+    arg("name", "Name to greet"),
+    arg("title", "Optional title", std::string("Mr."))
+  );
+
+  auto strict_schema = strict_registry.get_schema();
+  auto plain_schema = plain_registry.get_schema();
+
+  // Schemas differ: one has strict, the other doesn't
+  CHECK(strict_schema != plain_schema);
+  CHECK(strict_schema[0]["function"]["strict"] == true);
+  CHECK(plain_schema[0]["function"].contains("strict") == false);
+
+  // Copies preserve the strict mode setting
+  tool_registry copy = strict_registry;
+  CHECK(copy.strict_mode() == true);
+  CHECK(copy.get_schema() == strict_schema);
 }

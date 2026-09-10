@@ -218,6 +218,9 @@ namespace mistral::agent
         if (model_json.contains("randomness") && !model_json["randomness"].is_null()) {
           model_cfg.randomness = model_json["randomness"].get<float>();
         }
+        if (model_json.contains("strict_mode") && !model_json["strict_mode"].is_null()) {
+          model_cfg.strict_mode = model_json["strict_mode"].get<bool>();
+        }
 
         config.models[name] = std::move(model_cfg);
       }
@@ -293,6 +296,9 @@ namespace mistral::agent
         }
         if (agent_json.contains("randomness") && !agent_json["randomness"].is_null()) {
           agent_cfg.randomness = agent_json["randomness"].get<float>();
+        }
+        if (agent_json.contains("strict_mode") && !agent_json["strict_mode"].is_null()) {
+          agent_cfg.strict_mode = agent_json["strict_mode"].get<bool>();
         }
 
         config.agents[name] = std::move(agent_cfg);
@@ -696,6 +702,23 @@ namespace mistral::agent
     if (agent_cfg.randomness) params.randomness = *agent_cfg.randomness;
 
     return params;
+  }
+
+  tool_schema_options agent_system::resolve_tool_schema_options(const agent_config& agent_cfg) const
+  {
+    tool_schema_options opts;
+
+    // Model defaults
+    if (has_model_config(agent_cfg.model))
+    {
+      const auto& model_cfg = get_model_config(agent_cfg.model);
+      if (model_cfg.strict_mode) opts.strict_mode = *model_cfg.strict_mode;
+    }
+
+    // Agent overrides (if specified)
+    if (agent_cfg.strict_mode) opts.strict_mode = *agent_cfg.strict_mode;
+
+    return opts;
   }
 
   std::string agent_system::resolve_model_id(const std::string &model_name) const

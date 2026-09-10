@@ -1,6 +1,7 @@
 #ifndef MISTRAL_AGENT_CONFIG_H
 #define MISTRAL_AGENT_CONFIG_H
 
+#include <optional>
 #include <string>
 #include <vector>
 #include <map>
@@ -29,6 +30,7 @@ namespace mistral::agent
     std::optional<int> seed;                      // Random seed for deterministic output
     std::optional<bool> safe_prompt;              // Mistral-specific
     std::optional<float> randomness;              // Mistral-specific, 0.0 to 1.0
+    std::optional<bool> strict_mode;              // Strict tool schema mode (OpenAI-style)
   };
 
   // ---- Agent Configuration ----
@@ -51,6 +53,16 @@ namespace mistral::agent
     std::optional<int> seed;                      // Override model default
     std::optional<bool> safe_prompt;              // Override model default
     std::optional<float> randomness;              // Override model default
+    std::optional<bool> strict_mode;              // Override model default
+  };
+
+  // ---- Tool Schema Options ----
+  // Client-side options controlling tool schema generation.
+  // These are NOT API request parameters and are never serialized
+  // into request bodies.
+  struct tool_schema_options
+  {
+    bool strict_mode = false;  // OpenAI-style strict tool schema mode
   };
 
   // ---- Full Configuration ----

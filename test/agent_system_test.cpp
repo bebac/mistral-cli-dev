@@ -314,6 +314,60 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple model
   CHECK(ro_agent.available_tools.size() == 2);
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_schema_options: model default, agent override, explicit false")
+{
+  nlohmann::json config = {
+    {"models", {
+      {"strict-model", {
+        {"provider", "mistral"},
+        {"model_id", "mistral-medium-latest"},
+        {"strict_mode", true}
+      }},
+      {"plain-model", {
+        {"provider", "mistral"},
+        {"model_id", "mistral-small-latest"}
+      }}
+    }},
+    {"agents", {
+      {"inherits", {
+        {"model", "strict-model"}
+      }},
+      {"explicit_on", {
+        {"model", "plain-model"},
+        {"strict_mode", true}
+      }},
+      {"explicit_off", {
+        {"model", "strict-model"},
+        {"strict_mode", false}
+      }},
+      {"plain", {
+        {"model", "plain-model"}
+      }}
+    }},
+    {"policy", {{"default", "deny"}}}
+  };
+
+  create_config_file(config);
+  auto &system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir, nullptr);
+
+  // Model default inherited
+  auto opts = system.resolve_tool_schema_options(system.get_agent_config("inherits"));
+  CHECK(opts.strict_mode == true);
+
+  // Agent-level true on a non-strict model
+  opts = system.resolve_tool_schema_options(system.get_agent_config("explicit_on"));
+  CHECK(opts.strict_mode == true);
+
+  // Agent-level false overrides model-level true
+  opts = system.resolve_tool_schema_options(system.get_agent_config("explicit_off"));
+  CHECK(opts.strict_mode == false);
+
+  // Default off when neither model nor agent sets it
+  opts = system.resolve_tool_schema_options(system.get_agent_config("plain"));
+  CHECK(opts.strict_mode == false);
+}
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_agent_config: throws for missing agent")
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
