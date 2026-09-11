@@ -93,8 +93,8 @@ namespace mistral::tui
       post_fn post;
       append_fn append_content;
       append_fn append_fragment;
-      std::function<void()> flush;
-      std::function<void()> completed;
+      flush_fn flush;
+      completed_fn completed;
       approval_state_fn on_approval_state;
     };
 

@@ -2,7 +2,7 @@
 #define MISTRAL_TUI_BRIDGE_TASKS_H
 
 #include "tui/tui_thread_safe_queue.h"
-#include "tui/tui_render_sink.h"
+#include "tui/tui_types.h"
 #include "tui/tui_approval_state.h"
 #include "slash_command/slash_command.h"
 #include "trace/trace.h"
@@ -18,13 +18,8 @@
 
 namespace mistral::tui
 {
-  // Shared callback typedefs used by bridge tasks that post content
-  // back to the TUI thread.
-  using post_fn   = std::function<void(std::function<void()>)>;
-  using append_fn = std::function<void(const std::string&,
-                                       mistral::tui::content_type)>;
-
   // ---------------------------------------------------------------------------
+
   // prompt_bridge_task: runs in dripcore context, bridges prompt_ch_ to the
   // TUI thread. Reads prompt messages from the agent task and routes them:
   //   - "mistral" → sets agent_ready flag (agent is ready for input)

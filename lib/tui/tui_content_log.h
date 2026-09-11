@@ -1,7 +1,7 @@
 #ifndef MISTRAL_TUI_CONTENT_LOG_H
 #define MISTRAL_TUI_CONTENT_LOG_H
 
-#include "tui/tui_render_sink.h"
+#include "tui/tui_types.h"
 
 #include <cpptui.hpp>
 

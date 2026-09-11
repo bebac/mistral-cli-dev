@@ -25,7 +25,7 @@ namespace {
     std::vector<std::function<void()>> posted;
     int post_count = 0;
 
-    mistral::tui::tui_render_sink::post_fn make_post() {
+    mistral::tui::post_fn make_post() {
       return [this](std::function<void()> cb) {
         std::lock_guard<std::mutex> lock(mutex);
         posted.push_back(std::move(cb));
@@ -33,21 +33,21 @@ namespace {
       };
     }
 
-    mistral::tui::tui_render_sink::append_fn make_append() {
+    mistral::tui::append_fn make_append() {
       return [this](const std::string& text, content_type type) {
         std::lock_guard<std::mutex> lock(mutex);
         appended.emplace_back(text, type);
       };
     }
 
-    mistral::tui::tui_render_sink::flush_fn make_flush() {
+    mistral::tui::flush_fn make_flush() {
       return [this]() {
         std::lock_guard<std::mutex> lock(mutex);
         ++flush_count;
       };
     }
 
-    mistral::tui::tui_render_sink::completed_fn make_completed() {
+    mistral::tui::completed_fn make_completed() {
       return [this]() {
         std::lock_guard<std::mutex> lock(mutex);
         ++completed_count;

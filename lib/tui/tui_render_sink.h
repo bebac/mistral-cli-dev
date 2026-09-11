@@ -2,6 +2,7 @@
 #define MISTRAL_TUI_RENDER_SINK_H
 
 #include "agent/render_sink.h"
+#include "tui/tui_types.h"
 
 #include <atomic>
 #include <functional>
@@ -12,20 +13,6 @@
 
 namespace mistral::tui
 {
-  // Content type tag for styled rendering. The append_fn uses this to
-  // tell the TUI which color/style to apply to the fragment.
-  enum class content_type {
-    normal,       // Regular AI response text
-    thinking,      // AI thinking/reasoning
-    tool_call,     // Tool call header (e.g. "[tool] write(...)")
-    tool_result,   // Tool result or status (e.g. "→ result")
-    tool_approval, // Tool approval prompt (attached to last tool block)
-    error,         // Error messages
-    warning,       // Warning messages
-    user,          // User input echo
-    system,        // System messages (non-approval)
-  };
-
   // TUI render sink: routes agent output to the TUI content widget via
   // App::post(). The post_fn schedules a callback on the UI thread
   // (typically cpptui::App::post). The append_fn appends a text
@@ -46,11 +33,6 @@ namespace mistral::tui
   class tui_render_sink : public agent::render_sink
   {
   public:
-    using post_fn = std::function<void(std::function<void()>)>;
-    using append_fn = std::function<void(const std::string&, content_type)>;
-    using flush_fn = std::function<void()>;
-    using completed_fn = std::function<void()>;
-
     tui_render_sink(post_fn post, append_fn append, flush_fn flush,
                     completed_fn completed = {})
       : state_(std::make_shared<shared_state>())
