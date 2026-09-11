@@ -4,6 +4,8 @@
 #include "tui/tui_content_area.h"
 #include "tui/tui_backend.h"
 #include "tui/tui_widgets.h"
+#include "tui/tui_slash_command_popup.h"
+#include "tui/tui_chat_input.h"
 #include "tui/tui_approval_state.h"
 #include "agent/agent_system.h"
 #include "trace/trace.h"

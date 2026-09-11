@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 #include "pty_test_harness.h"
 #include "tui/tui_widgets.h"
+#include "tui/tui_slash_command_popup.h"
+#include "tui/tui_chat_input.h"
 #include "slash_command/slash_command.h"
 #include "slash_command/slash_command_registry.h"
 #include "slash_command/slash_command_executor_task.h"

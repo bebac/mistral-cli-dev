@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 #include "pty_test_harness.h"
-#include "tui/tui_widgets.h"
+#include "tui/tui_chat_input.h"
 
 #include <atomic>
 #include <iostream>
