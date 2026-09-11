@@ -157,7 +157,7 @@ namespace mistral::tui
           callbacks_.post, callbacks_.append_content,
           callbacks_.on_approval_state);
 
-        auto sink = std::make_shared<mistral::agent::tui_render_sink>(
+        auto sink = std::make_shared<mistral::tui::tui_render_sink>(
           callbacks_.post, callbacks_.append_fragment,
           callbacks_.flush, callbacks_.completed);
         sched.spawn<mistral::agent::interactive_agent_task>(

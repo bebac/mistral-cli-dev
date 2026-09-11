@@ -55,7 +55,7 @@ namespace mistral::tui
   class content_area
   {
   public:
-    using content_type = mistral::agent::content_type;
+    using content_type = mistral::tui::content_type;
 
     // Creates the ContentLog and ScrollableVertical widgets, sets
     // initial welcome text, and performs the initial wrap. Returns

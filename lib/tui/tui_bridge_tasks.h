@@ -22,7 +22,7 @@ namespace mistral::tui
   // back to the TUI thread.
   using post_fn   = std::function<void(std::function<void()>)>;
   using append_fn = std::function<void(const std::string&,
-                                       mistral::agent::content_type)>;
+                                       mistral::tui::content_type)>;
 
   // ---------------------------------------------------------------------------
   // prompt_bridge_task: runs in dripcore context, bridges prompt_ch_ to the
@@ -73,7 +73,7 @@ namespace mistral::tui
             msg->substr(std::string("[APPROVAL_PROMPT]").length());
           post_([fn = append_content_, on_state = on_approval_state_,
                  text = std::move(prompt_text)]() {
-            fn(text, mistral::agent::content_type::tool_approval);
+            fn(text, mistral::tui::content_type::tool_approval);
             on_state(approval_state::single_key);
           });
         }
@@ -91,7 +91,7 @@ namespace mistral::tui
           // mode directly (via set_approval_state). Now the agent sends
           // the text prompt. We just append it inline.
           post_([fn = append_content_, text = *msg]() {
-            fn(text, mistral::agent::content_type::system);
+            fn(text, mistral::tui::content_type::system);
           });
         }
       }
@@ -210,7 +210,7 @@ namespace mistral::tui
         if (!response) break;  // Channel closed.
 
         post_([fn = append_content_, text = std::move(*response)]() {
-          fn("\n" + text + "\n", mistral::agent::content_type::system);
+          fn("\n" + text + "\n", mistral::tui::content_type::system);
         });
       }
 

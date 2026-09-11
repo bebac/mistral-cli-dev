@@ -4,7 +4,7 @@
 
 #include <cpptui.hpp>
 
-using content_type = mistral::agent::content_type;
+using content_type = mistral::tui::content_type;
 using BlockKind = mistral::tui::BlockKind;
 
 TEST_SUITE_BEGIN("content_log");

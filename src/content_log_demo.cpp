@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-using content_type = mistral::agent::content_type;
+using content_type = mistral::tui::content_type;
 
 // ---------------------------------------------------------------------------
 // stream_fragment: a single chunk of text to be fed into ContentLog.

@@ -115,7 +115,7 @@ namespace mistral::tui
   class ContentLog : public cpptui::Widget
   {
   public:
-    using content_type = mistral::agent::content_type;
+    using content_type = mistral::tui::content_type;
 
     // UTF-8 encodings for collapse/expand indicators.
     // ▶ (U+25B6) = triangle right (collapsed)
@@ -859,10 +859,10 @@ namespace mistral::tui
           } else if (block.approval_state == ToolApprovalState::rejected) {
             approval_suffix = " [REJECTED]";
           }
-          
+
           // Combine all suffixes
           std::string all_suffix = status_suffix + approval_suffix;
-          
+
           if ((int)(call.size() + all_suffix.size()) > max_width) {
             int truncate_at = max_width - (int)all_suffix.size() - 3;
             if (truncate_at > 0) {

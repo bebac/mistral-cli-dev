@@ -37,11 +37,11 @@ public:
           app_.post(std::move(cb));
         },
         [this](const std::string& fragment,
-               mistral::agent::content_type type) {
+               mistral::tui::content_type type) {
           content_area_.append(fragment, type);
         },
         [this](const std::string& fragment,
-               mistral::agent::content_type type) {
+               mistral::tui::content_type type) {
           content_area_.append_fragment(fragment, type);
         },
         [this]() { content_area_.flush(); },
@@ -78,7 +78,7 @@ public:
   }
 
 private:
-  using content_type = mistral::agent::content_type;
+  using content_type = mistral::tui::content_type;
 
   void build_widgets()
   {

@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tui
 {
   // Content type tag for styled rendering. The append_fn uses this to
   // tell the TUI which color/style to apply to the fragment.
@@ -43,7 +43,7 @@ namespace mistral::agent
   // This header is TUI-specific (lives in src/). It depends only on the
   // abstract render_sink interface and std::function — no direct
   // dependency on cpptui.
-  class tui_render_sink : public render_sink
+  class tui_render_sink : public agent::render_sink
   {
   public:
     using post_fn = std::function<void(std::function<void()>)>;
