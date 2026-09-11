@@ -2,7 +2,7 @@
 #define MISTRAL_TUI_CONTENT_AREA_H
 
 #include "tui/tui_render_sink.h"
-#include "tui/content_log.h"
+#include "tui/tui_content_log.h"
 
 #include <cpptui.hpp>
 

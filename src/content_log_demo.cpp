@@ -14,7 +14,7 @@
 //   q         quit
 //
 
-#include "tui/content_log.h"
+#include "tui/tui_content_log.h"
 #include "tui/tui_widgets.h"
 
 #include <cpptui.hpp>

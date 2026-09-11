@@ -1,7 +1,7 @@
 #ifndef MISTRAL_TUI_BRIDGE_TASKS_H
 #define MISTRAL_TUI_BRIDGE_TASKS_H
 
-#include "tui/thread_safe_queue.h"
+#include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
 #include "slash_command/slash_command.h"
 #include "trace/trace.h"

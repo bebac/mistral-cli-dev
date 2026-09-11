@@ -1,4 +1,4 @@
-#include "tui/thread_safe_queue.h"
+#include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
 #include "doctest/doctest.h"
 

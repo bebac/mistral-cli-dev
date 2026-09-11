@@ -1,8 +1,8 @@
 #ifndef MISTRAL_TUI_BACKEND_H
 #define MISTRAL_TUI_BACKEND_H
 
-#include "tui/bridge_tasks.h"
-#include "tui/thread_safe_queue.h"
+#include "tui/tui_bridge_tasks.h"
+#include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
 #include "agent/agent_system.h"
 #include "agent/agent_system_task.h"

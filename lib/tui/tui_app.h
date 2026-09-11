@@ -1,7 +1,7 @@
 #ifndef MISTRAL_TUI_APP_H
 #define MISTRAL_TUI_APP_H
 
-#include "tui/content_area.h"
+#include "tui/tui_content_area.h"
 #include "tui/tui_backend.h"
 #include "tui/tui_widgets.h"
 #include "agent/agent_system.h"

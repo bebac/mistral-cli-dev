@@ -1,5 +1,5 @@
-#include "tui/content_log.h"
-#include "tui/content_area.h"
+#include "tui/tui_content_log.h"
+#include "tui/tui_content_area.h"
 #include "doctest/doctest.h"
 
 #include <cpptui.hpp>
