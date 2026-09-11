@@ -4,6 +4,7 @@
 #include "tui/tui_content_area.h"
 #include "tui/tui_backend.h"
 #include "tui/tui_widgets.h"
+#include "tui/tui_approval_state.h"
 #include "agent/agent_system.h"
 #include "trace/trace.h"
 
@@ -44,7 +45,8 @@ public:
           content_area_.append_fragment(fragment, type);
         },
         [this]() { content_area_.flush(); },
-        [this]() { content_area_.complete_turn(); }
+        [this]() { content_area_.complete_turn(); },
+        [this](approval_state state) { set_approval_state(state); }
       }
     );
 
@@ -246,55 +248,6 @@ private:
 
   void setup_timers()
   {
-    app_.add_timer(50, [this]() {
-      int state = backend_->approval_state().load(std::memory_order_acquire);
-      if (state == 1) {
-        if (input_->approval_mode_ != ChatInput::approval_mode::single_key) {
-          input_->set_approval_mode(ChatInput::approval_mode::single_key);
-          input_divider_->visible = true;
-          input_divider_->override_fg = cpptui::Theme::current().warning;
-          input_divider_top_->override_fg = cpptui::Theme::current().warning;
-          input_hint_->visible = true;
-          input_hint_->text =
-            "  approval \xc2\xb7 y=approve n=reject"
-            " r=reject+msg a=all ?=help";
-          input_hint_->hint_fg = cpptui::Theme::current().warning;
-
-          if (content_area_.was_at_bottom()) {
-            if (auto cont =
-                  std::dynamic_pointer_cast<cpptui::Container>(root_)) {
-              cont->layout();
-            }
-            content_area_.scroll_to_bottom();
-          }
-        }
-      } else if (state == 2) {
-        // State 2: user pressed 'r' (reject with message), agent is
-        // waiting for the rejection message. Ensure approval_mode_ is
-        // text_input so the UI stays in sync.
-        if (input_->approval_mode_ != ChatInput::approval_mode::text_input) {
-          input_->set_approval_mode(ChatInput::approval_mode::text_input);
-          input_->set_text("");
-          input_divider_->visible = true;
-          input_divider_->override_fg = cpptui::Theme::current().warning;
-          input_divider_top_->override_fg = cpptui::Theme::current().warning;
-          input_hint_->visible = true;
-          input_hint_->text =
-            "  Enter message for AI (or Enter for default):";
-          input_hint_->hint_fg = cpptui::Theme::current().warning;
-
-          mistral::trace::logger::instance().trace(
-            mistral::trace::category::approval,
-            "approval: timer recovered text_input mode (state=2)"
-          );
-        }
-      } else if (state == 0) {
-        if (input_->approval_mode_ != ChatInput::approval_mode::none) {
-          exit_approval_mode();
-        }
-      }
-    });
-
     app_.add_timer(200, [this]() {
       if (backend_->agent_ready().load(std::memory_order_acquire)) {
         dot_->fg_color = cpptui::Theme::current().success;
@@ -312,20 +265,10 @@ private:
 
   void send_input()
   {
-    if (backend_->approval_state().load(std::memory_order_acquire) != 0) {
-      // If approval_state is non-zero but the UI is not in approval mode,
-      // the state is stale (can happen due to a race condition between
-      // the backend thread setting approval_state and the timer updating
-      // approval_mode_). Reset it so the user can submit.
-      if (input_->approval_mode_ == ChatInput::approval_mode::none) {
-        backend_->approval_state().store(0, std::memory_order_release);
-        mistral::trace::logger::instance().trace(
-          mistral::trace::category::approval,
-          "approval: resetting stale approval_state in send_input"
-        );
-      } else {
-        return;
-      }
+    // Block normal submission while in approval mode. Approval
+    // responses are handled by on_approval_key / on_approval_text_submit.
+    if (input_->approval_mode_ != ChatInput::approval_mode::none) {
+      return;
     }
     std::string text = input_->get_text();
     if (text.empty()) return;
@@ -337,14 +280,76 @@ private:
 
   void exit_approval_mode()
   {
-    backend_->approval_state().store(0, std::memory_order_release);
-    input_->set_approval_mode(ChatInput::approval_mode::none);
-    input_divider_->visible = false;
-    input_divider_->override_fg = cpptui::Color();
-    input_divider_top_->override_fg = cpptui::Color();
-    input_hint_->visible = false;
-    input_hint_->text = "";
-    input_hint_->hint_fg = cpptui::Color();
+    set_approval_state(approval_state::idle);
+  }
+
+  // Consolidated approval state transition: updates ChatInput mode,
+  // divider visibility, hint text, and scroll position in one place.
+  // Called from:
+  //   - prompt_bridge_task (via posted callback) for single_key
+  //   - on_approval_key for text_input ('r' key)
+  //   - exit_approval_mode for idle
+  void set_approval_state(approval_state state)
+  {
+    ChatInput::approval_mode mode = ChatInput::approval_mode::none;
+    switch (state) {
+      case approval_state::single_key:
+        mode = ChatInput::approval_mode::single_key;
+        break;
+      case approval_state::text_input:
+        mode = ChatInput::approval_mode::text_input;
+        break;
+      case approval_state::idle:
+        break;
+    }
+
+    if (mode == input_->approval_mode_) {
+      return;
+    }
+
+    input_->set_approval_mode(mode);
+
+    switch (state) {
+      case approval_state::idle:
+        input_divider_->visible = false;
+        input_divider_->override_fg = cpptui::Color();
+        input_divider_top_->override_fg = cpptui::Color();
+        input_hint_->visible = false;
+        input_hint_->text = "";
+        input_hint_->hint_fg = cpptui::Color();
+        break;
+
+      case approval_state::single_key:
+        input_divider_->visible = true;
+        input_divider_->override_fg = cpptui::Theme::current().warning;
+        input_divider_top_->override_fg = cpptui::Theme::current().warning;
+        input_hint_->visible = true;
+        input_hint_->hint_fg = cpptui::Theme::current().warning;
+        input_hint_->text =
+          "  approval \xc2\xb7 y=approve n=reject"
+          " r=reject+msg a=all ?=help";
+
+        if (content_area_.was_at_bottom()) {
+          if (auto cont =
+                std::dynamic_pointer_cast<cpptui::Container>(root_)) {
+            cont->layout();
+          }
+          content_area_.scroll_to_bottom();
+        }
+        break;
+
+      case approval_state::text_input:
+        input_divider_->visible = true;
+        input_divider_->override_fg = cpptui::Theme::current().warning;
+        input_divider_top_->override_fg = cpptui::Theme::current().warning;
+        input_hint_->visible = true;
+        input_hint_->hint_fg = cpptui::Theme::current().warning;
+        input_->set_text("");
+        input_hint_->text =
+          "  Enter message for AI (or Enter for default):";
+        break;
+    }
+
     app_.update();
   }
 
@@ -355,13 +360,7 @@ private:
 
     if (lower == 'r') {
       backend_->send_input("r");
-      backend_->approval_state().store(2, std::memory_order_release);
-      input_->set_approval_mode(ChatInput::approval_mode::text_input);
-      input_->set_text("");
-      input_hint_->text =
-        "  Enter message for AI (or Enter for default):";
-      input_hint_->hint_fg = cpptui::Theme::current().warning;
-      input_divider_top_->override_fg = cpptui::Theme::current().warning;
+      set_approval_state(approval_state::text_input);
       mistral::trace::logger::instance().trace(
         mistral::trace::category::approval,
         "approval: switching to text_input mode"

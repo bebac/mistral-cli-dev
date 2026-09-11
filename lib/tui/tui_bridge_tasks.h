@@ -3,6 +3,7 @@
 
 #include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
+#include "tui/tui_approval_state.h"
 #include "slash_command/slash_command.h"
 #include "trace/trace.h"
 
@@ -30,7 +31,8 @@ namespace mistral::tui
   //   - "[APPROVAL_PROMPT]..." → appends to content area via App::post,
   //     sets approval mode to single_key
   //   - Other (e.g. "Enter message for AI...") → appends to content area
-  //     via App::post, sets approval mode to text_input
+  //     via App::post. No state transition here; the text_input mode is
+  //     entered by the UI itself when the user presses 'r'.
   //
   // This is necessary because dripcore channels can only be consumed from
   // within a dripcore task context.
@@ -41,15 +43,15 @@ namespace mistral::tui
     prompt_bridge_task(
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::atomic<bool>& agent_ready,
-      std::atomic<int>& approval_state,
       post_fn post,
-      append_fn append_content
+      append_fn append_content,
+      approval_state_fn on_approval_state
     )
       : prompt_ch_(std::move(prompt_ch))
       , agent_ready_(agent_ready)
-      , approval_state_(approval_state)
       , post_(std::move(post))
       , append_content_(std::move(append_content))
+      , on_approval_state_(std::move(on_approval_state))
     {
     }
 
@@ -69,9 +71,10 @@ namespace mistral::tui
         {
           std::string prompt_text =
             msg->substr(std::string("[APPROVAL_PROMPT]").length());
-          approval_state_.store(1, std::memory_order_release);
-          post_([fn = append_content_, text = std::move(prompt_text)]() {
+          post_([fn = append_content_, on_state = on_approval_state_,
+                 text = std::move(prompt_text)]() {
             fn(text, mistral::agent::content_type::tool_approval);
+            on_state(approval_state::single_key);
           });
         }
         else if (*msg == "mistral")
@@ -83,9 +86,10 @@ namespace mistral::tui
           // Other prompts (e.g. "Enter message for AI...") — append inline.
           // These are text-input prompts from the reject-with-message flow.
           // The agent task already sent the [APPROVAL_PROMPT] first, which
-          // set approval_state to 1 (single_key). The user pressed 'r',
-          // which set approval_state to 2 (text_input) and sent 'r' back.
-          // Now the agent sends the text prompt. We just append it inline.
+          // triggered the single_key approval state via on_approval_state_.
+          // The user pressed 'r', which transitioned the UI to text_input
+          // mode directly (via set_approval_state). Now the agent sends
+          // the text prompt. We just append it inline.
           post_([fn = append_content_, text = *msg]() {
             fn(text, mistral::agent::content_type::system);
           });
@@ -102,9 +106,9 @@ namespace mistral::tui
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::atomic<bool>& agent_ready_;
-    std::atomic<int>& approval_state_;
     post_fn post_;
     append_fn append_content_;
+    approval_state_fn on_approval_state_;
   };
 
   // ---------------------------------------------------------------------------

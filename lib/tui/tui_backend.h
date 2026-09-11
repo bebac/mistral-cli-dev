@@ -4,6 +4,7 @@
 #include "tui/tui_bridge_tasks.h"
 #include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_render_sink.h"
+#include "tui/tui_approval_state.h"
 #include "agent/agent_system.h"
 #include "agent/agent_system_task.h"
 #include "agent/agent_system_stats_task.h"
@@ -77,8 +78,8 @@ namespace mistral::tui
   //   - Launch the dripcore scheduler with all agent, HTTP, and bridge tasks
   //   - Provide thread-safe send_input() and send_slash_command() for the UI
   //     thread to push messages into the dripcore event loop
-  //   - Own the agent_ready and approval_state atomics shared between the
-  //     dripcore thread (prompt_bridge_task) and the UI thread (timers)
+  //   - Own the agent_ready atomic shared between the dripcore thread
+  //     (prompt_bridge_task) and the UI thread (timers)
   //   - Coordinate clean shutdown (signal dripcore, join thread, close pipes)
   //
   // The UI callbacks (post, append_content, append_fragment, flush) allow
@@ -94,6 +95,7 @@ namespace mistral::tui
       append_fn append_fragment;
       std::function<void()> flush;
       std::function<void()> completed;
+      approval_state_fn on_approval_state;
     };
 
     tui_backend(tui_config cfg, ui_callbacks callbacks)
@@ -152,8 +154,8 @@ namespace mistral::tui
           [ch = cfg_.slash_cmd_response_ch]() { ch->close(); });
         sched.spawn<mistral::tui::prompt_bridge_task>(
           cfg_.prompt_ch, std::ref(agent_ready_),
-          std::ref(approval_state_), callbacks_.post,
-          callbacks_.append_content);
+          callbacks_.post, callbacks_.append_content,
+          callbacks_.on_approval_state);
 
         auto sink = std::make_shared<mistral::agent::tui_render_sink>(
           callbacks_.post, callbacks_.append_fragment,
@@ -210,7 +212,6 @@ namespace mistral::tui
 
     // Atomics shared between dripcore thread and UI thread.
     std::atomic<bool>& agent_ready() { return agent_ready_; }
-    std::atomic<int>& approval_state() { return approval_state_; }
 
   private:
     tui_config cfg_;
@@ -221,7 +222,6 @@ namespace mistral::tui
       slash_cmd_queue_;
 
     std::atomic<bool> agent_ready_{true};
-    std::atomic<int> approval_state_{0};
 
     mistral::common::wakeup_pipe sigint_pipe_;
     mistral::common::wakeup_pipe input_pipe_;
