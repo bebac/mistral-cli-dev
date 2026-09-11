@@ -206,6 +206,6 @@ namespace mistral::tui
 
     std::shared_ptr<shared_state> state_;
   };
-} // namespace mistral::agent
+} // namespace mistral::tui
 
 #endif // MISTRAL_TUI_RENDER_SINK_H

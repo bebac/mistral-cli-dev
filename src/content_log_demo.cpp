@@ -257,10 +257,10 @@ int main(int argc, char* argv[])
   scroll->add(content_log);
   scroll->focusable = false;
 
-  auto divider_top = std::make_shared<Divider>();
-  auto divider_bottom = std::make_shared<Divider>();
+  auto divider_top = std::make_shared<mistral::tui::Divider>();
+  auto divider_bottom = std::make_shared<mistral::tui::Divider>();
 
-  auto footer = std::make_shared<FooterBar>();
+  auto footer = std::make_shared<mistral::tui::FooterBar>();
   footer->left_text = "\xe2\x86\x91\xe2\x86\x93 scroll \xc2\xb7 PgUp/PgDn page \xc2\xb7 Tab collapse";
   footer->right_text = "q quit";
   // Show just the filename, not the full path.

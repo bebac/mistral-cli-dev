@@ -20,6 +20,10 @@
 #include <thread>
 #include <unistd.h>
 
+using mistral::tui::ChatInput;
+using mistral::tui::Divider;
+using mistral::tui::SlashCommandPopup;
+
 // ---------------------------------------------------------------------------
 // Test command: minimal slash_command implementation for testing.
 // ---------------------------------------------------------------------------

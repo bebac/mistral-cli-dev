@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+namespace mistral::tui {
+
 // ---------------------------------------------------------------------------
 // Divider: renders a horizontal line across full width.
 // ---------------------------------------------------------------------------
@@ -646,5 +648,7 @@ private:
   SlashCommandPopup* popup_ = nullptr;
   Divider* slash_divider_ = nullptr;
 };
+
+} // namespace mistral::tui
 
 #endif // MISTRAL_TUI_WIDGETS_H

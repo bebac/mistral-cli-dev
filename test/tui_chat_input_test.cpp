@@ -7,6 +7,8 @@
 #include <string>
 #include <thread>
 
+using mistral::tui::ChatInput;
+
 // ---------------------------------------------------------------------------
 // Test 1: Normal text input renders, and Alt+Enter triggers on_submit.
 //
