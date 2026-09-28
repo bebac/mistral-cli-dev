@@ -14,6 +14,7 @@
 #include <dripcore/task.h>
 #include <dripcore/awaitable.h>
 
+#include <algorithm>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -564,13 +565,21 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_update",
-      "Update a single edit in a stored patchset. At least one of search_text or replace_text must be provided.",
+      "Update a single edit in a stored patchset. The file_path, search_text and replace_text can each be updated (empty or omitted fields keep their existing values).",
       &patchset_tools, &mistral::agent::patchset_tools::patchset_update,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The 1-indexed number of the patch to update"),
-      arg("file_path", "The file path for the edit"),
+      arg("file_path", "The file path for the edit (keeps existing if empty)"),
       arg("search_text", "The search text (optional, keeps existing if not provided)"),
       arg("replace_text", "The replace text (optional, keeps existing if not provided)")
+    );
+
+    global_tools_.register_tool(
+      "patchset_remove",
+      "Remove a single edit block from a stored patchset by its patch number. The remaining edits keep their patch numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset.",
+      &patchset_tools, &mistral::agent::patchset_tools::patchset_remove,
+      arg("patchset_id", "The unique identifier of the patchset"),
+      arg("patch_number", "The number of the edit to remove (as shown by patchset_get or patchset_validate)")
     );
 
     global_tools_.register_tool(
@@ -885,7 +894,14 @@ namespace mistral::agent
   {
     if (current_patchset_ && current_patchset_->patchset_id == patchset_id && !current_patchset_->applied)
     {
-      size_t next_patch_number = current_patchset_->edits.size();
+      // Number after the highest existing patch number: patch numbers are
+      // stable identifiers (patchset_remove keeps gaps), so size-based
+      // numbering could collide with an existing number after a removal.
+      size_t next_patch_number = 0;
+      for (const auto& edit : current_patchset_->edits)
+      {
+        next_patch_number = std::max(next_patch_number, edit.patch_number);
+      }
       for (const auto& edit : edits)
       {
         auto numbered_edit = edit;

@@ -21,7 +21,7 @@ namespace mistral::agent
   {
     std::string file_path;
     bool valid = false;
-    std::string error_type; // "file_not_found", "search_not_found", "multiple_matches", "format_error", "invalid_path", "file_exists"
+    std::string error_type; // "file_not_found", "search_not_found", "multiple_matches", "format_error", "invalid_path", "file_exists", "missing_file_path"
     std::string error_message;
     std::string search_text;
     size_t match_count = 0; // How many times search_text appears in target file

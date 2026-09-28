@@ -116,6 +116,18 @@ namespace mistral::agent
       return true;
     }
 
+    // Check if a "file path" is actually a patchset format marker line.
+    // This happens when an edit block is missing its file path line (e.g.
+    // the path was omitted for a subsequent edit of the same file): the
+    // parser then treats the next marker line as the file path.
+    bool is_patchset_marker_path(const std::string& path)
+    {
+      return path.rfind("~~~", 0) == 0 ||      // code fence (optionally with language)
+             path.rfind("<<<<<<<", 0) == 0 ||  // SEARCH marker
+             path.rfind("=======", 0) == 0 ||  // SEPARATOR marker
+             path.rfind(">>>>>>>", 0) == 0;    // REPLACE marker
+    }
+
     // Apply suspicious content check to a validation result.
     // If the replace_text contains patchset format markers (and the file
     // is not markdown), marks the result as invalid.
@@ -152,6 +164,27 @@ namespace mistral::agent
     result.error_message = "";
     result.suggestion = "";
     result.patch_number = edit.patch_number; // Preserve patch number
+
+    // Check for patchset format markers parsed as the file path: the edit
+    // block is missing its file path line, so the parser consumed the next
+    // marker line as the path. Report the structural cause, not the
+    // misleading "file does not exist" / "invalid path" symptoms.
+    if (is_patchset_marker_path(edit.file_path))
+    {
+      result.error_type = "missing_file_path";
+      result.error_message =
+        "Edit block is missing its file path line: '" + edit.file_path +
+        "' is a patchset format marker, not a file path. This usually means "
+        "the edit block did not start with its file path (e.g. the path line "
+        "was omitted for a subsequent edit of the same file), so the parser "
+        "consumed the next marker line as the path.";
+      result.suggestion =
+        "Re-emit the affected edit blocks, each starting with the file path "
+        "on its own line, followed by the ~~~ fence. Every edit block needs "
+        "its own file path line, even when editing the same file as the "
+        "previous block.";
+      return result;
+    }
 
     // Check file path validity
     if (!is_valid_file_path(edit.file_path))

@@ -25,7 +25,15 @@ namespace mistral::agent
       {
         if (stored_ && stored_->patchset_id == patchset_id && !stored_->applied)
         {
-          size_t next_patch_number = stored_->edits.size();
+          // Number after the highest existing patch number (mirrors
+          // agent_system::append_edits): patch numbers are stable
+          // identifiers, so size-based numbering could collide after
+          // a patchset_remove created gaps.
+          size_t next_patch_number = 0;
+          for (const auto& edit : stored_->edits)
+          {
+            next_patch_number = std::max(next_patch_number, edit.patch_number);
+          }
           for (const auto& edit : edits)
           {
             auto numbered_edit = edit;
@@ -511,6 +519,47 @@ namespace mistral::agent
     CHECK(get_result["edits"][0]["replace_text"] == "bye");
   }
 
+  TEST_CASE("patchset_update - update file_path")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("update5", {edit});
+
+    auto result = tools.patchset_update("update5", 1, g.path(),
+      std::nullopt,
+      std::nullopt);
+    CHECK(result["status"] == "success");
+    CHECK(result["file_path"] == g.path());
+
+    // Verify the new file path was stored, other fields unchanged
+    auto get_result = tools.patchset_get("update5");
+    CHECK(get_result["edits"][0]["file_path"] == g.path());
+    CHECK(get_result["edits"][0]["search_text"] == "hello");
+    CHECK(get_result["edits"][0]["replace_text"] == "goodbye");
+  }
+
+  TEST_CASE("patchset_update - empty file_path keeps existing")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("update6", {edit});
+
+    auto result = tools.patchset_update("update6", 1, "",
+      std::nullopt,
+      std::nullopt);
+    CHECK(result["status"] == "success");
+
+    auto get_result = tools.patchset_get("update6");
+    CHECK(get_result["edits"][0]["file_path"] == f.path());
+  }
+
   TEST_CASE("patchset_update - non-existing patch_number")
   {
     mock_patchset_store store;
@@ -538,6 +587,118 @@ namespace mistral::agent
       std::nullopt);
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "patchset_not_found");
+  }
+
+  // ---- patchset_remove ----
+
+  TEST_CASE("patchset_remove - removes the edit and keeps other edits stable")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f1("hello world");
+    temp_file f2("foo bar");
+    auto edit1 = make_edit(f1.path(), "hello", "goodbye", 1);
+    auto edit2 = make_edit(f2.path(), "foo", "baz", 2);
+    auto edit3 = make_edit(f1.path(), "world", "planet", 3);
+    store.store_patchset("remove1", {edit1, edit2, edit3});
+
+    auto result = tools.patchset_remove("remove1", 2);
+    CHECK(result["status"] == "success");
+    CHECK(result["patchset_id"] == "remove1");
+    CHECK(result["removed_patch_number"] == 2);
+    CHECK(result["remaining_edit_count"] == 2);
+    CHECK(result["remaining_patch_numbers"].size() == 2);
+    CHECK(result["remaining_patch_numbers"][0] == 1);
+    CHECK(result["remaining_patch_numbers"][1] == 3);
+
+    // Verify the remaining edits are intact with stable patch numbers
+    auto get_result = tools.patchset_get("remove1");
+    CHECK(get_result["edit_count"] == 2);
+    CHECK(get_result["edits"][0]["patch_number"] == 1);
+    CHECK(get_result["edits"][0]["file_path"] == f1.path());
+    CHECK(get_result["edits"][0]["search_text"] == "hello");
+    CHECK(get_result["edits"][1]["patch_number"] == 3);
+    CHECK(get_result["edits"][1]["file_path"] == f1.path());
+    CHECK(get_result["edits"][1]["search_text"] == "world");
+  }
+
+  TEST_CASE("patchset_remove - non-existing patch_number")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("remove2", {edit});
+
+    auto result = tools.patchset_remove("remove2", 99);
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "edit_not_found");
+    CHECK(result["error"].get<std::string>().find("99") != std::string::npos);
+
+    // Patchset is unchanged
+    auto get_result = tools.patchset_get("remove2");
+    CHECK(get_result["edit_count"] == 1);
+  }
+
+  TEST_CASE("patchset_remove - non-existing patchset")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    auto result = tools.patchset_remove("nonexistent", 1);
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "patchset_not_found");
+  }
+
+  TEST_CASE("patchset_remove - already applied returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto edit = make_edit(f.path(), "hello", "goodbye", 1);
+    store.store_patchset("remove3", {edit});
+
+    // Apply the patchset first
+    auto apply_result = tools.patchset_apply("remove3");
+    CHECK(apply_result["status"] == "success");
+
+    // Attempt to remove should fail with already_applied
+    auto result = tools.patchset_remove("remove3", 1);
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "already_applied");
+  }
+
+  TEST_CASE("patchset_remove - append after remove does not collide")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f1("hello world");
+    temp_file f2("foo bar");
+    temp_file f3("baz qux");
+    auto edit1 = make_edit(f1.path(), "hello", "goodbye", 1);
+    auto edit2 = make_edit(f2.path(), "foo", "baz", 2);
+    auto edit3 = make_edit(f3.path(), "baz", "quux", 3);
+    store.store_patchset("remove4", {edit1, edit2});
+
+    // Remove patch 1: remaining patch number is 2, but size is 1.
+    auto result = tools.patchset_remove("remove4", 1);
+    CHECK(result["status"] == "success");
+
+    // Appending must number the new edit 3 (max + 1), not 2 (size + 1),
+    // which would collide with the existing patch number 2.
+    store.append_edits("remove4", {edit3});
+
+    auto retrieved = store.get_patchset("remove4");
+    REQUIRE(retrieved.has_value());
+    REQUIRE(retrieved->edits.size() == 2);
+    CHECK(retrieved->edits[0].patch_number == 2);
+    CHECK(retrieved->edits[0].file_path == f2.path());
+    CHECK(retrieved->edits[1].patch_number == 3);
+    CHECK(retrieved->edits[1].file_path == f3.path());
   }
 
   // ---- patchset_clear ----

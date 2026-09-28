@@ -29,7 +29,8 @@ namespace mistral::agent
     json patchset_validate(std::string patchset_id);
 
     // Update a single edit in a stored patchset
-    // At least one of search_text or replace_text must be provided
+    // file_path, search_text and replace_text are each updated when
+    // provided (empty/omitted fields keep their existing values)
     json patchset_update(
       std::string patchset_id,
       int patch_number,
@@ -37,6 +38,10 @@ namespace mistral::agent
       std::optional<std::string> search_text = std::nullopt,
       std::optional<std::string> replace_text = std::nullopt
     );
+
+    // Remove a single edit from a stored patchset by patch number
+    // Remaining edits keep their patch numbers (no renumbering)
+    json patchset_remove(std::string patchset_id, int patch_number);
 
     // Clear a stored patchset
     json patchset_clear(std::string patchset_id);

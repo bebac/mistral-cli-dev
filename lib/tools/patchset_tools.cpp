@@ -191,6 +191,10 @@ namespace mistral::agent
       if (edit.patch_number == static_cast<size_t>(patch_number))
       {
         // Update only the provided fields
+        if (!file_path.empty() && file_path != edit.file_path)
+        {
+          edit.file_path = file_path;
+        }
         if (search_text)
         {
           edit.search_text = *search_text;
@@ -199,15 +203,14 @@ namespace mistral::agent
         {
           edit.replace_text = *replace_text;
         }
-        // Note: file_path is used for validation but not stored in the edit
-        // The edit's file_path remains unchanged
 
         // Re-store the updated patchset
         store_.store_patchset(patchset_id, patchset->edits);
         return json{
           {"status", "success"},
           {"patchset_id", patchset_id},
-          {"patch_number", patch_number}
+          {"patch_number", patch_number},
+          {"file_path", edit.file_path}
         };
       }
     }
@@ -216,6 +219,64 @@ namespace mistral::agent
       "edit_not_found",
       "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
     );
+  }
+
+  json patchset_tools::patchset_remove(std::string patchset_id, int patch_number)
+  {
+    auto patchset = store_.get_patchset(patchset_id);
+    if (!patchset)
+    {
+      return make_error_response(
+        "patchset_not_found",
+        "No patchset with ID: " + patchset_id
+      );
+    }
+
+    // Check if already applied
+    if (patchset->applied)
+    {
+      return make_error_response(
+        "already_applied",
+        "Patchset '" + patchset_id + "' has already been applied"
+      );
+    }
+
+    // Find the edit with the matching patch_number
+    auto it = std::find_if(
+      patchset->edits.begin(), patchset->edits.end(),
+      [&](const file_edit_t &edit) {
+        return edit.patch_number == static_cast<size_t>(patch_number);
+      }
+    );
+    if (it == patchset->edits.end())
+    {
+      return make_error_response(
+        "edit_not_found",
+        "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
+      );
+    }
+
+    // Remove the edit. Patch numbers of the remaining edits are kept
+    // stable (not renumbered) so numbers reported by earlier
+    // validate/get results stay valid.
+    patchset->edits.erase(it);
+
+    // Re-store the updated patchset
+    store_.store_patchset(patchset_id, patchset->edits);
+
+    json remaining = json::array();
+    for (const auto &edit : patchset->edits)
+    {
+      remaining.push_back(edit.patch_number);
+    }
+
+    return json{
+      {"status", "success"},
+      {"patchset_id", patchset_id},
+      {"removed_patch_number", patch_number},
+      {"remaining_edit_count", patchset->edits.size()},
+      {"remaining_patch_numbers", remaining}
+    };
   }
 
   json patchset_tools::patchset_clear(std::string patchset_id)

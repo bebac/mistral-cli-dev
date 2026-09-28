@@ -158,6 +158,72 @@ namespace mistral::agent
       }
     }
 
+    TEST_CASE("validate_edit - patchset markers parsed as file path")
+    {
+      // A '~~~' fence line parsed as the file path: this happens when an
+      // edit block is missing its file path line (e.g. the path was
+      // omitted for a subsequent edit of the same file).
+      {
+        file_edit_t edit;
+        edit.file_path = "~~~";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "missing_file_path");
+        CHECK(!result.is_fixable);
+        CHECK(result.error_message.find("file path") != std::string::npos);
+        CHECK(result.suggestion.find("file path") != std::string::npos);
+      }
+
+      // Fence with language specifier
+      {
+        file_edit_t edit;
+        edit.file_path = "~~~cpp";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "missing_file_path");
+      }
+
+      // REPLACE marker parsed as the file path
+      {
+        file_edit_t edit;
+        edit.file_path = ">>>>>>> REPLACE";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "missing_file_path");
+      }
+
+      // SEARCH and SEPARATOR markers parsed as the file path
+      {
+        file_edit_t edit;
+        edit.file_path = "<<<<<<< SEARCH";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "missing_file_path");
+      }
+      {
+        file_edit_t edit;
+        edit.file_path = "=======";
+        edit.search_text = "test";
+        edit.replace_text = "test2";
+
+        auto result = validate_edit(edit);
+        CHECK(!result.valid);
+        CHECK(result.error_type == "missing_file_path");
+      }
+    }
+
     TEST_CASE("validate_edit - valid file path but file does not exist")
     {
       file_edit_t edit;
