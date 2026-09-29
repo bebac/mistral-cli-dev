@@ -3,6 +3,7 @@
 #include "api/types.h"
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/workspace_bootstrap.h"
 #include "trace/trace.h"
 
 #include <dripcore/channel.h>
@@ -22,6 +23,8 @@ int main(int argc, char* argv[])
   std::string agent_id    = "main";
   std::string config_file_path;
   std::string theme_name  = "dark";
+  bool bootstrap_enabled = true;
+  bool bootstrap_update_managed = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -30,6 +33,8 @@ int main(int argc, char* argv[])
     else if (arg == "-p" && i + 1 < argc) { port = std::atoi(argv[++i]); }
     else if (arg == "-c" && i + 1 < argc) { config_file_path = argv[++i]; }
     else if (arg == "--theme" && i + 1 < argc) { theme_name = argv[++i]; }
+    else if (arg == "--no-bootstrap") { bootstrap_enabled = false; }
+    else if (arg == "--update-managed") { bootstrap_update_managed = true; }
     else if (arg == "-h") {
       std::cout << "Usage: mistral-tui [OPTIONS]\n"
                 << "  -c FILE       Config file\n"
@@ -37,14 +42,42 @@ int main(int argc, char* argv[])
                 << "  -p PORT       API port\n"
                 << "  -a ID         Agent ID\n"
                 << "  --theme NAME  Theme: dark, light, nord,"
-                << " tokyo-night, solarized-light\n";
+                << " tokyo-night, solarized-light\n"
+                << "  --no-bootstrap       Do not bootstrap the workspace\n"
+                << "  --update-managed     Force-update managed files"
+                << " (e.g. sys_patchset_instructions.md)\n";
       return 0;
     }
   }
 
+  const bool custom_config = !config_file_path.empty();
   if (config_file_path.empty()) {
     config_file_path =
       std::filesystem::path(base_dir) / "mistral-cli.json";
+  }
+
+  // Bootstrap the workspace with the embedded default configuration files.
+  // Skipped when a custom config file is used. Notices go to stderr: the TUI
+  // takes over stdout.
+  if (!custom_config && bootstrap_enabled) {
+    mistral::agent::bootstrap_options bootstrap_opts;
+    bootstrap_opts.force_update = bootstrap_update_managed;
+    try {
+      const auto boot = mistral::agent::bootstrap_workspace(base_dir, bootstrap_opts);
+      if (!boot.created.empty()) {
+        std::cerr << "created default files in " << base_dir << ": ";
+        for (const auto& name : boot.created) std::cerr << name << " ";
+        std::cerr << std::endl;
+      }
+      for (const auto& note : boot.updated) {
+        std::cerr << "updated " << base_dir << "/" << note << std::endl;
+      }
+      for (const auto& warning : boot.warnings) {
+        std::cerr << "warning: " << warning << std::endl;
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "workspace bootstrap failed: " << e.what() << std::endl;
+    }
   }
 
   auto log_filename = std::filesystem::path(base_dir) / "trace.log";

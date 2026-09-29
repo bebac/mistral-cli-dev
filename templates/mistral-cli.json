@@ -1,0 +1,50 @@
+{
+  "models": {
+    "mistral-medium": {
+      "provider": "mistral",
+      "model_id": "mistral-medium-latest",
+      "api_key_env": "MISTRAL_API_KEY",
+      "base_url": "https://api.mistral.ai",
+      "api_version": "v1"
+    },
+    "mistral-small": {
+      "provider": "mistral",
+      "model_id": "mistral-small-latest",
+      "api_key_env": "MISTRAL_API_KEY",
+      "base_url": "https://api.mistral.ai",
+      "api_version": "v1"
+    },
+    "mistral-lean": {
+      "provider": "mistral",
+      "model_id": "labs-leanstral-1-5",
+      "api_key_env": "MISTRAL_API_KEY",
+      "base_url": "https://api.mistral.ai",
+      "api_version": "v1"
+    }
+  },
+  "agents": {
+    "main": {
+      "model": "mistral-medium",
+      "system_prompt": "file://.mistral-cli/sys_prompt.md",
+      "available_tools": [
+        "ls",
+        "exec",
+        "read",
+        "patchset_get",
+        "patchset_validate",
+        "patchset_update",
+        "patchset_remove",
+        "patchset_apply",
+        "task_create",
+        "task_list",
+        "task_get",
+        "task_update",
+        "task_search"
+      ],
+      "tool_policy": "file://.mistral-cli/policy.json"
+    }
+  },
+  "policy": {
+    "default": "deny"
+  }
+}

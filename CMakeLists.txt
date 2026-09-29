@@ -40,6 +40,28 @@ target_include_directories(nlohmann_json INTERFACE
 )
 
 # -----------------------------------------------------------------------------
+# Embedded workspace templates (generated at build time)
+# -----------------------------------------------------------------------------
+
+set(EMBEDDED_TEMPLATES_CPP
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_templates.cpp)
+
+add_custom_command(
+    OUTPUT ${EMBEDDED_TEMPLATES_CPP}
+    COMMAND ${CMAKE_COMMAND}
+            -DOUT=${EMBEDDED_TEMPLATES_CPP}
+            -DTEMPLATES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/templates
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_templates.cmake
+    DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_patchset_instructions.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/policy.json
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/mistral-cli.json
+    COMMENT "Generating embedded workspace templates"
+    VERBATIM
+)
+
+# -----------------------------------------------------------------------------
 # Core library
 # -----------------------------------------------------------------------------
 
@@ -76,6 +98,8 @@ add_library(mistral-core STATIC
     lib/tools/patchset_tools.cpp
     lib/common/string_utils.cpp
     lib/trace/trace.cpp
+    lib/agent/workspace_bootstrap.cpp
+    ${EMBEDDED_TEMPLATES_CPP}
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)

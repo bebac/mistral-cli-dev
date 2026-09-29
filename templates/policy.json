@@ -1,0 +1,19 @@
+{
+  "default": "require_approval",
+  "allow": [
+    { "type": "directory", "tool": "read", "path": "." },
+    { "type": "tool", "tool": "ls" },
+    { "type": "tool", "tool": "task_list" },
+    { "type": "tool", "tool": "task_get" },
+    { "type": "tool", "tool": "task_update" },
+    { "type": "tool", "tool": "task_search" },
+    { "type": "tool", "tool": "patchset_get" },
+    { "type": "tool", "tool": "patchset_validate" },
+    { "type": "tool", "tool": "patchset_update" },
+    { "type": "executable", "tool": "exec", "command": "grep" },
+    { "type": "executable", "tool": "exec", "command": "find" },
+    { "type": "executable", "tool": "exec", "command": "ls" },
+    { "type": "executable", "tool": "exec", "command": "tests", "cwd": "build" },
+    { "type": "executable", "tool": "exec", "command": "make", "cwd": "." }
+  ]
+}

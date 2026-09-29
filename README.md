@@ -1,17 +1,20 @@
 # Mistral CLI
 
-A **command-line interface** for interacting with [Mistral AI](https://mistral.ai/) models, featuring **real-time streaming**, **tool integration** (e.g., file operations), and an interactive console with history.
+A **command-line interface** for interacting with [Mistral AI](https://mistral.ai/) models, featuring **real-time streaming**, **tool integration**, an interactive console, and a full-screen **TUI**.
 
-Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dripcore-dev)), and **HTTP/2** (via [stunning-waddle](https://github.com/bebac/stunning-waddle)).
+Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dripcore-dev)), **HTTP/2** (via [stunning-waddle](https://github.com/bebac/stunning-waddle)), and a terminal UI (via [cpp-tui](https://github.com/bebac/cpp-tui)).
 
 ---
 
 ## Features
 
 ✅ **Interactive Chat**: Stream responses in real-time.
-✅ **Tool Integration**: Call tools (e.g., `ls`, `read`, `write`) from the AI.
+✅ **TUI Mode**: Full-screen terminal UI (`mistral-tui`) with selectable themes.
+✅ **Tool Integration**: File listing/reading, grep, exec, notes, task tracking, and patchset-based file editing.
+✅ **Multi-Agent Configuration**: Models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
+✅ **Workspace Bootstrap**: Default configuration files are embedded in the executables and seeded automatically on startup.
 ✅ **Console History**: Persists command history between sessions.
-✅ **HTTP/2 + TLS**: Efficient, secure communication with Mistral's API.
+✅ **HTTP/2 + TLS**: Efficient, secure communication with the API.
 ✅ **Cross-Platform**: Works on Unix-like systems (Linux, macOS).
 ✅ **Unit Tested**: Comprehensive test suite (via [doctest](https://github.com/doctest/doctest)).
 
@@ -31,8 +34,14 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 ### 1. Clone the Repository
 
 ```sh
-git clone https://github.com/your-repo/mistral-cli.git
+git clone --recurse-submodules https://github.com/your-repo/mistral-cli.git
 cd mistral-cli
+```
+
+Or, for an existing clone, initialize the submodules (required before building):
+
+```sh
+git submodule update --init --recursive
 ```
 
 ### 2. Build
@@ -43,6 +52,8 @@ cmake ..
 make
 ```
 
+This builds the `mistral-cli` (console) and `mistral-tui` (TUI) executables, plus the `tests` binary.
+
 ### 3. Run
 
 Set your Mistral API key:
@@ -51,21 +62,69 @@ Set your Mistral API key:
 export MISTRAL_API_KEY="your_api_key_here"
 ```
 
-Start the CLI:
+Start the console CLI:
 
 ```sh
-./mistral-cli --model mistral-medium-latest
+./mistral-cli
 ```
 
-#### Command-Line Options
+or the TUI:
 
-| Option               | Description                                  | Default                     |
-|-----------------------|----------------------------------------------|-----------------------------|
-| `-m, --model`         | Mistral model to use.                        | `mistral-medium-latest`     |
-| `-s, --system-prompt` | System prompt for the AI.                   | "You are a helpful assistant." |
-| `-H, --host`          | API host.                                   | `api.mistral.ai`           |
-| `-p, --port`          | API port.                                   | `443`                      |
-| `-h, --help`          | Show help.                                   |                             |
+```sh
+./mistral-tui
+```
+
+On startup the working directory is bootstrapped with a default `.mistral-cli/` workspace (see [Workspace Setup](#workspace-setup)).
+
+#### Command-Line Options — mistral-cli
+
+| Option                   | Description                                                        | Default                                    |
+|--------------------------|--------------------------------------------------------------------|--------------------------------------------|
+| `-c, --config-file FILE` | Configuration file path.                                            | `.mistral-cli/mistral-cli.json`            |
+| `-n, --notes-dir DIR`    | Notes directory.                                                    | `.mistral-cli/notes`                       |
+| `-H, --host HOST`        | API host.                                                          | `api.mistral.ai` (or `base_url` from config) |
+| `-p, --port PORT`        | API port.                                                          | `443`                                      |
+| `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                     |
+| `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                            |
+| `-B, --no-bootstrap`     | Do not bootstrap the workspace.                                    |                                            |
+| `-U, --update-managed`   | Force-update managed files (e.g. `sys_patchset_instructions.md`).  |                                            |
+| `-h, --help`             | Show help.                                                         |                                            |
+
+#### Command-Line Options — mistral-tui
+
+| Option               | Description                                                       | Default                         |
+|----------------------|-------------------------------------------------------------------|---------------------------------|
+| `-c FILE`            | Config file.                                                      | `.mistral-cli/mistral-cli.json` |
+| `-H HOST`            | API host.                                                         | `api.mistral.ai`                |
+| `-p PORT`            | API port.                                                         | `443`                           |
+| `-a ID`              | Agent ID.                                                         | `main`                          |
+| `--theme NAME`       | Theme: `dark`, `light`, `nord`, `tokyo-night`, `solarized-light`. | `dark`                          |
+| `--no-bootstrap`     | Do not bootstrap the workspace.                                   |                                 |
+| `--update-managed`   | Force-update managed files.                                       |                                 |
+
+The model is no longer selected on the command line; it comes from the agent's model configuration in `mistral-cli.json`.
+
+---
+
+## Workspace Setup
+
+mistral-cli and mistral-tui load their configuration from a `.mistral-cli/`
+directory in the working directory (agents, system prompts, tool policy,
+notes and chat history).
+
+No manual setup is needed: the default files from `templates/` are embedded
+into the executables and a new `.mistral-cli/` directory is bootstrapped
+automatically on startup (unless a custom config file is passed with `-c`,
+or `--no-bootstrap` is given):
+
+- `mistral-cli.json`, `policy.json`, `sys_prompt.md` are **seeded** — written
+  only if missing, so local customizations are never overwritten.
+- `sys_patchset_instructions.md` is **managed** — refreshed from the embedded
+  content when a newer executable finds an unmodified stock copy (tracked via
+  `.mistral-cli/bootstrap.json`). A locally modified copy is left in place
+  with a warning; run with `--update-managed` to overwrite it.
+
+See `templates/README.md` for details.
 
 ---
 
@@ -110,75 +169,108 @@ The AI can call tools to perform actions. For example:
   3|A command-line interface for Mistral AI models...
   ```
 
-- **Write a file**:
+- **Search the codebase**:
   ```
-  > Create a file named "test.txt" with the content "Hello, world!".
-  < Calling tool: write(path="test.txt", content="Hello, world!")
-  < File written successfully.
+  > Find where the tool registry is populated.
+  < Calling tool: grep(pattern="register_tool", path="lib")
+  < lib/agent/agent_system.cpp:468:    global_tools_.register_tool(
   ```
 
 ### Available Tools
 
-| Tool  | Description                                                                 | Arguments                                                                 |
-|-------|-----------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| `ls`  | List files and directories.                                                 | `path`, `recursive` (bool), `max_depth` (int)                            |
-| `read`| Read file contents (supports line ranges).                                  | `path`, `line_from` (int), `line_to` (int)                               |
-| `write`| Write content to a file (creates directories if needed).                   | `path`, `content`                                                        |
+| Tool | Description |
+|------|-------------|
+| `ls` | List files and directories. |
+| `read` | Read file contents (supports line ranges). |
+| `grep` | Search for a regular expression in files. |
+| `exec` | Execute an external command (no shell involved). |
+| `note_list`, `note_read`, `note_write`, `note_search` | Manage notes in the notes directory. |
+| `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
+| `task_create`, `task_list`, `task_get`, `task_update`, `task_search` | Project task tracking. |
+
+Which tools an agent may use is configured per agent via `available_tools`
+in `mistral-cli.json`. File edits go through the patchset workflow
+(see `.mistral-cli/sys_patchset_instructions.md`) rather than a direct
+write tool.
 
 ---
 
 ## Project Structure
 
-| Directory/File       | Purpose                                                                 |
-|----------------------|-------------------------------------------------------------------------|
-| `src/`               | Main source code (entry point, tasks).                                    |
-| `lib/`               | Core library (HTTP, API, console, tools).                                |
-| `test/`              | Unit tests.                                                            |
-| `third_party/`       | Dependencies (e.g., `nlohmann/json`).                                   |
-| `references/`        | Vendored dependencies (`dripcore`, `stunning-waddle`, `isocline`).       |
-| `CMakeLists.txt`     | Build configuration.                                                   |
-| `README.md`          | This file.                                                            |
+| Directory/File   | Purpose                                                                 |
+|------------------|-------------------------------------------------------------------------|
+| `src/`           | Executable entry points (`mistral-cli`, `mistral-tui`, demos).           |
+| `lib/`           | Core library (HTTP, API, console, TUI, tools, agent system).             |
+| `test/`          | Unit tests.                                                             |
+| `templates/`     | Default workspace files embedded into the executables at build time.    |
+| `third_party/`   | Submodule dependencies (`dripcore`, `stunning-waddle`, `isocline`, `just-a-uri`, `cpp-tui`) and `nlohmann/json`. |
+| `CMakeLists.txt` | Build configuration.                                                    |
+| `README.md`      | This file.                                                              |
 
 ---
 
 ## Dependencies
 
-| Dependency           | Purpose                                  | License               |
-|----------------------|------------------------------------------|-----------------------|
-| [dripcore](https://github.com/bebac/dripcore-dev) | Coroutine scheduler. | MIT                   |
-| [stunning-waddle](https://github.com/bebac/stunning-waddle) | HTTP/2 client. | MIT                   |
-| [isocline](https://github.com/gtuk/discord.cpp/tree/master/deps/isocline) | Readline-like input. | MIT                   |
-| [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing. | MIT                   |
-| [doctest](https://github.com/doctest/doctest) | Unit testing. | MIT                   |
+| Dependency           | Purpose                        | License               |
+|----------------------|--------------------------------|-----------------------|
+| [dripcore](https://github.com/bebac/dripcore-dev) | Coroutine scheduler. | MIT |
+| [stunning-waddle](https://github.com/bebac/stunning-waddle) | HTTP/2 client. | MIT |
+| [isocline](https://github.com/bebac/isocline) | Readline-like input. | MIT |
+| [just-a-uri](https://github.com/bebac/just-a-uri) | URI parsing. | MIT |
+| [cpp-tui](https://github.com/bebac/cpp-tui) | Terminal UI library (TUI mode). | MIT |
+| [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing. | MIT |
+| [doctest](https://github.com/doctest/doctest) | Unit testing. | MIT |
 | OpenSSL | TLS support. | Apache License 2.0 |
 
 ---
 
 ## Testing
 
-Run the test suite:
+Run the test suite from the repository root:
+
+```sh
+make test
+```
+
+or run the test binary directly:
+
+```sh
+./build/tests
+```
+
+`ctest` also works from a configured build directory (the `tests` target is
+registered with CTest):
 
 ```sh
 cd build
-ctest  # or ./tests
+ctest
 ```
 
 ### Example Tests
 
-- **Conversation Management**:
-  Verifies message history, sliding window, and JSON serialization.
+- **Conversation Management** (`conversation_test.cpp`):
+  Verifies message history and JSON serialization.
 
-- **Tool Dispatching**:
-  Tests tool registration and execution (e.g., `ls`, `read`, `write`).
+- **Tool Dispatching** (`tool_registry_test.cpp`, `exec_tools_test.cpp`, `task_tools_test.cpp`):
+  Tests tool registration and execution.
 
-- **API Parsing**:
-  Validates request/response parsing and SSE (Server-Sent Events) handling.
+- **Patchset Workflow** (`edit_parser_test.cpp`, `edit_validator_test.cpp`, `patchset_tools_test.cpp`):
+  Patchset parsing, validation, and application.
+
+- **Policy Engine** (`policy_engine_test.cpp`):
+  Tool policy evaluation and approvals.
+
+- **Workspace Bootstrap** (`workspace_bootstrap_test.cpp`):
+  Seeding of default files and managed-file updates.
+
+- **TUI** (`tui_content_log_test.cpp`, `tui_chat_input_test.cpp`, `tui_slash_command_test.cpp`):
+  TUI widgets, input handling, and rendering.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Here’s how you can help:
+Contributions are welcome! Here's how you can help:
 
 1. **Report Bugs**: Open an issue on GitHub.
 2. **Suggest Features**: Share your ideas for new tools or improvements.
@@ -187,9 +279,14 @@ Contributions are welcome! Here’s how you can help:
 ### Development Setup
 
 1. Fork the repository.
-2. Clone your fork:
+2. Clone your fork **with submodules** (the build requires them):
    ```sh
-   git clone https://github.com/your-username/mistral-cli.git
+   git clone --recurse-submodules https://github.com/your-username/mistral-cli.git
+   cd mistral-cli
+   ```
+   For an existing clone:
+   ```sh
+   git submodule update --init --recursive
    ```
 3. Create a feature branch:
    ```sh
@@ -209,7 +306,7 @@ Contributions are welcome! Here’s how you can help:
 
 ## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+This project is licensed under the **MIT License**.
 
 ---
 
@@ -218,4 +315,5 @@ This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for d
 - [Mistral AI](https://mistral.ai/) for the amazing models.
 - [dripcore](https://github.com/bebac/dripcore-dev) for the coroutine scheduler.
 - [stunning-waddle](https://github.com/bebac/stunning-waddle) for HTTP/2 support.
-- [isocline](https://github.com/gtuk/discord.cpp/tree/master/deps/isocline) for the interactive console.
+- [isocline](https://github.com/bebac/isocline) for the interactive console.
+- [cpp-tui](https://github.com/bebac/cpp-tui) for the terminal UI.

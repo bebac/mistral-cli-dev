@@ -6,6 +6,7 @@
 #include "agent/agent_system_task.h"
 #include "agent/agent_system_stats_task.h"
 #include "agent/agent_config.h"
+#include "agent/workspace_bootstrap.h"
 #include "tools/note_tools.h"
 #include "template/template_engine.h"
 #include "console/console_task.h"
@@ -68,6 +69,8 @@ int main(int argc, char* argv[])
   std::string host               = "api.mistral.ai";
   int port                       = 443;
   bool system_prompt_show        = false;
+  bool bootstrap_enabled         = true;
+  bool bootstrap_update_managed  = false;
   std::string config_file_path;
   std::string tool_policy_file;
   std::string tool_default_policy = "deny";
@@ -81,12 +84,14 @@ int main(int argc, char* argv[])
     {"port",               required_argument, 0, 'p'},
     {"agent",              required_argument, 0, 'a'},
     {"system-prompt-show", no_argument,       0, 'e'},
+    {"no-bootstrap",       no_argument,       0, 'B'},
+    {"update-managed",     no_argument,       0, 'U'},
     {"help",               no_argument,       0, 'h'},
     {0, 0, 0, 0}
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:eP:D:h", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:eP:D:BUh", long_options, nullptr)) != -1)
   {
     switch (opt) {
       case 'c': config_file_path = optarg; break;
@@ -95,6 +100,8 @@ int main(int argc, char* argv[])
       case 'p': port = std::atoi(optarg); break;
       case 'a': agent_id = optarg; break;
       case 'e': system_prompt_show = true; break;
+      case 'B': bootstrap_enabled = false; break;
+      case 'U': bootstrap_update_managed = true; break;
       case 'h':
         std::cout << "Usage: mistral-cli [OPTIONS]\n"
                   << "  -c, --config-file FILE         Configuration file path (required)\n"
@@ -103,6 +110,8 @@ int main(int argc, char* argv[])
                   << "  -p, --port PORT                API port (default: 443)\n"
                   << "  -a, --agent AGENT              Agent ID to use (default: main)\n"
                   << "  -e, --system-prompt-show       Show system prompt, then exit\n"
+                  << "  -B, --no-bootstrap             Do not bootstrap the workspace\n"
+                  << "  -U, --update-managed           Force-update managed files (e.g. sys_patchset_instructions.md)\n"
                   << "  -h, --help                     Show this help\n";
         return 0;
       default:
@@ -111,8 +120,33 @@ int main(int argc, char* argv[])
   }
 
   // If config file not provide use default.
+  const bool custom_config = !config_file_path.empty();
   if (config_file_path.empty()) {
     config_file_path = std::filesystem::path(base_dir) / "mistral-cli.json";
+  }
+
+  // Bootstrap the workspace with the embedded default configuration files.
+  // Skipped when a custom config file is used: the user manages their own
+  // setup in that case.
+  if (!custom_config && bootstrap_enabled) {
+    mistral::agent::bootstrap_options bootstrap_opts;
+    bootstrap_opts.force_update = bootstrap_update_managed;
+    try {
+      const auto boot = mistral::agent::bootstrap_workspace(base_dir, bootstrap_opts);
+      if (!boot.created.empty()) {
+        std::cout << "created default files in " << base_dir << ": ";
+        for (const auto& name : boot.created) std::cout << name << " ";
+        std::cout << std::endl;
+      }
+      for (const auto& note : boot.updated) {
+        std::cout << "updated " << base_dir << "/" << note << std::endl;
+      }
+      for (const auto& warning : boot.warnings) {
+        std::cerr << "warning: " << warning << std::endl;
+      }
+    } catch (const std::exception &e) {
+      std::cerr << "workspace bootstrap failed: " << e.what() << std::endl;
+    }
   }
 
   auto log_filename = std::filesystem::path(base_dir) / "trace.log";
