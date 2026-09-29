@@ -867,7 +867,7 @@ namespace mistral::agent
     auto input_ch = std::make_shared<dripcore::channel<std::string>>(4);
     auto output_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
-    task.spawn<subagent_task>(agent_id, input_ch, output_ch);
+    task.spawn_local<subagent_task>(agent_id, input_ch, output_ch);
 
     input_ch->try_send(message);
     input_ch->close();

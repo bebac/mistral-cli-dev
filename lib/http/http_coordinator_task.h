@@ -134,7 +134,7 @@ namespace mistral::net
     dripcore::awaitable<> body() override
     {
       // Spawn the request receiver task first
-      spawn<http_request_task>(request_ch_, event_ch_);
+      spawn_local<http_request_task>(request_ch_, event_ch_);
 
       // Main event loop
       while (true) {
@@ -208,11 +208,11 @@ namespace mistral::net
           // Pass a direct event handler to the reader — protocol events
           // are dispatched inline, avoiding a channel hop. This is safe
           // because all tasks run on the same single-threaded executor.
-          reader_task_ = spawn<http_read_task>(
+          reader_task_ = spawn_local<http_read_task>(
             std::ref(client_), event_ch_,
             [this](http::event& ev) { dispatch_protocol_event(ev); }
           );
-          writer_task_ = spawn<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
+          writer_task_ = spawn_local<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
         }
         catch (const std::exception& e) {
           std::cerr << "[http_coordinator] connection failed: " << e.what() << std::endl;
