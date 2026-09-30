@@ -44,7 +44,7 @@ namespace mistral::trace
 
       template <typename T>
         requires std::convertible_to<T, std::format_string<Args...>>
-      constexpr trace_format(const T& s, std::source_location l = std::source_location::current())
+      consteval trace_format(const T& s, std::source_location l = std::source_location::current())
         : fmt(s), loc(l) {}
     };
 

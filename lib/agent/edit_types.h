@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <algorithm>
+#include <iterator>
 
 namespace mistral::agent
 {

@@ -2,6 +2,7 @@
 #include "common/string_utils.h"
 
 #include <cctype>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -243,8 +244,21 @@ namespace mistral::agent
       return result;
     }
 
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+    std::string content;
+    try
+    {
+      content.assign(std::istreambuf_iterator<char>(in),
+                     std::istreambuf_iterator<char>());
+    }
+    catch (const std::exception&)
+    {
+      // On Linux, opening a directory with std::ifstream succeeds but the
+      // first read throws (e.g. "Is a directory"). Report it as a read
+      // error instead of letting the exception escape.
+      result.error_type = "file_read_error";
+      result.error_message = "Could not read file: " + edit.file_path;
+      return result;
+    }
 
     // Find all occurrences of search_text in the target file
     size_t pos = 0;

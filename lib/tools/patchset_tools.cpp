@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -378,8 +379,23 @@ namespace mistral::agent
             continue;
           }
 
-          std::string content((std::istreambuf_iterator<char>(in)),
-                              std::istreambuf_iterator<char>());
+          std::string content;
+          try
+          {
+            content.assign(std::istreambuf_iterator<char>(in),
+                           std::istreambuf_iterator<char>());
+          }
+          catch (const std::exception&)
+          {
+            // On Linux, opening a directory with std::ifstream succeeds
+            // but the first read throws (e.g. "Is a directory").
+            edit_result["status"] = "failed";
+            edit_result["error_type"] = "file_read_error";
+            edit_result["error"] = "Could not read file: " + edit.file_path;
+            results_array.push_back(edit_result);
+            result["failed"] = result["failed"].get<int>() + 1;
+            continue;
+          }
           in.close();
 
           // Find the search text

@@ -426,14 +426,18 @@ namespace mistral::agent
 
   auto agent_task_base::execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>
   {
-    auto result = co_await tools_.dispatch(
-      api::json{{
+    // Build the request before the co_await expression: constructing a
+    // nested braced temporary inside the co_await triggers a GCC 13
+    // internal compiler error (build_special_member_call ICE).
+    api::json request{
+      {
         "function", {
           {"name", tc.function.name},
           {"arguments", tc.function.arguments}
         }
-      }}
-    );
+      }
+    };
+    auto result = co_await tools_.dispatch(std::move(request));
     if (result.is_string()) {
       co_return result.get<std::string>();
     }
