@@ -533,7 +533,11 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "exec",
-      "Execute an external command. Uses execvp() directly - no shell involved. "
+      "Execute an external command. Uses execvp() directly - no shell involved: "
+      "no pipes, redirection, globbing or command substitution. The command must "
+      "be a single executable name (e.g., 'git', 'cmake') and each argument a "
+      "separate array element. The call is pre-checked and fails fast if the "
+      "command does not exist or contains shell syntax. "
       "Returns exit code, stdout, stderr, and command info. "
       "stdout and stderr are each capped at 64 KiB; excess output is discarded "
       "and reported via the stdout_truncated/stderr_truncated flags.",

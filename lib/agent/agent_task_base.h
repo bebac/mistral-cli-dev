@@ -73,6 +73,13 @@ namespace mistral::agent
     // need to handle sink output and approval flow.
     static std::string accumulate_text(
       const std::vector<api::message_content>& accumulated_content);
+    // Structural pre-check of a tool call, run before policy evaluation
+    // and approval. Returns an error message when the call is malformed
+    // and cannot succeed (e.g. an exec command containing shell syntax
+    // or naming a command that does not exist), or std::nullopt when
+    // the call should proceed to policy evaluation.
+    std::optional<std::string> precheck_tool_call(
+      const api::tool_call& tc, const api::json& tool_args) const;
     policy_result evaluate_tool_policy(
       const api::tool_call& tc, const api::json& tool_args) const;
     static api::json build_tool_rejection(

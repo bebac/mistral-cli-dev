@@ -1,6 +1,7 @@
 #include "agent/agent_task_base.h"
 
 #include "common/string_utils.h"
+#include "tools/exec_tools.h"
 
 #include <algorithm>
 #include <chrono>
@@ -472,6 +473,34 @@ namespace mistral::agent
       .working_directory = ""
     };
     return policy_engine_.evaluate(ctx);
+  }
+
+  std::optional<std::string> agent_task_base::precheck_tool_call(
+    const api::tool_call& tc, const api::json& tool_args) const
+  {
+    if (tc.function.name != "exec") {
+      return std::nullopt;
+    }
+
+    if (!tool_args.contains("command") || !tool_args["command"].is_string()) {
+      // Malformed arguments are reported by the tool dispatcher.
+      return std::nullopt;
+    }
+
+    std::string command = tool_args["command"].get<std::string>();
+
+    std::vector<std::string> args;
+    if (tool_args.contains("args") && tool_args["args"].is_array()) {
+      for (const auto& arg : tool_args["args"]) {
+        if (!arg.is_string()) {
+          // Malformed arguments are reported by the tool dispatcher.
+          return std::nullopt;
+        }
+        args.push_back(arg.get<std::string>());
+      }
+    }
+
+    return mistral::tools::exec_tools::validate(command, args);
   }
 
   api::json agent_task_base::build_tool_rejection(

@@ -4,6 +4,7 @@
 #include <dripcore/awaitable.h>
 #include <nlohmann/json.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,9 +25,19 @@ namespace mistral::tools
       int timeout_seconds = 30
     );
 
+    // Pre-check an exec tool call before it is executed (or approved).
+    // Returns an error message if the command is empty, contains shell
+    // syntax (execvp() is called directly with no shell), or does not
+    // exist (PATH lookup, or - for explicit paths - is not an executable
+    // file). Returns std::nullopt when the call looks valid.
+    static std::optional<std::string> validate(
+      const std::string& command,
+      const std::vector<std::string>& args);
+
   private:
-    // Find executable path using PATH lookup (like which)
-    std::string find_executable(const std::string& command) const;
+    // Find executable path using PATH lookup (like which). Explicit
+    // paths (containing '/') are verified to exist and be executable.
+    static std::string find_executable(const std::string& command);
   };
 
 } // namespace mistral::tools

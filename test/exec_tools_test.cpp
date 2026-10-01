@@ -293,3 +293,93 @@ TEST_CASE("exec_tools: default timeout is 30 seconds")
   CHECK(result.contains("timed_out"));
   CHECK(result["timed_out"].get<bool>() == false);
 }
+
+TEST_CASE("exec_tools: validate rejects shell syntax in command")
+{
+  using namespace mistral::tools;
+
+  // Whole command lines in the command field are a common model mistake.
+  auto error = exec_tools::validate("git status", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("no shell") != std::string::npos);
+
+  error = exec_tools::validate("grep -n foo bar.txt", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("no shell") != std::string::npos);
+
+  error = exec_tools::validate("ls | head", {});
+  REQUIRE(error.has_value());
+}
+
+TEST_CASE("exec_tools: validate rejects empty command")
+{
+  using namespace mistral::tools;
+
+  auto error = exec_tools::validate("", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("empty") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: validate rejects non-existent command")
+{
+  using namespace mistral::tools;
+
+  auto error = exec_tools::validate("this_command_does_not_exist_xyz123", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("command not found") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: validate rejects non-existent explicit path")
+{
+  using namespace mistral::tools;
+
+  // Explicit paths used to bypass the existence check and fail at execvp().
+  auto error = exec_tools::validate("./does_not_exist_xyz123", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("command not found") != std::string::npos);
+
+  error = exec_tools::validate("/does/not/exist_xyz123", {});
+  REQUIRE(error.has_value());
+  CHECK(error->find("command not found") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: validate rejects command substitution in args")
+{
+  using namespace mistral::tools;
+
+  auto error = exec_tools::validate("echo", {"$(rm -rf /)"});
+  REQUIRE(error.has_value());
+  CHECK(error->find("no shell") != std::string::npos);
+
+  error = exec_tools::validate("echo", {"hello `whoami`"});
+  REQUIRE(error.has_value());
+  CHECK(error->find("no shell") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: validate allows shell syntax in args for shells and interpreters")
+{
+  using namespace mistral::tools;
+
+  CHECK_FALSE(exec_tools::validate("sh", {"-c", "ls | head"}).has_value());
+  CHECK_FALSE(exec_tools::validate("bash", {"-c", "echo $(date)"}).has_value());
+  CHECK_FALSE(exec_tools::validate("python3", {"-c", "print('`')"}).has_value());
+}
+
+TEST_CASE("exec_tools: validate allows common regex and code-search arguments")
+{
+  using namespace mistral::tools;
+
+  // Regex alternation and C++ tokens must not be mistaken for shell syntax.
+  CHECK_FALSE(exec_tools::validate("grep", {"-E", "foo|bar", "src/"}).has_value());
+  CHECK_FALSE(exec_tools::validate("grep", {"-n", "a->b", "src/"}).has_value());
+  CHECK_FALSE(exec_tools::validate("grep", {"-n", "teardown\\|close", "file"}).has_value());
+  CHECK_FALSE(exec_tools::validate("grep", {"-n", "x && y", "file"}).has_value());
+}
+
+TEST_CASE("exec_tools: validate accepts existing command")
+{
+  using namespace mistral::tools;
+
+  CHECK_FALSE(exec_tools::validate("echo", {"hello"}).has_value());
+  CHECK_FALSE(exec_tools::validate("ls", {"-la"}).has_value());
+}

@@ -84,13 +84,40 @@ namespace mistral::tools
     private:
       pid_t pid_;
     };
+
+    // Commands that legitimately receive shell/program source in their
+    // arguments; shell-syntax checks in arguments are skipped for these.
+    bool is_interpreter(const std::string& command)
+    {
+      static const std::array<std::string, 14> interpreters = {
+        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
+        "python", "python3", "node", "perl", "ruby", "awk"
+      };
+      return std::find(interpreters.begin(), interpreters.end(), command)
+        != interpreters.end();
+    }
+
+    // Shell syntax or whitespace is never valid in the executable name
+    // passed to exec(): execvp() is invoked directly, with no shell,
+    // so these can only be mistakes (e.g. a whole command line).
+    bool has_shell_syntax(const std::string& s)
+    {
+      return s.find_first_of(" \t\n\r|&;<>()$`\"'") != std::string::npos;
+    }
   } // namespace
 
-  std::string exec_tools::find_executable(const std::string& command) const
+  std::string exec_tools::find_executable(const std::string& command)
   {
-    // If it's already an absolute or relative path, use it as-is
+    // If it's already an absolute or relative path, verify that it
+    // exists and is executable so bogus paths fail fast with a clear
+    // "command not found" instead of reaching execvp() (exit 127).
     if (command.find('/') != std::string::npos) {
-      return command;
+      std::error_code ec;
+      if (fs::exists(command, ec) && fs::is_regular_file(command, ec) &&
+          access(command.c_str(), X_OK) == 0) {
+        return command;
+      }
+      return "";
     }
 
     // Search PATH
@@ -124,6 +151,46 @@ namespace mistral::tools
     }
 
     return "";
+  }
+
+  std::optional<std::string> exec_tools::validate(
+    const std::string& command,
+    const std::vector<std::string>& args)
+  {
+    if (command.empty()) {
+      return std::string("command is empty");
+    }
+
+    if (has_shell_syntax(command)) {
+      return std::format(
+        "invalid command '{}': exec uses execvp() directly with no shell - "
+        "the command must be a single executable name (e.g. 'git') and each "
+        "argument must be a separate element of the args array",
+        command);
+    }
+
+    // Command substitution in arguments is shell syntax; without a shell
+    // it would be passed to the command as a literal string. Skip the
+    // check for shells and interpreters, which legitimately take program
+    // source as arguments.
+    if (!is_interpreter(command)) {
+      for (const auto& arg : args) {
+        if (arg.find('`') != std::string::npos ||
+            arg.find("$(") != std::string::npos) {
+          return std::format(
+            "invalid shell syntax in argument '{}': exec uses execvp() "
+            "directly with no shell - command substitution is not available; "
+            "pass the literal value instead",
+            arg);
+        }
+      }
+    }
+
+    if (find_executable(command).empty()) {
+      return std::format("command not found: {}", command);
+    }
+
+    return std::nullopt;
   }
 
   dripcore::awaitable<json> exec_tools::exec(

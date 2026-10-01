@@ -58,6 +58,13 @@ namespace mistral::agent
       co_return;
     }
 
+    if (auto precheck_error = precheck_tool_call(tc, tool_args))
+    {
+      chat_.add_tool_result(tc.function.name, tc.id,
+        build_tool_rejection("error", *precheck_error).dump());
+      co_return;
+    }
+
     auto policy_result = evaluate_tool_policy(tc, tool_args);
 
     if (policy_result.decision == policy_decision::DENY)
