@@ -130,6 +130,72 @@ namespace mistral::agent
       }
     }
 
+    // Number of complete turns (user-initiated message groups) in the
+    // history, excluding the system message. Tool results and assistant
+    // messages belong to the turn that produced them.
+    size_t turn_count() const
+    {
+      size_t system_offset = has_system_message() ? 1 : 0;
+      size_t turns = 0;
+      for (size_t i = system_offset; i < messages_.size(); ++i) {
+        if (messages_[i].role == "user") ++turns;
+      }
+      return turns;
+    }
+
+    // Messages that apply_compaction() would replace: everything after
+    // the system message (if any) and before the recent tail (the last
+    // keep_turns turns). Empty when there is nothing to compact.
+    std::vector<api::message> messages_to_compact(size_t keep_turns) const
+    {
+      if (turn_count() <= keep_turns) return {};
+
+      size_t system_offset = has_system_message() ? 1 : 0;
+      size_t tail = compaction_tail_index(keep_turns);
+      return std::vector<api::message>(
+        messages_.begin() + system_offset, messages_.begin() + tail);
+    }
+
+    // Replace the messages returned by messages_to_compact() with a
+    // synthetic summary turn (user + assistant). The system message and
+    // the last keep_turns turns are preserved verbatim. No-op when
+    // there is nothing to compact.
+    void apply_compaction(const std::string& summary, size_t keep_turns)
+    {
+      if (turn_count() <= keep_turns) return;
+
+      size_t system_offset = has_system_message() ? 1 : 0;
+      size_t tail = compaction_tail_index(keep_turns);
+
+      std::vector<api::message> compacted;
+      compacted.reserve(system_offset + 2 + (messages_.size() - tail));
+      compacted.insert(compacted.end(), messages_.begin(), messages_.begin() + system_offset);
+
+      // The user message carries the summary so the stored history
+      // stays self-contained. The assistant acknowledgement preserves
+      // user/assistant alternation for the kept tail.
+      api::message summary_msg;
+      summary_msg.role = "user";
+      summary_msg.content = {api::message_content{
+        .type = "text",
+        .content = std::format(
+          "The earlier part of this conversation was compacted to free up "
+          "context space. Summary of the previous conversation:\n\n{}", summary)
+      }};
+      compacted.push_back(std::move(summary_msg));
+
+      api::message ack_msg;
+      ack_msg.role = "assistant";
+      ack_msg.content = {api::message_content{
+        .type = "text",
+        .content = "Understood. Continuing with the compacted context in mind."
+      }};
+      compacted.push_back(std::move(ack_msg));
+
+      compacted.insert(compacted.end(), messages_.begin() + tail, messages_.end());
+      messages_ = std::move(compacted);
+    }
+
     void clear() { messages_.clear(); }
     size_t size() const { return messages_.size(); }
 
@@ -139,6 +205,51 @@ namespace mistral::agent
       std::filesystem::create_directories(chat_dir);
 
       std::string chat_path = std::format("{}/chat_{}.json", chat_dir.string(), session_id);
+      save_to_file(chat_path);
+
+      // Create/update latest symlink
+      std::filesystem::path latest_path = chat_dir / "chat.latest.json";
+      std::filesystem::remove(latest_path);
+      std::filesystem::create_symlink(std::filesystem::path(chat_path).filename(), latest_path);
+    }
+
+    // Snapshot of the full history before a compaction, so the original
+    // conversation can be recovered. Does not touch the chat.latest.json
+    // symlink.
+    void save_snapshot(const std::string& base_dir, const std::string& session_id) const
+    {
+      std::filesystem::path chat_dir = std::filesystem::path(base_dir) / "chats";
+      std::filesystem::create_directories(chat_dir);
+
+      save_to_file(std::format("{}/chat_{}_precompact.json", chat_dir.string(), session_id));
+    }
+
+  private:
+
+    bool has_system_message() const
+    {
+      return !messages_.empty() && messages_.front().role == "system";
+    }
+
+    // Index of the first message of the recent tail (the last keep_turns
+    // turns). Returns messages_.size() when the whole conversation is in
+    // the tail, or when the tail is empty (keep_turns == 0). Callers must
+    // guard with turn_count() > keep_turns.
+    size_t compaction_tail_index(size_t keep_turns) const
+    {
+      size_t system_offset = has_system_message() ? 1 : 0;
+      size_t turns_to_skip = turn_count() - keep_turns;
+      for (size_t i = system_offset; i < messages_.size(); ++i) {
+        if (messages_[i].role == "user") {
+          if (turns_to_skip == 0) return i;
+          --turns_to_skip;
+        }
+      }
+      return messages_.size();
+    }
+
+    void save_to_file(const std::string& chat_path) const
+    {
       std::ofstream out(chat_path);
       if (out) {
         api::json j = api::json::array();
@@ -150,14 +261,7 @@ namespace mistral::agent
       else {
         throw std::runtime_error("Failed to open file: " + chat_path);
       }
-
-      // Create/update latest symlink
-      std::filesystem::path latest_path = chat_dir / "chat.latest.json";
-      std::filesystem::remove(latest_path);
-      std::filesystem::create_symlink(std::filesystem::path(chat_path).filename(), latest_path);
     }
-
-  private:
 
     std::vector<api::message> messages_;
     size_t max_history_;

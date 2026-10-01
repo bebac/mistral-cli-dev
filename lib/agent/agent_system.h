@@ -145,6 +145,12 @@ namespace mistral::agent
     void clear_current_response_ch();
     std::shared_ptr<dripcore::channel<api::api_event>> get_current_response_ch() const;
 
+    // Active agent input channel. Registered by the interactive agent
+    // task at startup so slash commands (e.g. /compact) can route
+    // control messages to the task that owns the conversation.
+    void set_current_input_ch(std::shared_ptr<dripcore::channel<std::string>> ch);
+    std::shared_ptr<dripcore::channel<std::string>> get_current_input_ch() const;
+
     // Shutdown pipe for notifying the signal_watcher_task to exit.
     void set_shutdown_pipe_fd(int fd);
     void signal_shutdown();
@@ -203,6 +209,10 @@ namespace mistral::agent
     // Current response channel for request cancellation
     mutable std::mutex current_response_ch_mtx_;
     std::shared_ptr<dripcore::channel<api::api_event>> current_response_ch_;
+
+    // Active agent input channel (for slash-command control routing)
+    mutable std::mutex current_input_ch_mtx_;
+    std::shared_ptr<dripcore::channel<std::string>> current_input_ch_;
 
     // Shutdown pipe write end (for notifying signal_watcher_task)
     int shutdown_pipe_write_fd_ = -1;

@@ -1,5 +1,6 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/compact_command.h"
 #include "agent/subagent_task.h"
 #include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
@@ -453,6 +454,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<usage_command>());
     registry.register_command(std::make_unique<patchset_verify_command>());
     registry.register_command(std::make_unique<tool_command>());
+    registry.register_command(std::make_unique<compact_command>());
   }
 
   void agent_system::build_global_tool_registry()
@@ -975,6 +977,18 @@ namespace mistral::agent
   {
     std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
     return current_response_ch_;
+  }
+
+  void agent_system::set_current_input_ch(std::shared_ptr<dripcore::channel<std::string>> ch)
+  {
+    std::lock_guard<std::mutex> lock(current_input_ch_mtx_);
+    current_input_ch_ = std::move(ch);
+  }
+
+  std::shared_ptr<dripcore::channel<std::string>> agent_system::get_current_input_ch() const
+  {
+    std::lock_guard<std::mutex> lock(current_input_ch_mtx_);
+    return current_input_ch_;
   }
 
   void agent_system::set_shutdown_pipe_fd(int fd)

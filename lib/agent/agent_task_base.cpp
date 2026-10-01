@@ -18,7 +18,7 @@ namespace mistral::agent
     input_ch_(std::move(input_ch)),
     output_ch_(std::move(output_ch)),
     prompt_ch_(std::move(prompt_ch)),
-    chat_(200),
+    chat_(500),
     session_id_(mistral::utils::generate_session_id()
   )
   {

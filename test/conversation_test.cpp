@@ -314,3 +314,180 @@ TEST_CASE("provider_registry: unknown provider defaults to openai")
   auto prov = provider_registry::create("unknown-provider");
   CHECK(prov->id() == "openai");
 }
+
+TEST_CASE("conversation: turn counting for compaction")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+  chat.add_user_message("u2");
+  chat.add_assistant_message("a2");
+
+  CHECK(chat.turn_count() == 2);
+
+  // Tool results belong to the turn that produced them.
+  std::vector<mistral::api::tool_call> calls = {{
+    .id = "call_1",
+    .type = "function",
+    .function = {.name = "ls", .arguments = "{}"}
+  }};
+  chat.add_user_message("u3");
+  chat.add_assistant_message("", std::move(calls));
+  chat.add_tool_result("ls", "call_1", "result");
+
+  CHECK(chat.turn_count() == 3);
+}
+
+TEST_CASE("conversation: messages_to_compact returns evicted range")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+  chat.add_user_message("u2");
+  chat.add_assistant_message("a2");
+  chat.add_user_message("u3");
+  chat.add_assistant_message("a3");
+
+  auto to_compact = chat.messages_to_compact(1);
+  REQUIRE(to_compact.size() == 4);
+  CHECK(to_compact.front().content[0].content == "u1");
+  CHECK(to_compact.back().content[0].content == "a2");
+
+  // Everything fits in the keep window: nothing to compact.
+  CHECK(chat.messages_to_compact(3).empty());
+  CHECK(chat.messages_to_compact(10).empty());
+}
+
+TEST_CASE("conversation: apply_compaction replaces evicted range with summary turn")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+  chat.add_user_message("u2");
+  chat.add_assistant_message("a2");
+  chat.add_user_message("u3");
+  chat.add_assistant_message("a3");
+
+  chat.apply_compaction("SUMMARY", 1);
+
+  // [system, user(summary), assistant(ack), user3, assistant3]
+  REQUIRE(chat.size() == 5);
+  CHECK(chat.messages()[0].role == "system");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[1].content[0].content.find("SUMMARY") != std::string::npos);
+  CHECK(chat.messages()[2].role == "assistant");
+  CHECK(chat.messages()[3].role == "user");
+  CHECK(chat.messages()[3].content[0].content == "u3");
+  CHECK(chat.messages()[4].role == "assistant");
+  CHECK(chat.messages()[4].content[0].content == "a3");
+}
+
+TEST_CASE("conversation: apply_compaction keeps tool messages in the tail verbatim")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+
+  // Old turn with a tool call.
+  chat.add_user_message("list files");
+  std::vector<mistral::api::tool_call> calls1 = {{
+    .id = "call_1",
+    .type = "function",
+    .function = {.name = "ls", .arguments = "{}"}
+  }};
+  chat.add_assistant_message("", std::move(calls1));
+  chat.add_tool_result("ls", "call_1", R"({"files":["a.txt"]})");
+
+  // Recent turn with a tool call - must be kept verbatim.
+  chat.add_user_message("read a.txt");
+  std::vector<mistral::api::tool_call> calls2 = {{
+    .id = "call_2",
+    .type = "function",
+    .function = {.name = "read", .arguments = "{}"}
+  }};
+  chat.add_assistant_message("", std::move(calls2));
+  chat.add_tool_result("read", "call_2", "content");
+
+  chat.apply_compaction("SUMMARY", 1);
+
+  REQUIRE(chat.size() == 6);
+  CHECK(chat.messages()[0].role == "system");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[2].role == "assistant");
+  CHECK(chat.messages()[3].role == "user");
+  CHECK(chat.messages()[3].content[0].content == "read a.txt");
+  CHECK(chat.messages()[4].role == "assistant");
+  REQUIRE(chat.messages()[4].tool_calls.has_value());
+  CHECK(chat.messages()[4].tool_calls->front().id == "call_2");
+  CHECK(chat.messages()[5].role == "tool");
+  CHECK(chat.messages()[5].tool_call_id == "call_2");
+}
+
+TEST_CASE("conversation: apply_compaction with keep zero compacts everything")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+  chat.add_user_message("u2");
+  chat.add_assistant_message("a2");
+
+  chat.apply_compaction("SUMMARY", 0);
+
+  // [system, user(summary), assistant(ack)]
+  REQUIRE(chat.size() == 3);
+  CHECK(chat.messages()[0].role == "system");
+  CHECK(chat.messages()[1].role == "user");
+  CHECK(chat.messages()[2].role == "assistant");
+
+  // The conversation can continue with a normal turn.
+  chat.add_user_message("next");
+  chat.add_assistant_message("reply");
+  REQUIRE(chat.size() == 5);
+  CHECK(chat.messages()[3].role == "user");
+  CHECK(chat.messages()[4].role == "assistant");
+}
+
+TEST_CASE("conversation: apply_compaction is a no-op when nothing to compact")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+
+  chat.apply_compaction("SUMMARY", 1);
+
+  REQUIRE(chat.size() == 3);
+  CHECK(chat.messages()[1].content[0].content == "u1");
+}
+
+TEST_CASE("conversation: save_snapshot writes precompact file without touching latest")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("hello");
+  chat.add_assistant_message("hi");
+
+  auto tmp = std::filesystem::temp_directory_path() / "mistral_compact_test";
+  std::filesystem::remove_all(tmp);
+
+  chat.save_snapshot(tmp.string(), "session42");
+
+  auto snapshot_path = tmp / "chats" / "chat_session42_precompact.json";
+  REQUIRE(std::filesystem::exists(snapshot_path));
+  CHECK_FALSE(std::filesystem::exists(tmp / "chats" / "chat.latest.json"));
+
+  std::ifstream in(snapshot_path);
+  REQUIRE(in);
+  std::string content((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+  auto j = mistral::api::json::parse(content);
+  REQUIRE(j.size() == 3);
+  CHECK(j[0]["role"] == "system");
+  CHECK(j[1]["role"] == "user");
+  CHECK(j[2]["role"] == "assistant");
+
+  std::filesystem::remove_all(tmp);
+}

@@ -9,6 +9,7 @@
 #include "agent/approval_prompt.h"
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/compact_command.h"
 #include "agent/render_sink.h"
 
 #include "api/types.h"
@@ -20,12 +21,31 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 #include <cctype>
+#include <charconv>
+#include <format>
 
 namespace mistral::agent
 {
+  // Instruction for the compaction side request. The summary replaces the
+  // evicted history, so it must preserve the operational state of the
+  // session (goals, decisions, files, patchset IDs, open tasks), not
+  // just the narrative.
+  inline constexpr std::string_view compaction_instruction =
+    "This conversation is being compacted to free up context space. The summary you "
+    "produce will replace everything above, so it will be the only memory of the "
+    "earlier conversation. Summarize the conversation so far, preserving:\n"
+    "1. The user's overall goal(s) and any standing constraints or preferences they stated\n"
+    "2. Decisions made and their rationale, including approaches that were tried and rejected\n"
+    "3. Files that were read or edited, and any significant findings in them\n"
+    "4. Any patchset IDs that were mentioned, and whether they were applied\n"
+    "5. Open tasks and unresolved questions\n\n"
+    "Keep it concise. Do not include large code blocks or file contents unless they "
+    "are essential.";
+
   class interactive_agent_task : public agent_task_base
   {
   public:
@@ -39,6 +59,10 @@ namespace mistral::agent
       : agent_task_base(agent_id, input_ch, output_ch, prompt_ch)
       , sink_(std::move(sink))
     {
+      // Register the input channel so slash commands (e.g. /compact)
+      // can route control messages to this task, which owns the
+      // conversation.
+      agent_system::instance().set_current_input_ch(input_ch_);
     }
 
     dripcore::awaitable<> body() override
@@ -58,6 +82,13 @@ namespace mistral::agent
         if (!input || input->empty()) {
           if (!input) break;  // Channel closed (EOF).
           continue;           // Empty input, ask again.
+        }
+
+        // Compaction control message from the /compact slash command.
+        if (input->starts_with(compact_request_prefix))
+        {
+          co_await run_compaction(input->substr(compact_request_prefix.size()));
+          continue;
         }
 
         chat_.add_user_message(*input);
@@ -275,6 +306,138 @@ namespace mistral::agent
     }
 
   private:
+    // Compact the conversation history: summarize the evicted messages
+    // via a side API request and replace them with a synthetic summary
+    // turn (see conversation::apply_compaction). Called from body() when
+    // a /compact control message arrives, i.e. between turns.
+    auto run_compaction(const std::string& args) -> dripcore::awaitable<void>
+    {
+      // Parse the number of recent turns to keep (from /compact [keep]).
+      size_t keep_turns = default_compact_keep_turns;
+      if (!args.empty())
+      {
+        size_t value = 0;
+        auto result = std::from_chars(args.data(), args.data() + args.size(), value);
+        if (result.ec == std::errc())
+        {
+          keep_turns = value;
+        }
+        else
+        {
+          sink_->output_warning("Invalid /compact argument, keeping the default " +
+            std::to_string(default_compact_keep_turns) + " turn(s).");
+        }
+      }
+
+      if (chat_.turn_count() <= keep_turns)
+      {
+        sink_->output_line("Nothing to compact: the conversation has " +
+          std::to_string(chat_.turn_count()) + " turn(s), keeping the last " +
+          std::to_string(keep_turns) + ".");
+        co_return;
+      }
+
+      auto to_summarize = chat_.messages_to_compact(keep_turns);
+      sink_->output_line(std::format(
+        "Compacting: summarizing {} message(s), keeping the last {} turn(s)...",
+        to_summarize.size(), keep_turns));
+
+      // Preserve the full history before compaction so it can be recovered.
+      chat_.save_snapshot(".mistral-cli", session_id_);
+
+      // Side request: [system?] + evicted messages + summarization
+      // instruction. No tools are offered; the response must be plain
+      // text. The prefix matches the cached conversation prefix, so the
+      // input tokens are mostly a prompt-cache hit.
+      std::vector<api::message> request_msgs;
+      const auto& history = chat_.messages();
+      if (!history.empty() && history.front().role == "system")
+      {
+        request_msgs.push_back(history.front());
+      }
+      request_msgs.insert(request_msgs.end(), to_summarize.begin(), to_summarize.end());
+
+      api::message instruction;
+      instruction.role = "user";
+      instruction.content = {api::message_content{
+        .type = "text",
+        .content = std::string(compaction_instruction)
+      }};
+      request_msgs.push_back(std::move(instruction));
+
+      auto body = provider_->build_chat_request(
+        model_, request_msgs, api::json::array(), true, session_id_, sampling_params_);
+
+      response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
+      agent_system::instance().set_current_response_ch(response_ch_);
+
+      std::string path = "/" + api_version_ + "/chat/completions";
+      request_ch_->try_send({.path = path, .body = std::move(body), .stream = true, .response_ch = response_ch_});
+
+      // Consume the streaming response, accumulating text content.
+      std::string summary;
+      bool failed = false;
+      while (true)
+      {
+        auto evt = co_await response_ch_->recv(this);
+        if (!evt)
+        {
+          // Channel closed (cancelled) - abort without touching the history.
+          failed = true;
+          break;
+        }
+        if (evt->type == api::event_type::done)
+        {
+          break;
+        }
+        if (evt->type == api::event_type::error)
+        {
+          sink_->output_error("Compaction failed: " + evt->payload);
+          failed = true;
+          break;
+        }
+
+        try
+        {
+          auto j = api::json::parse(evt->payload);
+          if (j.contains("usage"))
+          {
+            if (stats_ch_)
+            {
+              stats_ch_->try_send({stat_id::api_usage, j.at("usage")});
+            }
+          }
+          auto delta = provider_->parse_stream_delta(j);
+          for (const auto& mc : delta.content)
+          {
+            if (mc.type == "text")
+            {
+              summary += mc.content;
+            }
+          }
+        }
+        catch (...) {}
+      }
+
+      agent_system::instance().clear_current_response_ch();
+
+      if (failed || summary.empty())
+      {
+        if (!failed)
+        {
+          sink_->output_error("Compaction failed: the model returned an empty summary.");
+        }
+        sink_->output_line("Conversation history is unchanged.");
+        co_return;
+      }
+
+      chat_.apply_compaction(summary, keep_turns);
+      chat_.save(".mistral-cli", session_id_);
+      sink_->output_line(std::format(
+        "Compacted: history is now {} message(s).", chat_.size()));
+      co_return;
+    }
+
     std::shared_ptr<render_sink> sink_;
   };
 } // namespace mistral::agent
