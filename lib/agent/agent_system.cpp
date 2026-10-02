@@ -6,6 +6,7 @@
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/grep_tools.h"
+#include "tools/code_tools.h"
 #include "tools/exec_tools.h"
 #include "tools/task_tools.h"
 #include "template/template_engine.h"
@@ -323,6 +324,7 @@ namespace mistral::agent
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
     grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
+    code_tools_ = std::make_unique<mistral::tools::code_tools>();
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::agent::patchset_tools>(*this);
@@ -463,6 +465,7 @@ namespace mistral::agent
     auto& file_tools = *file_tools_;
     auto& note_tools = *note_tools_;
     auto& grep_tools = *grep_tools_;
+    auto& code_tools = *code_tools_;
     auto& exec_tools = *exec_tools_;
     auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
@@ -494,6 +497,25 @@ namespace mistral::agent
       arg("pattern", "Regular expression pattern to search for"),
       arg("path", "Path to search (file or directory)", std::string(".")),
       arg("recursive", "Search recursively in directories", false)
+    );
+
+    global_tools_.register_tool(
+      "outline",
+      "List the symbols (classes, structs, functions, methods, types) defined in a C/C++ "
+      "source file with their line ranges. Use this to see a file's structure before "
+      "reading specific symbols.",
+      &code_tools, &mistral::tools::code_tools::outline,
+      arg("path", "C/C++ source file to outline")
+    );
+
+    global_tools_.register_tool(
+      "read_symbol",
+      "Extract the exact source text of a named symbol definition (class, function, "
+      "method, type) from a C/C++ source file. Returns every matching definition, "
+      "e.g. overloads.",
+      &code_tools, &mistral::tools::code_tools::read_symbol,
+      arg("path", "C/C++ source file containing the symbol"),
+      arg("name", "Name of the symbol to extract")
     );
 
     global_tools_.register_tool(

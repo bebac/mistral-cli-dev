@@ -30,6 +30,7 @@ namespace mistral::tools
   class file_tools;
   class note_tools;
   class grep_tools;
+  class code_tools;
   class exec_tools;
   class task_tools;
 }
@@ -93,6 +94,7 @@ namespace mistral::agent
     mistral::tools::file_tools& file_tools() { return *file_tools_; }
     mistral::tools::note_tools& note_tools() { return *note_tools_; }
     mistral::tools::grep_tools& grep_tools() { return *grep_tools_; }
+    mistral::tools::code_tools& code_tools() { return *code_tools_; }
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
     mistral::tools::task_tools& task_tools() { return *task_tools_; }
     mistral::agent::patchset_tools& patchset_tools() { return *patchset_tools_; }
@@ -180,6 +182,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::file_tools> file_tools_;
     std::unique_ptr<mistral::tools::note_tools> note_tools_;
     std::unique_ptr<mistral::tools::grep_tools> grep_tools_;
+    std::unique_ptr<mistral::tools::code_tools> code_tools_;
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::agent::patchset_tools> patchset_tools_;

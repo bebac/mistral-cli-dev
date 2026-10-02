@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(mistral-cli CXX)
+project(mistral-cli C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
@@ -23,6 +23,27 @@ add_subdirectory(third_party/just-a-uri)
 # -----------------------------------------------------------------------------
 
 add_subdirectory(third_party/isocline)
+
+# -----------------------------------------------------------------------------
+# Third-party: tree-sitter (parsing engine) + grammars
+# -----------------------------------------------------------------------------
+
+# tree-sitter and its grammars default to shared libraries; we link them
+# statically into mistral-core.
+set(BUILD_SHARED_LIBS OFF)
+
+add_subdirectory(third_party/tree-sitter)
+
+# Grammars are compiled from their checked-in generated sources. We do not use
+# the grammar's own CMakeLists because it can try to regenerate parser.c with
+# the tree-sitter CLI, which we do not want as a build dependency.
+add_library(tree-sitter-cpp STATIC
+    third_party/grammars/tree-sitter-cpp/src/parser.c
+    third_party/grammars/tree-sitter-cpp/src/scanner.c
+)
+target_include_directories(tree-sitter-cpp PRIVATE
+    third_party/grammars/tree-sitter-cpp/src
+)
 
 # -----------------------------------------------------------------------------
 # Third-party: OpenSSL
@@ -62,6 +83,26 @@ add_custom_command(
 )
 
 # -----------------------------------------------------------------------------
+# Embedded tree-sitter queries (generated at build time)
+# -----------------------------------------------------------------------------
+
+set(EMBEDDED_QUERIES_CPP
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_queries.cpp)
+
+add_custom_command(
+    OUTPUT ${EMBEDDED_QUERIES_CPP}
+    COMMAND ${CMAKE_COMMAND}
+            -DOUT=${EMBEDDED_QUERIES_CPP}
+            -DGRAMMARS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
+    DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars/tree-sitter-cpp/queries/tags.scm
+    COMMENT "Generating embedded tree-sitter queries"
+    VERBATIM
+)
+
+# -----------------------------------------------------------------------------
 # Core library
 # -----------------------------------------------------------------------------
 
@@ -75,6 +116,7 @@ add_library(mistral-core STATIC
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
     lib/tools/grep_tools.cpp
+    lib/tools/code_tools.cpp
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp
     lib/console/console_task.cpp
@@ -101,6 +143,7 @@ add_library(mistral-core STATIC
     lib/trace/trace.cpp
     lib/agent/workspace_bootstrap.cpp
     ${EMBEDDED_TEMPLATES_CPP}
+    ${EMBEDDED_QUERIES_CPP}
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)
@@ -116,6 +159,8 @@ target_link_libraries(mistral-core PUBLIC
     just-a-uri
     nlohmann_json
     isocline
+    tree-sitter
+    tree-sitter-cpp
     OpenSSL::SSL
     OpenSSL::Crypto
 )
