@@ -517,19 +517,21 @@ namespace mistral::agent
       "read_symbol",
       "Extract the exact source text of a named symbol definition (class, function, "
       "method, type) from a C/C++ source file. Returns every matching definition, "
-      "e.g. overloads.",
+      "e.g. overloads. Qualify the name (Class::method) to pick one method among "
+      "same-named definitions; each result reports its scope.",
       &code_tools, &mistral::tools::code_tools::read_symbol,
       arg("path", "C/C++ source file containing the symbol"),
-      arg("name", "Name of the symbol to extract")
+      arg("name", "Name of the symbol to extract; may be qualified (Class::method)")
     );
 
     global_tools_.register_tool(
       "find_symbol",
       "Find symbol definitions (classes, structs, functions, methods, types) by name across a "
       "directory tree. Falls back to substring matching when no exact match exists. Returns "
-      "file, kind and line range for each definition.",
+      "file, kind, scope and line range for each definition. Names may be qualified "
+      "(Class::method or ns::Class::method) to narrow same-named symbols.",
       &code_tools, &mistral::tools::code_tools::find_symbol,
-      arg("name", "Symbol name to find"),
+      arg("name", "Symbol name to find; may be qualified (Class::method)"),
       arg("path", "Directory to search (workspace root by default)", std::string("."))
     );
 
@@ -537,7 +539,7 @@ namespace mistral::agent
       "find_references",
       "Find usage sites of a named symbol (calls, type usages, member access) across a "
       "directory tree. Definition sites are excluded. Syntactic match: same-named overloads "
-      "all match.",
+      "all match; a qualified name (Class::method) is searched by its bare name.",
       &code_tools, &mistral::tools::code_tools::find_references,
       arg("name", "Symbol name to find references for"),
       arg("path", "Directory to search (workspace root by default)", std::string("."))

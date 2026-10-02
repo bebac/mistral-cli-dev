@@ -144,6 +144,49 @@ namespace mistral::tools
       }
     };
 
+    // Sample with same-named methods in different classes, a namespace,
+    // an out-of-line definition and a usage site, for qualified-name
+    // lookup tests.
+    struct qualified_sample
+    {
+      fs::path root;
+
+      qualified_sample()
+        : root(fs::temp_directory_path() / "mistral_code_qualified_test")
+      {
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(root);
+        {
+          std::ofstream out(root / "q.cpp");
+          out <<
+            "namespace demo {\n"                    // line 1
+            "class widget {\n"                      // line 2
+            "public:\n"                             // line 3
+            "  void draw();\n"                      // line 4
+            "  int area() { return 4; }\n"           // line 5
+            "};\n"                                  // line 6
+            "class gadget {\n"                       // line 7
+            "public:\n"                             // line 8
+            "  void draw() { }\n"                   // line 9
+            "};\n"                                  // line 10
+            "void widget::draw() { }\n"             // line 11
+            "}\n"                                   // line 12
+            "int use() {\n"                         // line 13
+            "  demo::widget w;\n"                   // line 14
+            "  w.draw();\n"                         // line 15
+            "  return 0;\n"                          // line 16
+            "}\n";                                   // line 17
+        }
+      }
+
+      ~qualified_sample()
+      {
+        std::error_code ec;
+        fs::remove_all(root, ec);
+      }
+    };
+
     class find_symbol_task : public dripcore::task
     {
     public:
@@ -248,7 +291,8 @@ TEST_CASE("code_tools: outline lists symbols with kind and line ranges")
 
   symbol = mistral::tools::find_symbol(result, "register_tool");
   REQUIRE(symbol != nullptr);
-  CHECK((*symbol)["kind"] == "function");
+  CHECK((*symbol)["kind"] == "method");
+  CHECK((*symbol)["scope"] == "tool_registry");
   CHECK((*symbol)["line_start"].get<int>() == 3);
 
   symbol = mistral::tools::find_symbol(result, "main");
@@ -367,6 +411,93 @@ TEST_CASE("code_tools: find_references finds usage sites, not definitions")
   const auto expected_a =
     fs::relative(project.root / "a.cpp", fs::current_path()).string();
   CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
+}
+
+TEST_CASE("code_tools: qualified names select a specific method")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::qualified_sample sample;
+  const std::string file = (sample.root / "q.cpp").string();
+
+  // Bare name: every same-named definition (widget declaration, gadget
+  // definition, out-of-line widget definition).
+  auto result = mistral::tools::run_read_symbol(tools, file, "draw");
+  REQUIRE(result.contains("definitions"));
+  CHECK(result["count"].get<int>() == 3);
+
+  // Qualified: only widget's draw (declaration + out-of-line definition).
+  result = mistral::tools::run_read_symbol(tools, file, "widget::draw");
+  REQUIRE(result.contains("definitions"));
+  CHECK(result["count"].get<int>() == 2);
+  for (const auto& definition : result["definitions"]) {
+    CHECK(definition["scope"] == "demo::widget");
+    CHECK(definition["kind"] == "method");
+  }
+
+  // Namespace-qualified matches by scope suffix.
+  result = mistral::tools::run_read_symbol(tools, file, "demo::widget::draw");
+  REQUIRE(result.contains("definitions"));
+  CHECK(result["count"].get<int>() == 2);
+
+  // A different class narrows to a single definition.
+  result = mistral::tools::run_read_symbol(tools, file, "gadget::draw");
+  REQUIRE(result.contains("definitions"));
+  CHECK(result["count"].get<int>() == 1);
+  CHECK(result["definitions"][0]["scope"] == "demo::gadget");
+
+  // Unknown scope: no match.
+  result = mistral::tools::run_read_symbol(tools, file, "nosuch::draw");
+  CHECK(result.contains("error"));
+
+  // In-class member functions report method kind and their scope.
+  result = mistral::tools::run_read_symbol(tools, file, "area");
+  REQUIRE(result.contains("definitions"));
+  CHECK(result["count"].get<int>() == 1);
+  CHECK(result["definitions"][0]["kind"] == "method");
+  CHECK(result["definitions"][0]["scope"] == "demo::widget");
+}
+
+TEST_CASE("code_tools: find_symbol honors qualified names")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::qualified_sample sample;
+
+  auto result = mistral::tools::run_find_symbol(
+    tools, "widget::draw", sample.root.string());
+  REQUIRE(result.contains("matches"));
+  CHECK(result["match"] == "exact");
+  REQUIRE(result["count"].get<int>() == 2);
+  for (const auto& match : result["matches"]) {
+    CHECK(match["scope"] == "demo::widget");
+  }
+
+  result = mistral::tools::run_find_symbol(
+    tools, "demo::widget::draw", sample.root.string());
+  REQUIRE(result["count"].get<int>() == 2);
+
+  result = mistral::tools::run_find_symbol(
+    tools, "gadget::draw", sample.root.string());
+  REQUIRE(result["count"].get<int>() == 1);
+
+  // Unknown scope falls back to substring matching on the bare name.
+  result = mistral::tools::run_find_symbol(
+    tools, "nosuch::draw", sample.root.string());
+  CHECK(result["match"] == "substring");
+  CHECK(result["count"].get<int>() == 3);
+}
+
+TEST_CASE("code_tools: find_references searches qualified names by bare name")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::qualified_sample sample;
+
+  auto result = mistral::tools::run_find_references(
+    tools, "widget::draw", sample.root.string());
+
+  REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["line"].get<int>() == 15);
+  CHECK(result["matches"][0]["text"].get<std::string>() == "  w.draw();");
 }
 
 TEST_CASE("code_tools: results are capped at max_results")

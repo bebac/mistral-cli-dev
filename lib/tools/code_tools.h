@@ -24,10 +24,13 @@ namespace mistral::tools
 
     // Extract the exact source text of a named symbol definition in a
     // file. Handles overloads by returning every matching definition.
+    // The name may be qualified (Class::method) to select among
+    // same-named definitions in different scopes.
     dripcore::awaitable<json> read_symbol(std::string path, std::string name);
 
     // Find symbol definitions by name across a directory tree. Falls
-    // back to substring matching when no exact match exists.
+    // back to substring matching when no exact match exists. The name
+    // may be qualified (Class::method or ns::Class::method).
     dripcore::awaitable<json> find_symbol(std::string name, std::string path);
 
     // Find usage sites (calls, type usages, member access) of a named

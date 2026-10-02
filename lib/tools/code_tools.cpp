@@ -93,10 +93,11 @@ namespace mistral::tools
     }
 
     const auto& definitions = parsed.definitions();
+    const qualified_name requested = qualified_name::parse(name);
 
     json entries = json::array();
     for (std::size_t i = 0; i < definitions.size(); ++i) {
-      if (definitions[i].name != name) {
+      if (!requested.matches(definitions[i])) {
         continue;
       }
 
@@ -106,12 +107,16 @@ namespace mistral::tools
         continue;
       }
 
-      entries.push_back({
+      json entry = {
         {"kind", definitions[i].kind},
         {"line_start", definitions[i].line_start},
         {"line_end", definitions[i].line_end},
         {"content", parsed.source().substr(start, end - start)}
-      });
+      };
+      if (!definitions[i].scope.empty()) {
+        entry["scope"] = definitions[i].scope;
+      }
+      entries.push_back(std::move(entry));
     }
 
     if (entries.empty()) {
@@ -134,6 +139,10 @@ namespace mistral::tools
   dripcore::awaitable<json> code_tools::find_symbol(std::string name, std::string path)
   {
     if (name.empty()) {
+      co_return {{"error", "name must not be empty"}};
+    }
+    // A qualified request must still name a symbol ("Foo::" is rejected).
+    if (qualified_name::parse(name).name.empty()) {
       co_return {{"error", "name must not be empty"}};
     }
 
@@ -174,13 +183,17 @@ namespace mistral::tools
 
     json matches = json::array();
     for (const auto& hit : hits) {
-      matches.push_back({
+      json match = {
         {"kind", hit.symbol.kind},
         {"name", hit.symbol.name},
         {"file", display_path(hit.file)},
         {"line_start", hit.symbol.line_start},
         {"line_end", hit.symbol.line_end}
-      });
+      };
+      if (!hit.symbol.scope.empty()) {
+        match["scope"] = hit.symbol.scope;
+      }
+      matches.push_back(std::move(match));
     }
 
     co_return {
@@ -195,6 +208,14 @@ namespace mistral::tools
   dripcore::awaitable<json> code_tools::find_references(std::string name, std::string path)
   {
     if (name.empty()) {
+      co_return {{"error", "name must not be empty"}};
+    }
+
+    // Usage sites are matched by bare identifier (there is no type
+    // resolution), so the scope of a qualified request is ignored:
+    // "Class::method" searches usages of "method".
+    const std::string bare = qualified_name::parse(name).name;
+    if (bare.empty()) {
       co_return {{"error", "name must not be empty"}};
     }
 
@@ -236,7 +257,7 @@ namespace mistral::tools
         std::string source = buffer.str();
 
         // Cheap textual prefilter before parsing.
-        if (source.find(name) == std::string::npos) {
+        if (source.find(bare) == std::string::npos) {
           continue;
         }
 
@@ -246,7 +267,7 @@ namespace mistral::tools
           continue;
         }
 
-        for (const auto& site : parsed.usages_of(name)) {
+        for (const auto& site : parsed.usages_of(bare)) {
           if (site.is_definition) {
             continue;
           }

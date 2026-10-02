@@ -109,6 +109,35 @@ namespace mistral::tools
       return current;
     }
 
+    // Names of the enclosing namespace/class/struct/union definitions
+    // of node, outermost first ("ns::Outer::Inner"). Anonymous scopes
+    // are skipped. Walking the parse tree (instead of extending the
+    // tags query) keeps the query simple and handles any nesting.
+    std::vector<std::string> enclosing_scope_parts(
+      TSNode node, const std::string& source)
+    {
+      std::vector<std::string> parts;  // collected innermost-first
+      for (TSNode current = ts_node_parent(node);
+           !ts_node_is_null(current);
+           current = ts_node_parent(current))
+      {
+        const std::string_view type(ts_node_type(current));
+        if (type != "namespace_definition" && type != "class_specifier" &&
+            type != "struct_specifier" && type != "union_specifier")
+        {
+          continue;
+        }
+        const TSNode name = ts_node_child_by_field_name(
+          current, "name", static_cast<std::uint32_t>(std::strlen("name")));
+        if (ts_node_is_null(name)) {
+          continue;  // Anonymous namespace or union.
+        }
+        parts.push_back(std::string(node_text(name, source)));
+      }
+      std::reverse(parts.begin(), parts.end());
+      return parts;
+    }
+
     // Format a query compile failure with the offending snippet.
     std::string query_error(TSQueryError type, std::uint32_t offset, const std::string& source)
     {
@@ -437,8 +466,32 @@ namespace mistral::tools
         continue;
       }
 
+      // In-class member functions are declared with a field_identifier;
+      // label them "method" like the out-of-line qualified definitions
+      // the tags query already captures as definition.method.
+      if (kind == "function" &&
+          std::string_view(ts_node_type(name_node)) == "field_identifier")
+      {
+        kind = "method";
+      }
+
+      // Scope: enclosing namespaces/classes from the parse tree, plus
+      // the qualified scope of out-of-line definitions (Class::method).
+      std::vector<std::string> scope_parts =
+        enclosing_scope_parts(definition_node, source_);
+      if (!scope.empty()) {
+        scope_parts.push_back(std::move(scope));
+      }
+      std::string combined_scope;
+      for (const auto& part : scope_parts) {
+        if (!combined_scope.empty()) {
+          combined_scope += "::";
+        }
+        combined_scope += part;
+      }
+
       definitions_.push_back({
-        std::move(kind), std::move(name), std::move(scope),
+        std::move(kind), std::move(name), std::move(combined_scope),
         static_cast<int>(ts_node_start_point(definition_node).row) + 1,
         static_cast<int>(ts_node_end_point(definition_node).row) + 1
       });
@@ -517,6 +570,66 @@ namespace mistral::tools
     }
 
     return sites;
+  }
+
+  // ---- qualified_name ----
+
+  namespace
+  {
+    std::string trim(const std::string& text)
+    {
+      const std::size_t start = text.find_first_not_of(" \t");
+      if (start == std::string::npos) {
+        return {};
+      }
+      const std::size_t end = text.find_last_not_of(" \t");
+      return text.substr(start, end - start + 1);
+    }
+
+    // Split "A::B" into {"A", "B"}; parts are whitespace-trimmed.
+    std::vector<std::string> split_scope(const std::string& scope)
+    {
+      std::vector<std::string> parts;
+      std::size_t start = 0;
+      while (true) {
+        const std::size_t sep = scope.find("::", start);
+        if (sep == std::string::npos) {
+          parts.push_back(trim(scope.substr(start)));
+          return parts;
+        }
+        parts.push_back(trim(scope.substr(start, sep - start)));
+        start = sep + 2;
+      }
+    }
+  }
+
+  qualified_name qualified_name::parse(const std::string& qualified)
+  {
+    qualified_name result;
+    const std::vector<std::string> parts = split_scope(qualified);
+    if (parts.empty()) {
+      return result;
+    }
+    result.name = parts.back();
+    result.scope.assign(parts.begin(), parts.end() - 1);
+    return result;
+  }
+
+  bool qualified_name::matches(const symbol_definition& definition) const
+  {
+    if (definition.name != name) {
+      return false;
+    }
+    if (scope.empty()) {
+      return true;
+    }
+    // The requested scope must be a suffix of the definition's scope, so
+    // "Class::method" also matches a definition scoped "ns::Class".
+    const std::vector<std::string> parts = split_scope(definition.scope);
+    if (parts.size() < scope.size()) {
+      return false;
+    }
+    return std::equal(scope.begin(), scope.end(), parts.end() - scope.size());
   }
 
   // ---- compiled_query ----
@@ -732,13 +845,14 @@ namespace mistral::tools
     std::vector<hit> hits;
     std::error_code ec;
     const fs::path root_abs = fs::absolute(fs::path(root), ec).lexically_normal();
+    const qualified_name requested = qualified_name::parse(name);
 
     for (const auto& [file, entry] : files_) {
       if (!is_under(file, root_abs)) {
         continue;
       }
       for (const auto& definition : entry.definitions) {
-        if (definition.name == name) {
+        if (requested.matches(definition)) {
           hits.push_back({file, definition});
         }
       }
@@ -752,13 +866,16 @@ namespace mistral::tools
     std::vector<hit> hits;
     std::error_code ec;
     const fs::path root_abs = fs::absolute(fs::path(root), ec).lexically_normal();
+    // Substring fallback matches the bare name only; the scope of a
+    // qualified request is ignored so typos still find something.
+    const std::string bare = qualified_name::parse(name).name;
 
     for (const auto& [file, entry] : files_) {
       if (!is_under(file, root_abs)) {
         continue;
       }
       for (const auto& definition : entry.definitions) {
-        if (definition.name.find(name) != std::string::npos) {
+        if (definition.name.find(bare) != std::string::npos) {
           hits.push_back({file, definition});
         }
       }

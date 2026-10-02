@@ -33,9 +33,32 @@ namespace mistral::tools
   {
     std::string kind;    // "class", "function", "method", "type"
     std::string name;
-    std::string scope;   // non-empty for qualified out-of-line definitions
+    std::string scope;   // enclosing namespaces/classes, outermost first
+                         // ("ns::Class"); includes the qualified scope of
+                         // out-of-line definitions (Class::method)
     int line_start = 0;  // 1-indexed, inclusive
     int line_end = 0;    // 1-indexed, inclusive
+  };
+
+  // A possibly qualified symbol name: "method", "Class::method" or
+  // "ns::Class::method". Used by read_symbol / find_symbol to pick one
+  // definition among same-named symbols in different scopes (e.g. the
+  // on_event overrides of many widget classes).
+  struct qualified_name
+  {
+    std::vector<std::string> scope;  // outermost first; empty for bare names
+    std::string name;                // bare (rightmost) name
+
+    bool is_qualified() const { return !scope.empty(); }
+
+    // Parse "A::B::name". Whitespace around "::" is tolerated.
+    static qualified_name parse(const std::string& qualified);
+
+    // True if this matches the definition: bare names match by name only;
+    // qualified names additionally require the definition's scope to end
+    // with the requested scope parts, so "Class::method" also matches a
+    // definition scoped "ns::Class".
+    bool matches(const symbol_definition& definition) const;
   };
 
   class compiled_query;
