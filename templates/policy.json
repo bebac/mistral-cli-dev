@@ -7,6 +7,7 @@
     { "type": "tool", "tool": "read_symbol" },
     { "type": "tool", "tool": "find_symbol" },
     { "type": "tool", "tool": "find_references" },
+    { "type": "tool", "tool": "ast_search" },
     { "type": "tool", "tool": "task_list" },
     { "type": "tool", "tool": "task_get" },
     { "type": "tool", "tool": "task_update" },

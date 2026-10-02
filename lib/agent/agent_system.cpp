@@ -545,6 +545,19 @@ namespace mistral::agent
     );
 
     global_tools_.register_tool(
+      "ast_search",
+      "Search a C/C++ file or directory tree with a tree-sitter query (scheme-like syntax). "
+      "Example: ((call_expression function: (identifier) @fn) (#eq? @fn \"foo\")) finds all "
+      "calls to foo. Each match reports its captures with text and line. Common node types: "
+      "function_definition, declaration, class_specifier, call_expression, field_expression, "
+      "identifier, type_identifier, field_identifier. Predicates: #eq?, #not-eq?, #match?, "
+      "#not-match?, #any-eq?, #any-match?, #is?, #is-not?.",
+      &code_tools, &mistral::tools::code_tools::ast_search,
+      arg("query", "Tree-sitter query to run"),
+      arg("path", "File or directory to search (workspace root by default)", std::string("."))
+    );
+
+    global_tools_.register_tool(
       "note_list",
       "List notes in the notes directory. Shows path, title, and tags for each note. "
       "Pass an empty string to list all notes, or a subfolder name to filter.",

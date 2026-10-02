@@ -199,6 +199,34 @@ namespace mistral::tools
       scheduler.run();
       return result;
     }
+
+    class ast_search_task : public dripcore::task
+    {
+    public:
+      ast_search_task(code_tools& tools, std::string query, std::string path, json& out)
+        : tools_(tools), query_(std::move(query)), path_(std::move(path)), out_(out) {}
+
+      dripcore::awaitable<> body() override
+      {
+        out_ = co_await tools_.ast_search(query_, path_);
+        co_return;
+      }
+
+    private:
+      code_tools& tools_;
+      std::string query_;
+      std::string path_;
+      json& out_;
+    };
+
+    json run_ast_search(code_tools& tools, const std::string& query, const std::string& path)
+    {
+      json result;
+      dripcore::scheduler scheduler;
+      scheduler.spawn<ast_search_task>(tools, query, path, result);
+      scheduler.run();
+      return result;
+    }
   }
 }
 
@@ -354,4 +382,88 @@ TEST_CASE("code_tools: results are capped at max_results")
   CHECK(result["match"] == "substring");
   CHECK(result["count"].get<int>() == 1);
   CHECK(result["truncated"] == true);
+}
+
+TEST_CASE("code_tools: ast_search runs tree-sitter queries")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_file sample;
+
+  auto result = mistral::tools::run_ast_search(
+    tools, "(function_definition) @fn", sample.path.string());
+
+  REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 1);
+  REQUIRE(result["matches"][0]["captures"].size() == 1);
+  CHECK(result["matches"][0]["captures"][0]["name"] == "fn");
+  CHECK(result["matches"][0]["captures"][0]["line"].get<int>() == 7);
+  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() ==
+    "int main() { return 0; }");
+  CHECK(result["matches"][0]["line_start"].get<int>() == 7);
+  CHECK(result["matches"][0]["line_end"].get<int>() == 7);
+}
+
+TEST_CASE("code_tools: ast_search evaluates predicates")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+
+  // Directory search with an #eq? predicate.
+  auto result = mistral::tools::run_ast_search(
+    tools,
+    "((call_expression function: (identifier) @fn) (#eq? @fn \"alpha\"))",
+    project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "alpha");
+  CHECK(result["matches"][0]["line_start"].get<int>() == 2);
+
+  // #match? predicate.
+  result = mistral::tools::run_ast_search(
+    tools,
+    "((function_definition declarator: (function_declarator declarator: (identifier) @n)) "
+    "(#match? @n \"^al\"))",
+    project.root.string());
+
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "alpha");
+
+  // #not-eq? predicate.
+  result = mistral::tools::run_ast_search(
+    tools,
+    "((function_definition declarator: (function_declarator declarator: (identifier) @n)) "
+    "(#not-eq? @n \"alpha\"))",
+    project.root.string());
+
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "caller");
+}
+
+TEST_CASE("code_tools: ast_search reports query errors")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_file sample;
+
+  // Unknown node type.
+  auto result = mistral::tools::run_ast_search(
+    tools, "(nonexistent_node) @x", sample.path.string());
+  CHECK(result.contains("error"));
+  CHECK(result["error"].get<std::string>().find("unknown node type") != std::string::npos);
+
+  // Unsupported predicate.
+  result = mistral::tools::run_ast_search(
+    tools, "((identifier) @x (#foo? @x))", sample.path.string());
+  CHECK(result.contains("error"));
+  CHECK(result["error"].get<std::string>().find("unsupported predicate") != std::string::npos);
+
+  // Query without captures.
+  result = mistral::tools::run_ast_search(
+    tools, "(function_definition)", sample.path.string());
+  CHECK(result.contains("error"));
+  CHECK(result["error"].get<std::string>().find("capture") != std::string::npos);
+
+  // Empty query.
+  result = mistral::tools::run_ast_search(tools, "", sample.path.string());
+  CHECK(result.contains("error"));
 }

@@ -34,6 +34,9 @@ namespace mistral::tools
     // symbol across a directory tree. Definition sites are excluded.
     dripcore::awaitable<json> find_references(std::string name, std::string path);
 
+    // Run a tree-sitter query against a file or directory tree.
+    dripcore::awaitable<json> ast_search(std::string query, std::string path);
+
   private:
     code_index_settings settings_;
     symbol_index index_;

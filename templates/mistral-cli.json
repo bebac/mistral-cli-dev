@@ -34,6 +34,7 @@
         "read_symbol",
         "find_symbol",
         "find_references",
+        "ast_search",
         "patchset_get",
         "patchset_validate",
         "patchset_update",

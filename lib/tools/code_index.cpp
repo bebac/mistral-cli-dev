@@ -3,11 +3,15 @@
 
 #include <dripcore/sleep_awaiter.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <limits>
+#include <optional>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -103,6 +107,242 @@ namespace mistral::tools
         current = parent;
       }
       return current;
+    }
+
+    // Format a query compile failure with the offending snippet.
+    std::string query_error(TSQueryError type, std::uint32_t offset, const std::string& source)
+    {
+      const char* reason = "invalid query";
+      switch (type) {
+        case TSQueryErrorSyntax: reason = "syntax error"; break;
+        case TSQueryErrorNodeType: reason = "unknown node type"; break;
+        case TSQueryErrorField: reason = "unknown field"; break;
+        case TSQueryErrorCapture: reason = "invalid capture"; break;
+        case TSQueryErrorStructure: reason = "invalid pattern structure"; break;
+        case TSQueryErrorLanguage: reason = "language error"; break;
+        default: break;
+      }
+
+      if (offset >= source.size()) {
+        return std::format("query error: {} at offset {}", reason, offset);
+      }
+      const std::string_view snippet = std::string_view(source).substr(offset, 30);
+      return std::format("query error: {} at offset {} near '{}'", reason, offset, snippet);
+    }
+
+    // ---- Predicate evaluation ----
+    // The tree-sitter core does not evaluate predicates; the consumer
+    // must. We support the common operators and reject everything else.
+
+    struct predicate_arg
+    {
+      bool is_capture = false;
+      std::uint32_t capture_index = 0;
+      std::string value;
+    };
+
+    struct predicate
+    {
+      std::string op;
+      std::vector<predicate_arg> args;
+    };
+
+    bool is_supported_predicate(const std::string& op)
+    {
+      static const std::vector<std::string_view> supported = {
+        "#eq?", "#not-eq?", "#any-eq?", "#not-any-eq?",
+        "#match?", "#not-match?", "#any-match?", "#not-any-match?",
+        "#is?", "#is-not?"
+      };
+      for (const auto& candidate : supported) {
+        if (op == candidate) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Split the predicate steps of a pattern into predicates.
+    std::vector<predicate> parse_predicates(const TSQuery* query, std::uint32_t pattern_index)
+    {
+      std::vector<predicate> predicates;
+
+      std::uint32_t step_count = 0;
+      const TSQueryPredicateStep* steps =
+        ts_query_predicates_for_pattern(query, pattern_index, &step_count);
+
+      std::optional<predicate> current;
+      for (std::uint32_t i = 0; i < step_count; ++i) {
+        const TSQueryPredicateStep& step = steps[i];
+
+        if (step.type == TSQueryPredicateStepTypeDone) {
+          if (current) {
+            predicates.push_back(std::move(*current));
+            current.reset();
+          }
+          continue;
+        }
+
+        if (!current) {
+          current = predicate{};
+        }
+
+        if (step.type == TSQueryPredicateStepTypeString) {
+          std::uint32_t length = 0;
+          const char* value = ts_query_string_value_for_id(query, step.value_id, &length);
+          if (current->op.empty()) {
+            current->op.assign(value, length);
+            // The core stores the operator without its leading '#'
+            // (the character is consumed while parsing).
+            if (!current->op.empty() && current->op[0] != '#') {
+              current->op.insert(current->op.begin(), '#');
+            }
+          } else {
+            current->args.push_back({false, 0, std::string(value, length)});
+          }
+        } else {
+          // Capture argument; resolved against the match at evaluation.
+          current->args.push_back({true, step.value_id, {}});
+        }
+      }
+
+      return predicates;
+    }
+
+    // Resolve a predicate argument to text. Returns false if the
+    // argument is a capture that is not part of this match.
+    bool arg_text(
+      const predicate_arg& arg, const TSQueryMatch& match, const std::string& source,
+      std::string& out)
+    {
+      if (!arg.is_capture) {
+        out = arg.value;
+        return true;
+      }
+      for (std::uint32_t i = 0; i < match.capture_count; ++i) {
+        if (match.captures[i].index == arg.capture_index) {
+          out = std::string(node_text(match.captures[i].node, source));
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Node type of a capture argument (for #is? / #is-not?).
+    bool arg_node_type(const predicate_arg& arg, const TSQueryMatch& match, std::string& out)
+    {
+      if (!arg.is_capture) {
+        return false;
+      }
+      for (std::uint32_t i = 0; i < match.capture_count; ++i) {
+        if (match.captures[i].index == arg.capture_index) {
+          out = ts_node_type(match.captures[i].node);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool regex_matches(const std::string& pattern, const std::string& text)
+    {
+      try {
+        return std::regex_search(text, std::regex(pattern));
+      } catch (const std::regex_error&) {
+        return false;
+      }
+    }
+
+    // Evaluate all predicates of the match's pattern.
+    bool predicates_hold(
+      const TSQuery* query, const TSQueryMatch& match, const std::string& source)
+    {
+      for (const auto& pred : parse_predicates(query, match.pattern_index)) {
+        if (pred.op == "#set!") {
+          continue;  // Directive: pattern property, no effect on matching.
+        }
+        if (pred.args.size() < 2) {
+          return false;
+        }
+
+        if (pred.op == "#eq?" || pred.op == "#not-eq?") {
+          std::string a;
+          std::string b;
+          if (!arg_text(pred.args[0], match, source, a) ||
+              !arg_text(pred.args[1], match, source, b)) {
+            return false;
+          }
+          const bool equal = a == b;
+          if (pred.op == "#eq?" && !equal) return false;
+          if (pred.op == "#not-eq?" && equal) return false;
+        } else if (pred.op == "#any-eq?" || pred.op == "#not-any-eq?") {
+          std::string a;
+          if (!arg_text(pred.args[0], match, source, a)) {
+            return false;
+          }
+          bool any = false;
+          for (std::size_t i = 1; i < pred.args.size(); ++i) {
+            std::string b;
+            if (arg_text(pred.args[i], match, source, b) && a == b) {
+              any = true;
+              break;
+            }
+          }
+          if (pred.op == "#any-eq?" && !any) return false;
+          if (pred.op == "#not-any-eq?" && any) return false;
+        } else if (pred.op == "#match?" || pred.op == "#not-match?") {
+          // Convention is (#match? @capture "pattern"); accept the
+          // reversed argument order as well.
+          std::string text;
+          std::string pattern;
+          bool ok = false;
+          if (pred.args[1].is_capture && !pred.args[0].is_capture) {
+            ok = arg_text(pred.args[1], match, source, text) &&
+                 arg_text(pred.args[0], match, source, pattern);
+          } else {
+            ok = arg_text(pred.args[0], match, source, text) &&
+                 arg_text(pred.args[1], match, source, pattern);
+          }
+          if (!ok) {
+            return false;
+          }
+          const bool m = regex_matches(pattern, text);
+          if (pred.op == "#match?" && !m) return false;
+          if (pred.op == "#not-match?" && m) return false;
+        } else if (pred.op == "#any-match?" || pred.op == "#not-any-match?") {
+          std::string text;
+          if (!arg_text(pred.args[0], match, source, text)) {
+            return false;
+          }
+          bool any = false;
+          for (std::size_t i = 1; i < pred.args.size(); ++i) {
+            std::string pattern;
+            if (arg_text(pred.args[i], match, source, pattern) &&
+                regex_matches(pattern, text)) {
+              any = true;
+              break;
+            }
+          }
+          if (pred.op == "#any-match?" && !any) return false;
+          if (pred.op == "#not-any-match?" && any) return false;
+        } else if (pred.op == "#is?" || pred.op == "#is-not?") {
+          std::string type;
+          if (!arg_node_type(pred.args[0], match, type)) {
+            return false;
+          }
+          std::string expected;
+          if (!arg_text(pred.args[1], match, source, expected)) {
+            return false;
+          }
+          const bool is = type == expected;
+          if (pred.op == "#is?" && !is) return false;
+          if (pred.op == "#is-not?" && is) return false;
+        } else {
+          // Unknown predicate; compile() rejects these up front.
+          return false;
+        }
+      }
+
+      return true;
     }
   }
 
@@ -277,6 +517,108 @@ namespace mistral::tools
     }
 
     return sites;
+  }
+
+  // ---- compiled_query ----
+
+  bool compiled_query::compile(const std::string& query_source, std::string& error)
+  {
+    std::uint32_t error_offset = 0;
+    TSQueryError error_type = TSQueryErrorNone;
+    TSQuery* compiled = ts_query_new(
+      tree_sitter_cpp(), query_source.data(),
+      static_cast<std::uint32_t>(query_source.size()), &error_offset, &error_type);
+
+    if (compiled == nullptr || error_type != TSQueryErrorNone) {
+      if (compiled != nullptr) {
+        ts_query_delete(compiled);
+      }
+      error = query_error(error_type, error_offset, query_source);
+      return false;
+    }
+
+    query_.reset(compiled);
+
+    // Without captures a match carries no position information.
+    if (ts_query_capture_count(query_.get()) == 0) {
+      error = "query must capture at least one node (e.g. (function_definition) @fn)";
+      return false;
+    }
+
+    // Reject predicates we cannot evaluate: the core does not evaluate
+    // predicates, and silently ignoring them would produce wrong results.
+    const std::uint32_t pattern_count = ts_query_pattern_count(query_.get());
+    for (std::uint32_t i = 0; i < pattern_count; ++i) {
+      for (const auto& pred : parse_predicates(query_.get(), i)) {
+        if (pred.op == "#set!") {
+          continue;  // Directive: pattern property, safe to ignore.
+        }
+        if (!is_supported_predicate(pred.op)) {
+          error = std::format(
+            "unsupported predicate '{}'; supported: #eq?, #not-eq?, #any-eq?, "
+            "#not-any-eq?, #match?, #not-match?, #any-match?, #not-any-match?, "
+            "#is?, #is-not?", pred.op);
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  // ---- parsed_source: query search ----
+
+  std::vector<parsed_source::query_match> parsed_source::search(
+    const compiled_query& query) const
+  {
+    std::vector<query_match> results;
+    if (!tree_) {
+      return results;
+    }
+
+    const TSQuery* q = query.get();
+    if (q == nullptr) {
+      return results;
+    }
+
+    cursor_ptr cursor(ts_query_cursor_new(), ts_query_cursor_delete);
+    ts_query_cursor_exec(cursor.get(), q, ts_tree_root_node(tree_.get()));
+
+    TSQueryMatch match;
+    while (ts_query_cursor_next_match(cursor.get(), &match)) {
+      if (match.capture_count == 0) {
+        continue;
+      }
+      if (!predicates_hold(q, match, source_)) {
+        continue;
+      }
+
+      query_match result;
+      result.line_start = std::numeric_limits<int>::max();
+      result.line_end = 0;
+
+      for (std::uint32_t i = 0; i < match.capture_count; ++i) {
+        const TSNode node = match.captures[i].node;
+        const int line = static_cast<int>(ts_node_start_point(node).row) + 1;
+
+        std::uint32_t length = 0;
+        const char* capture = ts_query_capture_name_for_id(q, match.captures[i].index, &length);
+
+        query_capture entry;
+        entry.name.assign(capture, length);
+        entry.text = std::string(node_text(node, source_));
+        entry.line = line;
+        result.captures.push_back(std::move(entry));
+
+        result.line_start = std::min(result.line_start, line);
+        result.line_end = std::max(
+          result.line_end, static_cast<int>(ts_node_end_point(node).row) + 1);
+      }
+
+      results.push_back(std::move(result));
+    }
+
+    return results;
   }
 
   // ---- symbol_index ----

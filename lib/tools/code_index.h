@@ -38,6 +38,8 @@ namespace mistral::tools
     int line_end = 0;    // 1-indexed, inclusive
   };
 
+  class compiled_query;
+
   // ---- Parsed source ----
   // Owns the parse tree of a C/C++ source file and provides symbol
   // extraction on top of the embedded tree-sitter queries.
@@ -77,12 +79,48 @@ namespace mistral::tools
     // Definition sites are flagged so callers can exclude them.
     std::vector<usage_site> usages_of(const std::string& name) const;
 
+    struct query_capture
+    {
+      std::string name;
+      std::string text;
+      int line = 0;  // 1-indexed
+    };
+
+    struct query_match
+    {
+      int line_start = 0;
+      int line_end = 0;
+      std::vector<query_capture> captures;
+    };
+
+    // Run a compiled query against the parsed tree. Matches whose
+    // predicates fail are excluded.
+    std::vector<query_match> search(const compiled_query& query) const;
+
   private:
     std::string source_;
     tree_ptr tree_{nullptr, ts_tree_delete};
     std::vector<symbol_definition> definitions_;
     std::vector<TSNode> definition_nodes_{};
     std::vector<TSNode> definition_name_nodes_{};
+  };
+
+  // ---- Compiled query ----
+  // A compiled tree-sitter query for the C++ grammar.
+  class compiled_query
+  {
+  public:
+    using query_ptr = std::unique_ptr<TSQuery, decltype(&ts_query_delete)>;
+
+    // Compile query_source. Returns false and sets error (including the
+    // byte offset of the problem) on failure. Queries without captures
+    // or with unsupported predicates are rejected.
+    bool compile(const std::string& query_source, std::string& error);
+
+    const TSQuery* get() const { return query_.get(); }
+
+  private:
+    query_ptr query_{nullptr, ts_query_delete};
   };
 
   // ---- Symbol index ----

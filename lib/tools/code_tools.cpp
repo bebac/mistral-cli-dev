@@ -283,4 +283,113 @@ namespace mistral::tools
     };
   }
 
+  dripcore::awaitable<json> code_tools::ast_search(std::string query, std::string path)
+  {
+    if (query.empty()) {
+      co_return {{"error", "query must not be empty"}};
+    }
+
+    compiled_query compiled;
+    std::string error;
+    if (!compiled.compile(query, error)) {
+      co_return {{"error", error}};
+    }
+
+    std::error_code ec;
+    const fs::path root(path);
+    if (!fs::exists(root, ec)) {
+      co_return {{"error", std::format("path '{}' does not exist", path)}};
+    }
+
+    // Capture text is truncated to keep results bounded.
+    constexpr std::size_t max_capture_text = 200;
+
+    auto append_matches = [&](
+      const parsed_source& parsed, const std::string& file,
+      json& matches, int& count, bool& truncated) {
+      for (const auto& match : parsed.search(compiled)) {
+        if (count >= settings_.max_results) {
+          truncated = true;
+          return;
+        }
+        json captures = json::array();
+        for (const auto& capture : match.captures) {
+          std::string text = capture.text;
+          if (text.size() > max_capture_text) {
+            text.resize(max_capture_text);
+            text += "...";
+          }
+          captures.push_back({
+            {"name", capture.name},
+            {"text", std::move(text)},
+            {"line", capture.line}
+          });
+        }
+        matches.push_back({
+          {"file", file},
+          {"line_start", match.line_start},
+          {"line_end", match.line_end},
+          {"captures", std::move(captures)}
+        });
+        ++count;
+      }
+    };
+
+    json matches = json::array();
+    int count = 0;
+    bool truncated = false;
+
+    if (fs::is_regular_file(root, ec)) {
+      parsed_source parsed;
+      if (!parsed.load(path, error)) {
+        co_return {{"error", error}};
+      }
+      append_matches(parsed, path, matches, count, truncated);
+    } else if (fs::is_directory(root, ec)) {
+      const fs::path root_abs = fs::absolute(root, ec).lexically_normal();
+      int processed = 0;
+
+      try {
+        for (const auto& entry : fs::recursive_directory_iterator(
+               root_abs, fs::directory_options::skip_permission_denied))
+        {
+          std::error_code file_ec;
+          if (!entry.is_regular_file(file_ec) || file_ec) {
+            continue;
+          }
+          const fs::path file = entry.path().lexically_normal();
+          if (index_.is_excluded(file) || !symbol_index::is_supported_source(file)) {
+            continue;
+          }
+
+          parsed_source parsed;
+          if (!parsed.load(file.string(), error)) {
+            continue;
+          }
+
+          append_matches(parsed, display_path(file.string()), matches, count, truncated);
+          if (truncated) {
+            break;
+          }
+
+          if (++processed % 20 == 0) {
+            co_await dripcore::sleep_awaiter{
+              dripcore::executor::current(), nullptr, std::chrono::milliseconds(0)};
+          }
+        }
+      } catch (const std::exception&) {
+        // Unreadable directory entries are skipped.
+      }
+    } else {
+      co_return {{"error", std::format("path '{}' is not a file or directory", path)}};
+    }
+
+    co_return {
+      {"query", query},
+      {"matches", std::move(matches)},
+      {"count", count},
+      {"truncated", truncated}
+    };
+  }
+
 } // namespace mistral::tools
