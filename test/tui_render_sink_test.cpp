@@ -358,6 +358,22 @@ TEST_CASE("content type routing") {
   CHECK(h.appended[10].second == content_type::warning);
 }
 
+TEST_CASE("output_status routes to system content type") {
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush());
+
+  sink.output_status("Compacted: history is now 3 message(s).");
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 1);
+  CHECK(h.appended[0].first == "Compacted: history is now 3 message(s).\n");
+  // Must not be tool_result: ContentLog attaches tool_result fragments
+  // to the last (collapsed) tool block, which would hide the line.
+  CHECK(h.appended[0].second == content_type::system);
+}
+
 TEST_CASE("output_tool_result truncates long results") {
   sink_test_harness h;
   mistral::tui::tui_render_sink sink(

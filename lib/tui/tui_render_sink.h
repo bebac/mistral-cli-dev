@@ -58,6 +58,16 @@ namespace mistral::tui
       state_->enqueue(text + "\n", content_type::tool_result);
     }
 
+    // Standalone status line (e.g. compaction progress): must render as
+    // a visible system line. output_line() routes to
+    // content_type::tool_result, which ContentLog attaches to the last
+    // (collapsed) tool block — correct for tool approval/result lines,
+    // but it would hide standalone status lines entirely.
+    void output_status(const std::string& text) override
+    {
+      state_->enqueue(text + "\n", content_type::system);
+    }
+
     void output_tool_call(const std::string& name,
                           const std::string& args) override
     {

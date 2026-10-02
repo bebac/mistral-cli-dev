@@ -339,14 +339,14 @@ namespace mistral::agent
 
       if (chat_.turn_count() <= keep_turns)
       {
-        sink_->output_line("Nothing to compact: the conversation has " +
+        sink_->output_status("Nothing to compact: the conversation has " +
           std::to_string(chat_.turn_count()) + " turn(s), keeping the last " +
           std::to_string(keep_turns) + ".");
         co_return;
       }
 
       auto to_summarize = chat_.messages_to_compact(keep_turns);
-      sink_->output_line(std::format(
+      sink_->output_status(std::format(
         "Compacting: summarizing {} message(s), keeping the last {} turn(s)...",
         to_summarize.size(), keep_turns));
 
@@ -435,13 +435,13 @@ namespace mistral::agent
         {
           sink_->output_error("Compaction failed: the model returned an empty summary.");
         }
-        sink_->output_line("Conversation history is unchanged.");
+        sink_->output_status("Conversation history is unchanged.");
         co_return;
       }
 
       chat_.apply_compaction(summary, keep_turns);
       chat_.save(".mistral-cli", session_id_);
-      sink_->output_line(std::format(
+      sink_->output_status(std::format(
         "Compacted: history is now {} message(s).", chat_.size()));
       co_return;
     }

@@ -13,6 +13,13 @@ namespace mistral::agent
     virtual void output(const std::string& text) = 0;
     virtual void output_thinking(const std::string& text) = 0;
     virtual void output_line(const std::string& text) = 0;
+    // Standalone status line (e.g. compaction progress). Unlike
+    // output_line(), which the TUI attaches to the current tool block,
+    // this is always rendered as its own visible line.
+    virtual void output_status(const std::string& text)
+    {
+      output_line(text);
+    }
     virtual void output_tool_call(const std::string& name,
                                   const std::string& args) = 0;
     virtual void output_tool_result(const std::string& result) = 0;
