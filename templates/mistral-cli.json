@@ -30,6 +30,10 @@
         "ls",
         "exec",
         "read",
+        "outline",
+        "read_symbol",
+        "find_symbol",
+        "find_references",
         "patchset_get",
         "patchset_validate",
         "patchset_update",
@@ -43,6 +47,13 @@
       ],
       "tool_policy": "file://.mistral-cli/policy.json"
     }
+  },
+  "code_index": {
+    "exclude_dirs": [
+      ".git", ".mistral-cli", ".cache", ".vscode", ".vibe",
+      "build", "node_modules", "__pycache__"
+    ],
+    "max_results": 200
   },
   "policy": {
     "default": "deny"

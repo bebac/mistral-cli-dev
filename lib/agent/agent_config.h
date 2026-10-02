@@ -1,6 +1,8 @@
 #ifndef MISTRAL_AGENT_CONFIG_H
 #define MISTRAL_AGENT_CONFIG_H
 
+#include "tools/code_index.h"
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -71,6 +73,7 @@ namespace mistral::agent
   {
     std::map<std::string, model_config> models;
     std::map<std::string, agent_config> agents;
+    tools::code_index_settings code_index;
     std::string default_policy = "deny";
   };
 

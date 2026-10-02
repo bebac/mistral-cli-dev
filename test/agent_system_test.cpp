@@ -4,7 +4,6 @@
 #include "agent/tool_registry.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
-#include "tools/grep_tools.h"
 #include "tools/exec_tools.h"
 
 #include <dripcore/scheduler.h>
@@ -404,7 +403,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
 
   // Check that all expected tools are registered
   std::vector<std::string> expected_tools = {
-      "ls", "read", "grep", "note_list", "note_read", "note_write", "note_search"};
+      "ls", "read", "outline", "read_symbol", "find_symbol", "find_references",
+      "note_list", "note_read", "note_write", "note_search"};
 
   for (const auto &tool_name : expected_tools)
   {
@@ -490,7 +490,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildc
   CHECK(filtered_registry.get_schema() == system.global_tools().get_schema());
   CHECK(filtered_registry.has_tool("ls"));
   CHECK(filtered_registry.has_tool("read"));
-  CHECK(filtered_registry.has_tool("grep"));
+  CHECK(filtered_registry.has_tool("outline"));
+  CHECK(filtered_registry.has_tool("find_symbol"));
   CHECK(filtered_registry.has_tool("note_list"));
 }
 
@@ -508,7 +509,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
   CHECK(copy.get_schema() == global.get_schema());
 
   // Check that all tools are present
-  for (const auto &tool_name : {"ls", "read", "grep", "note_list", "note_read", "note_write", "note_search"})
+  for (const auto &tool_name : {"ls", "read", "outline", "read_symbol", "find_symbol", "find_references", "note_list", "note_read", "note_write", "note_search"})
   {
     CHECK(copy.has_tool(tool_name));
   }
@@ -543,7 +544,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy contains all tool
   CHECK(copy.get_schema() == global.get_schema());
   CHECK(copy.has_tool("ls"));
   CHECK(copy.has_tool("read"));
-  CHECK(copy.has_tool("grep"));
+  CHECK(copy.has_tool("read_symbol"));
 }
 
 TEST_SUITE_END;
@@ -567,15 +568,6 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_syst
 
   auto &note_tools = system.note_tools();
   CHECK(&note_tools != nullptr);
-}
-
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "grep_tools: accessible via agent_system")
-{
-  initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
-
-  auto &grep_tools = system.grep_tools();
-  CHECK(&grep_tools != nullptr);
 }
 
 TEST_SUITE_END;

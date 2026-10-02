@@ -20,9 +20,11 @@ namespace mistral::embedded
   std::string_view policy_json();
   std::string_view config_json();
 
-  // Tree-sitter symbol queries, embedded from the grammar submodules'
-  // queries/ directories at build time (see cmake/embed_queries.cmake).
+  // Tree-sitter symbol queries, embedded at build time (see
+  // cmake/embed_queries.cmake). Definition queries come from the grammar
+  // submodules, reference queries are maintained in this repository.
   std::string_view cpp_tags_query();
+  std::string_view cpp_references_query();
 
 } // namespace mistral::embedded
 

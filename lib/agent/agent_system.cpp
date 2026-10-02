@@ -5,7 +5,6 @@
 #include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
-#include "tools/grep_tools.h"
 #include "tools/code_tools.h"
 #include "tools/exec_tools.h"
 #include "tools/task_tools.h"
@@ -308,6 +307,22 @@ namespace mistral::agent
       }
     }
 
+    // Parse code index configuration
+    if (j.contains("code_index") && j["code_index"].is_object())
+    {
+      if (j["code_index"].contains("exclude_dirs") &&
+          j["code_index"]["exclude_dirs"].is_array())
+      {
+        config.code_index.exclude_dirs =
+          j["code_index"]["exclude_dirs"].get<std::vector<std::string>>();
+      }
+      if (j["code_index"].contains("max_results") &&
+          j["code_index"]["max_results"].is_number())
+      {
+        config.code_index.max_results = j["code_index"]["max_results"].get<int>();
+      }
+    }
+
     // Parse policy
     if (j.contains("policy") && j["policy"].is_object())
     {
@@ -323,8 +338,7 @@ namespace mistral::agent
   {
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
-    grep_tools_ = std::make_unique<mistral::tools::grep_tools>();
-    code_tools_ = std::make_unique<mistral::tools::code_tools>();
+    code_tools_ = std::make_unique<mistral::tools::code_tools>(config_.code_index);
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::agent::patchset_tools>(*this);
@@ -464,7 +478,6 @@ namespace mistral::agent
     // Register all available tools
     auto& file_tools = *file_tools_;
     auto& note_tools = *note_tools_;
-    auto& grep_tools = *grep_tools_;
     auto& code_tools = *code_tools_;
     auto& exec_tools = *exec_tools_;
     auto& task_tools = *task_tools_;
@@ -490,14 +503,7 @@ namespace mistral::agent
       arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
     );
 
-    global_tools_.register_tool(
-      "grep",
-      "Search for a regular expression pattern in files. Returns matching lines with filename and line number.",
-      &grep_tools, &mistral::tools::grep_tools::grep,
-      arg("pattern", "Regular expression pattern to search for"),
-      arg("path", "Path to search (file or directory)", std::string(".")),
-      arg("recursive", "Search recursively in directories", false)
-    );
+
 
     global_tools_.register_tool(
       "outline",
@@ -516,6 +522,26 @@ namespace mistral::agent
       &code_tools, &mistral::tools::code_tools::read_symbol,
       arg("path", "C/C++ source file containing the symbol"),
       arg("name", "Name of the symbol to extract")
+    );
+
+    global_tools_.register_tool(
+      "find_symbol",
+      "Find symbol definitions (classes, structs, functions, methods, types) by name across a "
+      "directory tree. Falls back to substring matching when no exact match exists. Returns "
+      "file, kind and line range for each definition.",
+      &code_tools, &mistral::tools::code_tools::find_symbol,
+      arg("name", "Symbol name to find"),
+      arg("path", "Directory to search (workspace root by default)", std::string("."))
+    );
+
+    global_tools_.register_tool(
+      "find_references",
+      "Find usage sites of a named symbol (calls, type usages, member access) across a "
+      "directory tree. Definition sites are excluded. Syntactic match: same-named overloads "
+      "all match.",
+      &code_tools, &mistral::tools::code_tools::find_references,
+      arg("name", "Symbol name to find references for"),
+      arg("path", "Directory to search (workspace root by default)", std::string("."))
     );
 
     global_tools_.register_tool(

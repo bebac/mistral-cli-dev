@@ -30,8 +30,8 @@ namespace mistral::embedded
 
 ")
 
-function(embed_file fn_name rel_path)
-  file(READ "${GRAMMARS_DIR}/${rel_path}" CONTENT)
+function(embed_file fn_name base_dir rel_path)
+  file(READ "${base_dir}/${rel_path}" CONTENT)
   string(FIND "${CONTENT}" "${NEEDLE}" needle_pos)
   if(needle_pos GREATER -1)
     message(FATAL_ERROR
@@ -47,7 +47,8 @@ function(embed_file fn_name rel_path)
   set(OUTPUT "${OUTPUT}" PARENT_SCOPE)
 endfunction()
 
-embed_file(cpp_tags_query "tree-sitter-cpp/queries/tags.scm")
+embed_file(cpp_tags_query "${GRAMMARS_DIR}" "tree-sitter-cpp/queries/tags.scm")
+embed_file(cpp_references_query "${REPO_QUERIES_DIR}" "cpp-references.scm")
 
 string(APPEND OUTPUT "} // namespace mistral::embedded
 ")

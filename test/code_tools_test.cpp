@@ -108,6 +108,97 @@ namespace mistral::tools
         fs::remove(path, ec);
       }
     };
+
+    // Multi-file sample project for index tests.
+    struct sample_project
+    {
+      fs::path root;
+
+      sample_project()
+        : root(fs::temp_directory_path() / "mistral_code_index_test")
+      {
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "sub");
+        fs::create_directories(root / "build");
+
+        {
+          std::ofstream out(root / "a.cpp");
+          out << "int alpha() { return 1; }\n"
+              << "int caller() { return alpha(); }\n";
+        }
+        {
+          std::ofstream out(root / "sub" / "b.cpp");
+          out << "class beta {\npublic:\n  int gamma();\n};\n";
+        }
+        {
+          std::ofstream out(root / "build" / "c.cpp");
+          out << "int excluded_symbol() { return 0; }\n";
+        }
+      }
+
+      ~sample_project()
+      {
+        std::error_code ec;
+        fs::remove_all(root, ec);
+      }
+    };
+
+    class find_symbol_task : public dripcore::task
+    {
+    public:
+      find_symbol_task(code_tools& tools, std::string name, std::string path, json& out)
+        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out) {}
+
+      dripcore::awaitable<> body() override
+      {
+        out_ = co_await tools_.find_symbol(name_, path_);
+        co_return;
+      }
+
+    private:
+      code_tools& tools_;
+      std::string name_;
+      std::string path_;
+      json& out_;
+    };
+
+    class find_references_task : public dripcore::task
+    {
+    public:
+      find_references_task(code_tools& tools, std::string name, std::string path, json& out)
+        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out) {}
+
+      dripcore::awaitable<> body() override
+      {
+        out_ = co_await tools_.find_references(name_, path_);
+        co_return;
+      }
+
+    private:
+      code_tools& tools_;
+      std::string name_;
+      std::string path_;
+      json& out_;
+    };
+
+    json run_find_symbol(code_tools& tools, const std::string& name, const std::string& path)
+    {
+      json result;
+      dripcore::scheduler scheduler;
+      scheduler.spawn<find_symbol_task>(tools, name, path, result);
+      scheduler.run();
+      return result;
+    }
+
+    json run_find_references(code_tools& tools, const std::string& name, const std::string& path)
+    {
+      json result;
+      dripcore::scheduler scheduler;
+      scheduler.spawn<find_references_task>(tools, name, path, result);
+      scheduler.run();
+      return result;
+    }
   }
 }
 
@@ -195,4 +286,72 @@ TEST_CASE("code_tools: error handling")
   result = mistral::tools::run_outline(tools, not_code.string());
   CHECK(result.contains("error"));
   fs::remove(not_code);
+}
+
+TEST_CASE("code_tools: find_symbol locates definitions across files")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+
+  auto result = mistral::tools::run_find_symbol(tools, "alpha", project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  CHECK(result["match"] == "exact");
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "alpha");
+  CHECK(result["matches"][0]["kind"] == "function");
+  CHECK(result["matches"][0]["line_start"].get<int>() == 1);
+  const auto expected_a =
+    fs::relative(project.root / "a.cpp", fs::current_path()).string();
+  CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
+
+  // Substring fallback when no exact match exists.
+  result = mistral::tools::run_find_symbol(tools, "alp", project.root.string());
+  CHECK(result["match"] == "substring");
+  CHECK(result["count"].get<int>() == 1);
+
+  // Excluded directories are not indexed.
+  result = mistral::tools::run_find_symbol(tools, "excluded_symbol", project.root.string());
+  CHECK(result["count"].get<int>() == 0);
+
+  // Changed files are re-indexed (the stamp includes size).
+  {
+    std::ofstream out(project.root / "a.cpp", std::ios::app);
+    out << "int delta() { return 3; }\n";
+  }
+  result = mistral::tools::run_find_symbol(tools, "delta", project.root.string());
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "delta");
+}
+
+TEST_CASE("code_tools: find_references finds usage sites, not definitions")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+
+  auto result = mistral::tools::run_find_references(tools, "alpha", project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["line"].get<int>() == 2);
+  CHECK(result["matches"][0]["text"].get<std::string>() ==
+    "int caller() { return alpha(); }");
+  const auto expected_a =
+    fs::relative(project.root / "a.cpp", fs::current_path()).string();
+  CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
+}
+
+TEST_CASE("code_tools: results are capped at max_results")
+{
+  mistral::tools::code_index_settings settings;
+  settings.max_results = 1;
+  mistral::tools::code_tools tools(settings);
+  mistral::tools::sample_project project;
+
+  auto result = mistral::tools::run_find_symbol(tools, "a", project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  CHECK(result["match"] == "substring");
+  CHECK(result["count"].get<int>() == 1);
+  CHECK(result["truncated"] == true);
 }

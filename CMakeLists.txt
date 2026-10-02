@@ -94,10 +94,12 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND}
             -DOUT=${EMBEDDED_QUERIES_CPP}
             -DGRAMMARS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars
+            -DREPO_QUERIES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/queries
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars/tree-sitter-cpp/queries/tags.scm
+        ${CMAKE_CURRENT_SOURCE_DIR}/queries/cpp-references.scm
     COMMENT "Generating embedded tree-sitter queries"
     VERBATIM
 )
@@ -115,7 +117,7 @@ add_library(mistral-core STATIC
     lib/template/template_engine.cpp
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
-    lib/tools/grep_tools.cpp
+    lib/tools/code_index.cpp
     lib/tools/code_tools.cpp
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp

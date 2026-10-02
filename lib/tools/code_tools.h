@@ -1,6 +1,8 @@
 #ifndef MISTRAL_CODE_TOOLS_H
 #define MISTRAL_CODE_TOOLS_H
 
+#include "tools/code_index.h"
+
 #include <dripcore/awaitable.h>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -14,13 +16,27 @@ namespace mistral::tools
   class code_tools
   {
   public:
+    explicit code_tools(code_index_settings settings = {});
+
     // List the symbols (classes, structs, functions, methods, types)
     // defined in a source file with their line ranges.
     dripcore::awaitable<json> outline(std::string path);
 
-    // Extract the exact source text of a named symbol definition in a file.
-    // Handles overloads by returning every matching definition.
+    // Extract the exact source text of a named symbol definition in a
+    // file. Handles overloads by returning every matching definition.
     dripcore::awaitable<json> read_symbol(std::string path, std::string name);
+
+    // Find symbol definitions by name across a directory tree. Falls
+    // back to substring matching when no exact match exists.
+    dripcore::awaitable<json> find_symbol(std::string name, std::string path);
+
+    // Find usage sites (calls, type usages, member access) of a named
+    // symbol across a directory tree. Definition sites are excluded.
+    dripcore::awaitable<json> find_references(std::string name, std::string path);
+
+  private:
+    code_index_settings settings_;
+    symbol_index index_;
   };
 
 } // namespace mistral::tools
