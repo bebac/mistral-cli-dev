@@ -204,6 +204,18 @@ int main(int argc, char* argv[])
   const auto& agent_config = agent_system.get_agent_config(agent_id);
   const auto& model_config = agent_system.get_model_config(agent_config.model);
 
+  // Validate the tool policy early. A broken policy.json (e.g. invalid
+  // JSON) would otherwise throw from the agent task constructor inside
+  // sched.spawn() below, escaping main() and aborting the process. Fail
+  // fast with a clean error message instead.
+  try {
+    (void)agent_system.resolve_tool_policy(agent_config);
+  } catch (const std::exception &e) {
+    std::cerr << "error: cannot load tool policy for agent '" << agent_id
+              << "': " << e.what() << std::endl;
+    return 1;
+  }
+
   // Use base_url from config if command-line host wasn't overridden
   if (host == "api.mistral.ai" && !model_config.base_url.empty())
   {

@@ -6,6 +6,7 @@
 
 #include "cpptui.hpp"
 
+#include <cctype>
 #include <functional>
 #include <string>
 
@@ -13,8 +14,8 @@ namespace mistral::tui {
 
 // ---------------------------------------------------------------------------
 // ChatInput: multiline input area based on TextArea.
-// Enter inserts a newline. Alt+Enter or Enter on an empty last line
-// (double-Enter) submits the message.
+// Enter inserts a newline. Alt+Enter or Enter on an empty or
+// whitespace-only last line (double-Enter) submits the message.
 //
 // Approval mode state machine:
 //   none        → normal chat input
@@ -43,6 +44,18 @@ public:
   void cancel_slash_mode() {
     exit_slash_mode();
     set_text("");
+  }
+
+  // Text to send on submit: get_text() with trailing whitespace removed.
+  // The blank last line created by the double-Enter confirmation and any
+  // stray trailing spaces are not part of the message.
+  std::string get_submit_text() const {
+    std::string text = get_text();
+    while (!text.empty() &&
+           std::isspace(static_cast<unsigned char>(text.back()))) {
+      text.pop_back();
+    }
+    return text;
   }
 
   void set_approval_mode(approval_mode mode) {
@@ -167,15 +180,21 @@ public:
         return true;
       }
 
-      // Enter on empty last line with content above submits (double-Enter).
+      // Enter on an empty or whitespace-only last line with content
+      // above submits (double-Enter).
+      //
+      // The whitespace-only case matters: with a stray space after the
+      // cursor on the last line, every Enter splits the line at the
+      // cursor and the space stays on the new last line. The last line
+      // would never be empty and double-Enter could never submit.
       if (!event.ctrl && !event.shift) {
         bool is_last_line = (cursor_y_ == (int)lines_.size() - 1);
-        bool current_line_empty = lines_[cursor_y_].empty();
+        bool current_line_blank = is_blank(lines_[cursor_y_]);
         bool has_content = false;
         for (const auto& l : lines_) {
-          if (!l.empty()) { has_content = true; break; }
+          if (!is_blank(l)) { has_content = true; break; }
         }
-        if (is_last_line && current_line_empty && has_content) {
+        if (is_last_line && current_line_blank && has_content) {
           if (on_submit) on_submit();
           return true;
         }
@@ -215,6 +234,15 @@ public:
   }
 
 private:
+  // A line that is empty or contains only whitespace. get_submit_text()
+  // strips trailing whitespace, so such lines carry no message content.
+  static bool is_blank(const std::string& line) {
+    for (char c : line) {
+      if (!std::isspace(static_cast<unsigned char>(c))) return false;
+    }
+    return true;
+  }
+
   void enter_slash_mode() {
     slash_mode_active_ = true;
     if (popup_) {

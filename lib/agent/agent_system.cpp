@@ -106,7 +106,8 @@ namespace mistral::agent
       }
       catch (const std::exception& e)
       {
-        std::cerr << "error resolving tool policy file: " << e.what() << std::endl;
+        std::cerr << "error loading tool policy file '" << file_path
+                  << "': " << e.what() << std::endl;
         throw;
       }
     }
@@ -502,8 +503,6 @@ namespace mistral::agent
       arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
       arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
     );
-
-
 
     global_tools_.register_tool(
       "outline",

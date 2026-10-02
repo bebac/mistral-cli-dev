@@ -272,7 +272,9 @@ private:
     if (input_->approval_mode_ != ChatInput::approval_mode::none) {
       return;
     }
-    std::string text = input_->get_text();
+    // get_submit_text(): trailing whitespace (the blank confirmation
+    // line of a double-Enter submit, stray trailing spaces) is not sent.
+    std::string text = input_->get_submit_text();
     if (text.empty()) return;
     content_area_.append("\n> " + text + "\n", content_type::user);
     input_->set_text("");

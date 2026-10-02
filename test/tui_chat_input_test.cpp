@@ -163,6 +163,170 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
 }
 
 // ---------------------------------------------------------------------------
+// Test 4: A stray space after the cursor on the last line must not block
+// double-Enter submit.
+//
+// Regression test: with a space after the cursor on the last line, every
+// Enter split the line at the cursor and the space stayed on the new last
+// line. The last line was never empty, so the submit condition never
+// fired and double-Enter could not submit at all.
+// ---------------------------------------------------------------------------
+TEST_CASE("ChatInput PTY: double-Enter submits with stray space after cursor")
+{
+  pty_test::pty_terminal pty;
+  std::atomic<bool> app_exited{false};
+  pty_test::pty_drainer drainer(pty.fd());
+
+  std::thread app_thread([&]() {
+    using namespace cpptui;
+
+    try {
+      App app;
+      auto root = std::make_shared<Vertical>();
+      root->width = 80;
+      root->height = 24;
+
+      auto status = std::make_shared<Label>(StyledText("IDLE"));
+      status->fixed_height = 1;
+      status->width = 80;
+      status->height = 1;
+
+      auto input = std::make_shared<ChatInput>();
+      input->show_line_numbers = false;
+      input->word_wrap = true;
+      input->show_scrollbar = false;
+      input->accepts_tab = false;
+      input->fixed_height = 5;
+      input->width = 78;
+      input->height = 5;
+
+      input->on_submit = [&]() {
+        status->set_text(StyledText("SUBMITTED"));
+      };
+
+      root->add(status);
+      root->add(input);
+
+      app.register_key('q', [&]() { app.quit(); });
+
+      app.run(root);
+    } catch (const std::exception& e) {
+      std::cerr << "[test4] exception: " << e.what() << "\n";
+    } catch (...) {
+      std::cerr << "[test4] unknown exception\n";
+    }
+    app_exited.store(true, std::memory_order_release);
+  });
+
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
+  REQUIRE(drainer.wait_for("IDLE", 5000));
+
+  // Type text.
+  pty.send_keys("hi");
+  REQUIRE(drainer.wait_for("hi", 5000));
+
+  // Enter: newline, cursor on empty line 2.
+  pty.send_keys("\r");
+
+  // Stray space on line 2, then Left so the cursor sits before it.
+  pty.send_keys(" ");
+  pty.send_keys("\x1b[D");
+
+  // Enter on the whitespace-only last line must submit.
+  pty.send_keys("\r");
+  REQUIRE(drainer.wait_for("SUBMITTED", 5000));
+
+  // Quit.
+  pty.send_keys("q");
+  REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
+
+  app_thread.join();
+  guard.joined = true;
+  pty.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: Submitted text is trimmed of trailing whitespace.
+//
+// Verifies that:
+//   - A trailing space on the last content line is not sent
+//   - The blank confirmation line of the double-Enter is not sent
+// ---------------------------------------------------------------------------
+TEST_CASE("ChatInput PTY: submitted text has trailing whitespace trimmed")
+{
+  pty_test::pty_terminal pty;
+  std::atomic<bool> app_exited{false};
+  pty_test::pty_drainer drainer(pty.fd());
+
+  std::thread app_thread([&]() {
+    using namespace cpptui;
+
+    try {
+      App app;
+      auto root = std::make_shared<Vertical>();
+      root->width = 80;
+      root->height = 24;
+
+      auto status = std::make_shared<Label>(StyledText("IDLE"));
+      status->fixed_height = 1;
+      status->width = 80;
+      status->height = 1;
+
+      auto input = std::make_shared<ChatInput>();
+      input->show_line_numbers = false;
+      input->word_wrap = true;
+      input->show_scrollbar = false;
+      input->accepts_tab = false;
+      input->fixed_height = 5;
+      input->width = 78;
+      input->height = 5;
+
+      input->on_submit = [&]() {
+        status->set_text(StyledText(
+          "LEN=" + std::to_string(input->get_submit_text().size())));
+      };
+
+      root->add(status);
+      root->add(input);
+
+      app.register_key('q', [&]() { app.quit(); });
+
+      app.run(root);
+    } catch (const std::exception& e) {
+      std::cerr << "[test5] exception: " << e.what() << "\n";
+    } catch (...) {
+      std::cerr << "[test5] unknown exception\n";
+    }
+    app_exited.store(true, std::memory_order_release);
+  });
+
+  pty_test::app_cleanup guard{pty, app_exited, app_thread};
+
+  REQUIRE(drainer.wait_for("IDLE", 5000));
+
+  // Type text with a trailing space.
+  pty.send_keys("hi ");
+  REQUIRE(drainer.wait_for("hi", 5000));
+
+  // Enter: newline (last line "hi " is not blank).
+  pty.send_keys("\r");
+
+  // Enter: empty last line → submit. The submitted text must be "hi"
+  // (trailing space and blank confirmation line trimmed), not "hi \n".
+  pty.send_keys("\r");
+  REQUIRE(drainer.wait_for("LEN=2", 5000));
+
+  // Quit.
+  pty.send_keys("q");
+  REQUIRE(pty_test::drain_wait(app_exited, pty, 5000));
+
+  app_thread.join();
+  guard.joined = true;
+  pty.restore();
+}
+
+// ---------------------------------------------------------------------------
 // Test 3: Single-key approval mode intercepts y/n/r/a/? keys.
 //
 // Verifies that:

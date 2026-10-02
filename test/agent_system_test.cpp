@@ -385,6 +385,45 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_model_config: throws for missing 
   CHECK_THROWS_AS(system.get_model_config("nonexistent"), std::runtime_error);
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_policy: malformed policy file throws")
+{
+  // Policy file with invalid JSON (missing comma after an entry).
+  const std::string policy_file =
+      (std::filesystem::path(temp_dir) / "policy.json").string();
+  {
+    std::ofstream out(policy_file);
+    out << "{\n  \"default\": \"deny\"\n  \"exec\": \"require_approval\"\n}\n";
+  }
+
+  initialize_agent_system_with_main_agent();
+  auto &system = mistral::agent::agent_system::instance();
+
+  mistral::agent::agent_config agent_cfg = system.get_agent_config("main");
+  agent_cfg.tool_policy = "file://" + policy_file;
+
+  CHECK_THROWS_AS(system.resolve_tool_policy(agent_cfg), std::exception);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_policy: valid policy file resolves")
+{
+  const std::string policy_file =
+      (std::filesystem::path(temp_dir) / "policy.json").string();
+  {
+    std::ofstream out(policy_file);
+    out << "{\"default\": \"deny\", \"exec\": \"require_approval\"}\n";
+  }
+
+  initialize_agent_system_with_main_agent();
+  auto &system = mistral::agent::agent_system::instance();
+
+  mistral::agent::agent_config agent_cfg = system.get_agent_config("main");
+  agent_cfg.tool_policy = "file://" + policy_file;
+
+  auto policy = system.resolve_tool_policy(agent_cfg);
+  CHECK(policy["default"] == "deny");
+  CHECK(policy["exec"] == "require_approval");
+}
+
 TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::backward_compatibility");
