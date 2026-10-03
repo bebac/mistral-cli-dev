@@ -166,7 +166,9 @@ namespace mistral::tools
   {
     constexpr std::string_view prefix = "(patchset: ";
     size_t start = input.find(prefix);
-    if (start == std::string_view::npos) {
+    // Most assistant messages contain no patchset: the not-found path
+    // is the common case.
+    if (start == std::string_view::npos) [[likely]] {
       return std::nullopt;
     }
     start += prefix.length();
@@ -296,7 +298,8 @@ namespace mistral::tools
       // This handles nested code fences inside the search/replace content
       // (e.g., when editing a markdown file that itself documents patchset format).
       size_t code_block_end = find_closing_fence(input, code_block_start);
-      if (code_block_end == std::string_view::npos)
+      // Rare fallback: markerless new-file creation block.
+      if (code_block_end == std::string_view::npos) [[unlikely]]
       {
         // find_closing_fence requires >>>>>>> REPLACE markers.
         // If it failed, try a fallback for markerless new file creation:
@@ -392,7 +395,7 @@ namespace mistral::tools
   {
     // Extract patchset ID
     auto patchset_id = extract_patchset_id(input);
-    if (!patchset_id) {
+    if (!patchset_id) [[likely]] {
       return std::nullopt;
     }
 
