@@ -37,14 +37,10 @@ namespace mistral::net
           break;
         }
 
-        // Create a completion channel for this request
-        auto completion_ch = std::make_shared<dripcore::channel<bool>>(1);
-
-        // Forward the request to the coordinator with completion notification
-        event_ch_->try_send({coordinator_event_type::new_request, std::move(req), {}, 0, completion_ch});
-
-        // Wait for the request to complete before accepting the next one
-        co_await completion_ch->recv(this);
+        // Forward the request to the coordinator. Each request carries its
+        // own response channel, so requests may be in flight concurrently
+        // (multiplexed as separate HTTP/2 streams).
+        event_ch_->try_send({coordinator_event_type::new_request, std::move(req)});
       }
 
       co_return;

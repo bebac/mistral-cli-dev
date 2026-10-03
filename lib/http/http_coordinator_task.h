@@ -44,7 +44,6 @@ namespace mistral::net
     std::shared_ptr<api::api_response> response;
     std::shared_ptr<http::sse_parser> sse_parser;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch;
-    std::shared_ptr<dripcore::channel<bool>> completion_ch;
     bool req_stream = false;
 
     // Flow control: request body not yet fully accepted by the engine.
@@ -99,15 +98,13 @@ namespace mistral::net
       // the consumer's event loop terminates.
       response->done = true;
       response_ch->try_send({api::event_type::done, {}});
-      if (completion_ch) completion_ch->try_send(true);
     }
 
-    // Called on stream_reset — send error and signal completion.
+    // Called on stream_reset — send error to the consumer.
     void fail(const std::string& msg)
     {
       response_ch->try_send({api::event_type::error, msg});
       response->done = true;
-      if (completion_ch) completion_ch->try_send(true);
     }
   };
 
@@ -143,7 +140,7 @@ namespace mistral::net
 
         switch (evt->type) {
           case coordinator_event_type::new_request:
-            co_await handle_new_request(*evt->request, evt->completion_ch);
+            co_await handle_new_request(*evt->request);
             break;
 
           case coordinator_event_type::connection_closed:
@@ -173,15 +170,12 @@ namespace mistral::net
     }
 
   private:
-    dripcore::awaitable<void> handle_new_request(const api::api_request& req, std::shared_ptr<dripcore::channel<bool>> completion_ch)
+    dripcore::awaitable<void> handle_new_request(const api::api_request& req)
     {
       auto response_ch = req.response_ch;
 
       if (!response_ch) {
         std::cerr << "[http_coordinator] response_ch is required!" << std::endl;
-        if (completion_ch) {
-          completion_ch->try_send(true);
-        }
         co_return;
       }
 
@@ -218,9 +212,6 @@ namespace mistral::net
           std::cerr << "[http_coordinator] connection failed: " << e.what() << std::endl;
           response_ch->try_send({api::event_type::error, e.what()});
           response_ch->close();
-          if (completion_ch) {
-            completion_ch->try_send(true);
-          }
           co_return;
         }
       }
@@ -234,7 +225,6 @@ namespace mistral::net
       state->response = std::make_shared<api::api_response>();
       state->sse_parser = std::make_shared<http::sse_parser>();
       state->response_ch = response_ch;
-      state->completion_ch = completion_ch;
       state->req_stream = req.stream;
       state->stream = stream;
 
@@ -242,8 +232,8 @@ namespace mistral::net
 
       // Send the request (eager — no suspension for flow control).
       // If the engine throws during send_headers or send_data, fail the
-      // stream so completion_ch is signaled and the request pipeline does
-      // not deadlock waiting for a response that will never arrive.
+      // stream so the consumer's event loop is unblocked with an error
+      // instead of waiting for a response that will never arrive.
       try {
         send_request_body(stream, req, state);
       }
@@ -305,9 +295,8 @@ namespace mistral::net
       case http::event_type::data:
       {
         // If the consumer closed the response channel (cancelled),
-        // fail the stream immediately so completion_ch is signaled
-        // and http_request_task unblocks instead of waiting for the
-        // full server response.
+        // fail the stream immediately so the consumer's event loop
+        // terminates instead of waiting for the full server response.
         if (state->response_ch->is_closed()) {
           state->fail("cancelled");
           stream_registry_.erase(it);

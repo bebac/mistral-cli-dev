@@ -3,8 +3,6 @@
 
 #include "api/types.h"
 
-#include <dripcore/channel.h>
-
 #include <memory>
 #include <system_error>
 
@@ -26,7 +24,6 @@ namespace mistral::net
     std::optional<api::api_request> request;
     std::error_code error;
     uint32_t last_stream_id = 0;
-    std::shared_ptr<dripcore::channel<bool>> completion_ch;
   };
 } // namespace mistral::net
 
