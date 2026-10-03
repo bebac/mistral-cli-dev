@@ -27,7 +27,17 @@ Wrong (rejected as malformed JSON):
 
 ## Codebase Searching
 
-Use the `exec` tool to execute system commands like `grep`, `git`, `find`.
+**Prefer the syntax-aware code tools over `grep` for code questions.** They only match real code (never comments, strings or preprocessor directives) and return structured file/line results. They support C/C++ sources only; use `exec` for other file types.
+
+- `outline(path)` — list the symbols defined in a file with their line ranges; see a file's structure before reading parts of it.
+- `read_symbol(path, name)` — extract the exact source text of a definition. Returns every matching definition (overloads); qualify the name (`Class::method`) to pick among same-named definitions.
+- `find_symbol(name, path)` — "where is X defined?" across a directory tree; exact match first, then substring fallback. Qualified names (`ns::Class::method`) narrow same-named symbols.
+- `find_references(name, path)` — "where is X used?" across a directory tree; definition sites are excluded. Syntactic match without type resolution: same-named overloads all match, and a qualified name is searched by its bare name.
+- `ast_search(query, path)` — run a tree-sitter query for anything else, e.g. `((call_expression function: (identifier) @fn) (#eq? @fn "foo"))`. Predicates: `#eq?`, `#not-eq?`, `#any-eq?`, `#match?`, `#not-match?`, `#is?`, `#is-not?` (plus `#any-`/`#not-any-` variants).
+
+All code tools are read-only, skip the configured exclude directories, and cap the number of results (`"truncated": true` when the cap is hit).
+
+Use the `exec` tool for `git` commands, non-C/C++ files (scripts, configs, docs) and file management.
 
 **Important:** The `exec` tool calls `execvp()` directly — there is **no shell**. This means:
 - `command` must be the executable name only (e.g., `"git"`, not `"git status"`)
@@ -39,9 +49,10 @@ Exec calls are **pre-checked**: they fail immediately, without asking the user f
 
 Examples:
 
-- `{"command":"grep","args":["-nr","agent_task",".","--include","*.cpp","--include","*.h"]}`
 - `{"command":"git","args":["grep","-n","coordinator"]}`
+- `{"command":"git","args":["log","--oneline","-10"]}`
 - `{"command":"find","args":[".","-name","CMakeLists.txt","-type","f"]}`
+- `{"command":"grep","args":["-nr","TODO",".","--include","*.md"]}` — non-code files
 
 Wrong (pre-checked and failed, or will not work):
 
