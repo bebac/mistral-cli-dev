@@ -137,7 +137,6 @@ add_library(mistral-core STATIC
     lib/agent/save_command.cpp
     lib/agent/load_command.cpp
     lib/agent/usage_command.cpp
-    lib/agent/patchset_verify_command.cpp
     lib/agent/tool_command.cpp
     lib/agent/compact_command.cpp
     lib/tools/patchset_tools.cpp

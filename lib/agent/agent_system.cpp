@@ -469,7 +469,6 @@ namespace mistral::agent
     registry.register_command(std::make_unique<load_command>());
     registry.register_command(std::make_unique<save_command>());
     registry.register_command(std::make_unique<usage_command>());
-    registry.register_command(std::make_unique<patchset_verify_command>());
     registry.register_command(std::make_unique<tool_command>());
     registry.register_command(std::make_unique<compact_command>());
   }

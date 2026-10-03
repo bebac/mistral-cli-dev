@@ -94,8 +94,6 @@ make_test_registry() {
   reg->register_command(std::make_unique<test_command>(
     "usage", "Show API usage statistics"));
   reg->register_command(std::make_unique<test_command>(
-    "patchset_verify", "Verify a patchset"));
-  reg->register_command(std::make_unique<test_command>(
     "tool", "Run a tool"));
   return reg;
 }
