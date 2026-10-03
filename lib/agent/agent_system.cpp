@@ -721,7 +721,7 @@ namespace mistral::agent
 
   bool agent_system::has_agent_config(const std::string &agent_id) const
   {
-    return config_.agents.find(agent_id) != config_.agents.end();
+    return config_.agents.contains(agent_id);
   }
 
   const model_config &agent_system::get_model_config(const std::string &model_name) const
@@ -736,7 +736,7 @@ namespace mistral::agent
 
   bool agent_system::has_model_config(const std::string &model_name) const
   {
-    return config_.models.find(model_name) != config_.models.end();
+    return config_.models.contains(model_name);
   }
 
   api::sampling_params agent_system::resolve_sampling_params(const agent_config& agent_cfg) const

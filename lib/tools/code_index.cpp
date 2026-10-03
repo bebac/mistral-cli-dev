@@ -454,7 +454,7 @@ namespace mistral::tools
         if (capture_name == "name") {
           name = std::string(node_text(node, source_));
           name_node = node;
-        } else if (capture_name.rfind("definition.", 0) == 0) {
+        } else if (capture_name.starts_with("definition.")) {
           kind = capture_name.substr(std::strlen("definition."));
           definition_node = node;
         } else if (capture_name == "local.scope") {
@@ -831,7 +831,7 @@ namespace mistral::tools
 
     // Drop indexed files under this root that no longer exist.
     for (auto it = files_.begin(); it != files_.end();) {
-      if (is_under(it->first, root_abs) && seen.count(it->first) == 0) {
+      if (is_under(it->first, root_abs) && !seen.contains(it->first)) {
         it = files_.erase(it);
       } else {
         ++it;

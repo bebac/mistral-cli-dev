@@ -56,6 +56,6 @@ namespace mistral::slash_command
   bool slash_command_registry::has_command(const std::string &name) const
   {
     std::lock_guard<std::mutex> lock(mtx_);
-    return commands_.find(name) != commands_.end();
+    return commands_.contains(name);
   }
 } // namespace mistral::slash_command

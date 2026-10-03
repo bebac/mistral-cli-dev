@@ -123,10 +123,10 @@ namespace mistral::tools
     // parser then treats the next marker line as the file path.
     bool is_patchset_marker_path(const std::string& path)
     {
-      return path.rfind("~~~", 0) == 0 ||      // code fence (optionally with language)
-             path.rfind("<<<<<<<", 0) == 0 ||  // SEARCH marker
-             path.rfind("=======", 0) == 0 ||  // SEPARATOR marker
-             path.rfind(">>>>>>>", 0) == 0;    // REPLACE marker
+      return path.starts_with("~~~") ||      // code fence (optionally with language)
+             path.starts_with("<<<<<<<") ||  // SEARCH marker
+             path.starts_with("=======") ||  // SEPARATOR marker
+             path.starts_with(">>>>>>>");    // REPLACE marker
     }
 
     // Apply suspicious content check to a validation result.

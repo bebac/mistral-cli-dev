@@ -432,7 +432,7 @@ namespace mistral::agent
     // Check if a tool is registered
     bool has_tool(const std::string& name) const
     {
-      return tools_.find(name) != tools_.end();
+      return tools_.contains(name);
     }
 
     // Get a tool by name (returns nullptr if not found)
