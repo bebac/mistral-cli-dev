@@ -515,6 +515,43 @@ TEST_CASE("code_tools: results are capped at max_results")
   CHECK(result["truncated"] == true);
 }
 
+TEST_CASE("code_tools: find_references results are capped at max_results")
+{
+  mistral::tools::code_index_settings settings;
+  settings.max_results = 2;
+  mistral::tools::code_tools tools(settings);
+  mistral::tools::sample_project project;
+
+  // Add call sites of alpha (4 usages total in a.cpp; the definition
+  // itself is excluded).
+  {
+    std::ofstream out(project.root / "a.cpp", std::ios::app);
+    out << "int more() { alpha(); alpha(); alpha(); }\n";
+  }
+
+  auto result = mistral::tools::run_find_references(tools, "alpha", project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  CHECK(result["count"].get<int>() == 2);
+  CHECK(result["truncated"] == true);
+}
+
+TEST_CASE("code_tools: ast_search directory results are capped at max_results")
+{
+  mistral::tools::code_index_settings settings;
+  settings.max_results = 1;
+  mistral::tools::code_tools tools(settings);
+  mistral::tools::sample_project project;
+
+  // a.cpp defines alpha and caller (two function_definitions).
+  auto result = mistral::tools::run_ast_search(
+    tools, "(function_definition) @fn", project.root.string());
+
+  REQUIRE(result.contains("matches"));
+  CHECK(result["count"].get<int>() == 1);
+  CHECK(result["truncated"] == true);
+}
+
 TEST_CASE("code_tools: ast_search runs tree-sitter queries")
 {
   mistral::tools::code_tools tools;

@@ -5,6 +5,9 @@
 
 #include <dripcore/awaitable.h>
 #include <nlohmann/json.hpp>
+
+#include <filesystem>
+#include <functional>
 #include <string>
 
 namespace mistral::tools
@@ -41,6 +44,16 @@ namespace mistral::tools
     dripcore::awaitable<json> ast_search(std::string query, std::string path);
 
   private:
+    // Walk the supported source files under root (skipping excluded
+    // directories), reading each file and passing its content to
+    // visit. The walk stops early when visit returns false. Yields
+    // to the scheduler periodically; unreadable entries are skipped.
+    dripcore::awaitable<void> for_each_source_file(
+      const std::filesystem::path& root,
+      const std::function<bool(
+        const std::filesystem::path& file, std::string&& source)>& visit
+    );
+
     code_index_settings settings_;
     symbol_index index_;
   };

@@ -233,38 +233,18 @@ namespace mistral::tools
     json matches = json::array();
     int count = 0;
     bool truncated = false;
-    int processed = 0;
 
-    try {
-      for (const auto& entry : fs::recursive_directory_iterator(
-             root_abs, fs::directory_options::skip_permission_denied))
-      {
-        std::error_code file_ec;
-        if (!entry.is_regular_file(file_ec) || file_ec) {
-          continue;
-        }
-        const fs::path file = entry.path().lexically_normal();
-        if (index_.is_excluded(file) || !symbol_index::is_supported_source(file)) {
-          continue;
-        }
-
-        std::ifstream in(file);
-        if (!in) {
-          continue;
-        }
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
-        std::string source = buffer.str();
-
+    co_await for_each_source_file(root_abs,
+      [&](const fs::path& file, std::string&& source) {
         // Cheap textual prefilter before parsing.
         if (source.find(bare) == std::string::npos) {
-          continue;
+          return true;
         }
 
         parsed_source parsed;
         std::string error;
         if (!parsed.load(file.string(), std::move(source), error)) {
-          continue;
+          return true;
         }
 
         for (const auto& site : parsed.usages_of(bare)) {
@@ -273,7 +253,7 @@ namespace mistral::tools
           }
           if (count >= settings_.max_results) {
             truncated = true;
-            break;
+            return false;
           }
           matches.push_back({
             {"file", display_path(file.string())},
@@ -282,19 +262,8 @@ namespace mistral::tools
           });
           ++count;
         }
-
-        if (truncated) {
-          break;
-        }
-
-        if (++processed % 20 == 0) {
-          co_await dripcore::sleep_awaiter{
-            dripcore::executor::current(), nullptr, std::chrono::milliseconds(0)};
-        }
-      }
-    } catch (const std::exception&) {
-      // Unreadable directory entries are skipped.
-    }
+        return true;
+      });
 
     co_return {
       {"name", name},
@@ -367,40 +336,17 @@ namespace mistral::tools
       }
       append_matches(parsed, path, matches, count, truncated);
     } else if (fs::is_directory(root, ec)) {
-      const fs::path root_abs = fs::absolute(root, ec).lexically_normal();
-      int processed = 0;
-
-      try {
-        for (const auto& entry : fs::recursive_directory_iterator(
-               root_abs, fs::directory_options::skip_permission_denied))
-        {
-          std::error_code file_ec;
-          if (!entry.is_regular_file(file_ec) || file_ec) {
-            continue;
-          }
-          const fs::path file = entry.path().lexically_normal();
-          if (index_.is_excluded(file) || !symbol_index::is_supported_source(file)) {
-            continue;
-          }
-
+      co_await for_each_source_file(fs::absolute(root, ec).lexically_normal(),
+        [&](const fs::path& file, std::string&& source) {
           parsed_source parsed;
-          if (!parsed.load(file.string(), error)) {
-            continue;
+          std::string error;
+          if (!parsed.load(file.string(), std::move(source), error)) {
+            return true;
           }
 
           append_matches(parsed, display_path(file.string()), matches, count, truncated);
-          if (truncated) {
-            break;
-          }
-
-          if (++processed % 20 == 0) {
-            co_await dripcore::sleep_awaiter{
-              dripcore::executor::current(), nullptr, std::chrono::milliseconds(0)};
-          }
-        }
-      } catch (const std::exception&) {
-        // Unreadable directory entries are skipped.
-      }
+          return !truncated;
+        });
     } else {
       co_return {{"error", std::format("path '{}' is not a file or directory", path)}};
     }
@@ -411,6 +357,48 @@ namespace mistral::tools
       {"count", count},
       {"truncated", truncated}
     };
+  }
+
+  dripcore::awaitable<void> code_tools::for_each_source_file(
+    const fs::path& root,
+    const std::function<bool(const fs::path&, std::string&&)>& visit)
+  {
+    int processed = 0;
+
+    try {
+      for (const auto& entry : fs::recursive_directory_iterator(
+             root, fs::directory_options::skip_permission_denied))
+      {
+        std::error_code file_ec;
+        if (!entry.is_regular_file(file_ec) || file_ec) {
+          continue;
+        }
+        const fs::path file = entry.path().lexically_normal();
+        if (index_.is_excluded(file) || !symbol_index::is_supported_source(file)) {
+          continue;
+        }
+
+        std::ifstream in(file);
+        if (!in) {
+          continue;
+        }
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+
+        if (!visit(file, buffer.str())) {
+          break;
+        }
+
+        if (++processed % 20 == 0) {
+          // Yield to the scheduler; walking a large repository can
+          // take a while.
+          co_await dripcore::sleep_awaiter{
+            dripcore::executor::current(), nullptr, std::chrono::milliseconds(0)};
+        }
+      }
+    } catch (const std::exception&) {
+      // Unreadable directory entries are skipped.
+    }
   }
 
 } // namespace mistral::tools
