@@ -8,7 +8,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 
 namespace fs = std::filesystem;
@@ -486,83 +485,6 @@ namespace mistral::agent
     result["errors"] = errors_array;
 
     return result;
-  }
-
-  std::string patchset_tools::format_validation_errors(const validation_result_t &validation)
-  {
-    std::ostringstream oss;
-    bool first = true;
-
-    for (const auto &v : validation.validations)
-    {
-      if (!v.valid && v.is_fixable)
-      {
-        if (!first)
-        {
-          oss << "\n";
-        }
-        first = false;
-
-        oss << "- Patch " << v.patch_number << ": File: " << v.file_path << "\n";
-        oss << "  Error: " << v.error_type << "\n";
-        oss << "  Search text: \"" << v.search_text << "\"\n";
-        oss << "  Matches: " << v.match_count << " (in target file)\n";
-        if (!v.suggestion.empty())
-        {
-          oss << "  Suggestion: " << v.suggestion << "\n";
-        }
-      }
-    }
-
-    return oss.str();
-  }
-
-  std::string patchset_tools::format_edits_for_ai(const std::vector<file_edit_t> &edits)
-  {
-    std::ostringstream oss;
-
-    for (const auto &edit : edits)
-    {
-      oss << edit.file_path << "\n";
-
-      // Determine language based on file extension
-      std::string lang = "cpp";
-      size_t dot_pos = edit.file_path.find_last_of('.');
-      if (dot_pos != std::string::npos)
-      {
-        std::string ext = edit.file_path.substr(dot_pos + 1);
-        if (ext == "cpp" || ext == "hpp" || ext == "hxx" || ext == "cc" || ext == "hh")
-        {
-          lang = "cpp";
-        }
-        else if (ext == "c" || ext == "h")
-        {
-          lang = "c";
-        }
-        else if (ext == "cmake")
-        {
-          lang = "cmake";
-        }
-        else if (ext == "md")
-        {
-          lang = "markdown";
-        }
-        else if (ext == "json")
-        {
-          lang = "json";
-        }
-      }
-
-      oss << "```" << lang << "\n";
-      oss << "<<<<<<< SEARCH\n";
-      oss << edit.search_text;
-      oss << "\n=======\n";
-      oss << edit.replace_text;
-      oss << "\n>>>>>>> REPLACE\n";
-      oss << "```\n\n";
-    }
-
-    return oss.str();
   }
 
   json patchset_tools::make_error_response(const std::string &error_type, const std::string &error_message)

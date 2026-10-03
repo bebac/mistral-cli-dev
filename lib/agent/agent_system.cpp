@@ -404,7 +404,7 @@ namespace mistral::agent
         const std::string&,
         agent::agent_system&) override
       {
-        co_return "Chat history cleared (not yet implemented)";
+        co_return "Clearing the chat history is not yet implemented";
       }
     };
 
@@ -612,7 +612,7 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_apply",
-      "Apply a stored patchset of file edits by its ID. Automatically attempts correction via patchfixer subagent if validation fails with fixable errors.",
+      "Apply a stored patchset of file edits by its ID. If validation fails, the response lists per-edit errors; fix them with patchset_update or patchset_remove, then apply again.",
       &patchset_tools, &mistral::agent::patchset_tools::patchset_apply,
       arg("patchset_id", "The unique identifier of the patchset to apply")
     );

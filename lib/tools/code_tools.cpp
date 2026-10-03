@@ -143,7 +143,7 @@ namespace mistral::tools
     }
     // A qualified request must still name a symbol ("Foo::" is rejected).
     if (qualified_name::parse(name).name.empty()) {
-      co_return {{"error", "name must not be empty"}};
+      co_return {{"error", std::format("qualified name '{}' must name a symbol", name)}};
     }
 
     std::error_code ec;

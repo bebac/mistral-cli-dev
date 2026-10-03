@@ -18,8 +18,9 @@ namespace mistral::agent
   public:
     explicit patchset_tools(patchset_store &store);
 
-    // Apply a stored patchset after validation
-    // Automatically attempts correction via patchfixer subagent if validation fails with fixable errors
+    // Apply a stored patchset after validation. On validation failure
+    // the response lists per-edit errors; fix with patchset_update or
+    // patchset_remove and apply again.
     json patchset_apply(std::string patchset_id);
 
     // Get patchset details including all numbered edits
@@ -53,8 +54,6 @@ namespace mistral::agent
       const std::string &patchset_id,
       const std::vector<file_edit_t> &edits,
       const validation_result_t &validation);
-    std::string format_validation_errors(const validation_result_t &validation);
-    std::string format_edits_for_ai(const std::vector<file_edit_t> &edits);
     json make_error_response(const std::string &error_type, const std::string &error_message);
     json make_validation_failure_response(
       const std::string &patchset_id,
