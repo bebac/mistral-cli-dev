@@ -10,7 +10,7 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 
 ✅ **Interactive Chat**: Stream responses in real-time.
 ✅ **TUI Mode**: Full-screen terminal UI (`mistral-tui`) with selectable themes.
-✅ **Tool Integration**: File listing/reading, grep, exec, notes, task tracking, and patchset-based file editing.
+✅ **Tool Integration**: File listing/reading, syntax-aware code exploration (tree-sitter), exec, notes, task tracking, and patchset-based file editing.
 ✅ **Multi-Agent Configuration**: Models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
 ✅ **Workspace Bootstrap**: Default configuration files are embedded in the executables and seeded automatically on startup.
 ✅ **Console History**: Persists command history between sessions.
@@ -172,8 +172,8 @@ The AI can call tools to perform actions. For example:
 - **Search the codebase**:
   ```
   > Find where the tool registry is populated.
-  < Calling tool: grep(pattern="register_tool", path="lib")
-  < lib/agent/agent_system.cpp:468:    global_tools_.register_tool(
+  < Calling tool: find_references(name="register_tool", path="lib")
+  < lib/agent/agent_system.cpp:487:    global_tools_.register_tool(
   ```
 
 ### Available Tools
@@ -182,7 +182,11 @@ The AI can call tools to perform actions. For example:
 |------|-------------|
 | `ls` | List files and directories. |
 | `read` | Read file contents (supports line ranges). |
-| `grep` | Search for a regular expression in files. |
+| `outline` | List the symbols defined in a C/C++ source file with their line ranges. |
+| `read_symbol` | Extract the exact source text of a symbol definition. |
+| `find_symbol` | Find symbol definitions by name across a directory tree. |
+| `find_references` | Find usage sites of a named symbol across a directory tree (definition sites excluded). |
+| `ast_search` | Search a file or tree with a tree-sitter query (scheme-like syntax). |
 | `exec` | Execute an external command (no shell involved). |
 | `note_list`, `note_read`, `note_write`, `note_search` | Manage notes in the notes directory. |
 | `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
@@ -191,7 +195,9 @@ The AI can call tools to perform actions. For example:
 Which tools an agent may use is configured per agent via `available_tools`
 in `mistral-cli.json`. File edits go through the patchset workflow
 (see `.mistral-cli/sys_patchset_instructions.md`) rather than a direct
-write tool.
+write tool. The code exploration tools are syntax-aware (no matches in
+comments, strings or preprocessor directives); see `doc/code-tools.md`
+for details and caveats.
 
 ---
 
@@ -203,7 +209,9 @@ write tool.
 | `lib/`           | Core library (HTTP, API, console, TUI, tools, agent system).             |
 | `test/`          | Unit tests.                                                             |
 | `templates/`     | Default workspace files embedded into the executables at build time.    |
-| `third_party/`   | Submodule dependencies (`dripcore`, `stunning-waddle`, `isocline`, `just-a-uri`, `cpp-tui`) and `nlohmann/json`. |
+| `queries/`       | Repo-local tree-sitter queries, embedded into the executables at build time. |
+| `doc/`           | Design documents (code tools, TUI, rendering).                          |
+| `third_party/`   | Submodule dependencies (`dripcore`, `stunning-waddle`, `isocline`, `just-a-uri`, `cpp-tui`, `tree-sitter` + C++ grammar) and `nlohmann/json`. |
 | `CMakeLists.txt` | Build configuration.                                                    |
 | `README.md`      | This file.                                                              |
 
@@ -218,6 +226,7 @@ write tool.
 | [isocline](https://github.com/bebac/isocline) | Readline-like input. | MIT |
 | [just-a-uri](https://github.com/bebac/just-a-uri) | URI parsing. | MIT |
 | [cpp-tui](https://github.com/bebac/cpp-tui) | Terminal UI library (TUI mode). | MIT |
+| [tree-sitter](https://github.com/tree-sitter/tree-sitter) + C++ grammar | Syntax-aware code exploration tools. | MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON parsing. | MIT |
 | [doctest](https://github.com/doctest/doctest) | Unit testing. | MIT |
 | OpenSSL | TLS support. | Apache License 2.0 |
@@ -253,6 +262,9 @@ ctest
 
 - **Tool Dispatching** (`tool_registry_test.cpp`, `exec_tools_test.cpp`, `task_tools_test.cpp`):
   Tests tool registration and execution.
+
+- **Code Exploration** (`code_tools_test.cpp`):
+  Symbol navigation, tree-sitter queries, and result truncation.
 
 - **Patchset Workflow** (`edit_parser_test.cpp`, `edit_validator_test.cpp`, `patchset_tools_test.cpp`):
   Patchset parsing, validation, and application.

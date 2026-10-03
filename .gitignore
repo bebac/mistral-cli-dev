@@ -1,0 +1,13 @@
+# Build directories
+build/
+build-*/
+
+# Runtime workspace data (seeded from templates/)
+.mistral-cli/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS
+.DS_Store
