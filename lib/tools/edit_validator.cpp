@@ -1,4 +1,4 @@
-#include "agent/edit_validator.h"
+#include "tools/edit_validator.h"
 #include "common/string_utils.h"
 
 #include <cctype>
@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-namespace mistral::agent
+namespace mistral::tools
 {
 
   namespace
@@ -307,4 +307,4 @@ namespace mistral::agent
     return result;
   }
 
-} // namespace mistral::agent
+} // namespace mistral::tools

@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <iterator>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   // Represents a single atomic file edit operation
   struct file_edit_t
@@ -96,6 +96,6 @@ namespace mistral::agent
       return result;
     }
   };
-} // namespace mistral::agent
+} // namespace mistral::tools
 
 #endif // MISTRAL_EDIT_TYPES_H

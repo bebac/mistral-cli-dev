@@ -1,4 +1,4 @@
-#include "agent/edit_parser.h"
+#include "tools/edit_parser.h"
 #include "common/string_utils.h"
 
 #include <cctype>
@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   namespace
   {
@@ -407,4 +407,4 @@ namespace mistral::agent
 
     return std::make_pair(*patchset_id, std::move(*edits));
   }
-} // namespace mistral::agent
+} // namespace mistral::tools

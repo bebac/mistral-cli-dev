@@ -1,13 +1,13 @@
 #ifndef MISTRAL_PATCHSET_STORE_H
 #define MISTRAL_PATCHSET_STORE_H
 
-#include "agent/edit_types.h"
+#include "tools/edit_types.h"
 
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   // Abstract interface for patchset storage.
   // Allows patchset_tools to be tested in isolation from agent_system.
@@ -22,6 +22,6 @@ namespace mistral::agent
     virtual void remove_patchset(const std::string& patchset_id) = 0;
     virtual void mark_applied(const std::string& patchset_id) = 0;
   };
-} // namespace mistral::agent
+} // namespace mistral::tools
 
 #endif // MISTRAL_PATCHSET_STORE_H

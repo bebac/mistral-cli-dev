@@ -1,4 +1,4 @@
-#include "agent/edit_validator.h"
+#include "tools/edit_validator.h"
 #include "doctest/doctest.h"
 
 #include <filesystem>
@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   namespace test
   {
@@ -737,7 +737,7 @@ namespace mistral::agent
         "  } // namespace\n"
         "~~~\n"
         "\n"
-        "lib/agent/edit_validator.cpp\n"
+        "lib/tools/edit_validator.cpp\n"
         "~~~\n"
         "<<<<<<< SEARCH\n"
         "  // Handle file overwrite\n"
@@ -788,4 +788,4 @@ namespace mistral::agent
 
     TEST_SUITE_END();
   } // namespace test
-} // namespace mistral::agent
+} // namespace mistral::tools

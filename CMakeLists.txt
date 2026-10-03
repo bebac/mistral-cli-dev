@@ -132,8 +132,8 @@ add_library(mistral-core STATIC
     lib/agent/agent_system.cpp
     lib/agent/agent_system_task.cpp
     lib/agent/agent_system_stats_task.cpp
-    lib/agent/edit_parser.cpp
-    lib/agent/edit_validator.cpp
+    lib/tools/edit_parser.cpp
+    lib/tools/edit_validator.cpp
     lib/agent/save_command.cpp
     lib/agent/load_command.cpp
     lib/agent/usage_command.cpp

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tools/patchset_store.h"
-#include "agent/edit_types.h"
+#include "tools/edit_types.h"
 
 #include <nlohmann/json.hpp>
 
@@ -9,7 +9,7 @@
 #include <vector>
 #include <optional>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   using json = nlohmann::ordered_json;
 
@@ -62,4 +62,4 @@ namespace mistral::agent
 
     patchset_store &store_;
   };
-} // namespace mistral::agent
+} // namespace mistral::tools

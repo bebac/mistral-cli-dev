@@ -292,11 +292,11 @@ namespace mistral::agent
   }
 
   // Helper methods
-  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
   agent_task_base::try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content)
   {
     auto accumulated_text = accumulate_text(accumulated_content);
-    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
     if (parse_result) {
       auto& sys = agent_system::instance();
       // If a non-applied patchset with the same ID already exists, append
@@ -320,13 +320,13 @@ namespace mistral::agent
     return parse_result;
   }
 
-  std::optional<std::pair<std::string, std::vector<file_edit_t>>>
+  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
   agent_task_base::try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content)
   {
     auto accumulated_text = accumulate_text(accumulated_content);
 
     // Try to parse edit blocks without requiring a patchset ID marker
-    auto edits = parse_edit_blocks(accumulated_text);
+    auto edits = tools::parse_edit_blocks(accumulated_text);
     if (!edits) {
       return std::nullopt;
     }

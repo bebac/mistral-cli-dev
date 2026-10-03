@@ -1,6 +1,6 @@
 #include "agent/agent_task_base.h"
 #include "agent/agent_system.h"
-#include "agent/edit_parser.h"
+#include "tools/edit_parser.h"
 #include "api/types.h"
 #include "doctest/doctest.h"
 
@@ -37,7 +37,7 @@ TEST_CASE("patchset parsing - patchset with tool call")
         "patchset_validate(patchset_id=\"test-patchset\")";
 
     // Parse and store
-    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
     REQUIRE(parse_result.has_value());
     CHECK(parse_result->first == "test-patchset");
     CHECK(parse_result->second.size() == 1);
@@ -89,7 +89,7 @@ TEST_CASE("patchset parsing - multiple edits with tool call")
         "\n"
         "patchset_apply(patchset_id=\"multi-edit\")";
 
-    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
     REQUIRE(parse_result.has_value());
     CHECK(parse_result->first == "multi-edit");
     CHECK(parse_result->second.size() == 2);
@@ -118,7 +118,7 @@ TEST_CASE("patchset parsing - no patchset in response")
         "Here's some information for the user.\n"
         "read(path=\"src/main.cpp\")";
 
-    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
     CHECK(!parse_result.has_value());
 
     // agent_system should not have a patchset
@@ -142,7 +142,7 @@ TEST_CASE("patchset parsing - patchset without tool call")
         ">>>>>>> REPLACE\n"
         "~~~";
 
-    auto parse_result = parse_edits_with_patchset(accumulated_text);
+    auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
     REQUIRE(parse_result.has_value());
     CHECK(parse_result->first == "final-answer");
 

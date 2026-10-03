@@ -1,7 +1,7 @@
 #include "tools/patchset_tools.h"
-#include "agent/edit_validator.h"
-#include "agent/edit_parser.h"
-#include "agent/edit_types.h"
+#include "tools/edit_validator.h"
+#include "tools/edit_parser.h"
+#include "tools/edit_types.h"
 
 #include <nlohmann/json.hpp>
 
@@ -12,7 +12,7 @@
 
 namespace fs = std::filesystem;
 
-namespace mistral::agent
+namespace mistral::tools
 {
   using json = nlohmann::ordered_json;
 
@@ -529,4 +529,4 @@ namespace mistral::agent
 
     return result;
   }
-} // namespace mistral::agent
+} // namespace mistral::tools

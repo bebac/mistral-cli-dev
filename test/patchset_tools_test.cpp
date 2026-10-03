@@ -1,6 +1,6 @@
 #include "tools/patchset_tools.h"
 #include "tools/patchset_store.h"
-#include "agent/edit_types.h"
+#include "tools/edit_types.h"
 #include "doctest/doctest.h"
 
 #include <filesystem>
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   namespace
   {
@@ -157,7 +157,7 @@ namespace mistral::agent
   TEST_CASE("patchset_get - existing patchset")
   {
     mock_patchset_store store;
-    patchset_tools tools(store);
+    tools::patchset_tools tools(store);
 
     temp_file f("hello world");
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
@@ -175,7 +175,7 @@ namespace mistral::agent
   TEST_CASE("patchset_get - non-existing patchset")
   {
     mock_patchset_store store;
-    patchset_tools tools(store);
+    tools::patchset_tools tools(store);
 
     auto result = tools.patchset_get("nonexistent");
     CHECK(result["status"] == "error");
@@ -883,4 +883,4 @@ namespace mistral::agent
   }
 
   TEST_SUITE_END();
-} // namespace mistral::agent
+} // namespace mistral::tools

@@ -810,7 +810,7 @@ TEST_CASE("patchset storage - store and retrieve single patchset")
     CHECK(!agent_sys.has_patchset());
 
     // Create test edits
-    std::vector<mistral::agent::file_edit_t> edits;
+    std::vector<mistral::tools::file_edit_t> edits;
     edits.push_back({.file_path = "src/main.cpp", .search_text = "old", .replace_text = "new", .patch_number = 1});
 
     // Store patchset
@@ -840,14 +840,14 @@ TEST_CASE("patchset storage - overwrite previous patchset")
     auto& agent_sys = mistral::agent::agent_system::instance();
 
     // Store first patchset
-    std::vector<mistral::agent::file_edit_t> edits1;
+    std::vector<mistral::tools::file_edit_t> edits1;
     edits1.push_back({.file_path = "file1.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
     agent_sys.store_patchset("patchset-1", edits1);
 
     CHECK(agent_sys.get_current_patchset_id() == "patchset-1");
 
     // Store second patchset - should overwrite
-    std::vector<mistral::agent::file_edit_t> edits2;
+    std::vector<mistral::tools::file_edit_t> edits2;
     edits2.push_back({.file_path = "file2.cpp", .search_text = "x", .replace_text = "y", .patch_number = 1});
     agent_sys.store_patchset("patchset-2", edits2);
 
@@ -878,7 +878,7 @@ TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
     CHECK(!result.has_value());
 
     // Store a patchset
-    std::vector<mistral::agent::file_edit_t> edits;
+    std::vector<mistral::tools::file_edit_t> edits;
     edits.push_back({.file_path = "test.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
     agent_sys.store_patchset("existing-patchset", edits);
 
@@ -909,7 +909,7 @@ TEST_CASE("patchset storage - multiple edits in patchset")
     agent_sys.remove_patchset("multi-edit");
 
     // Create patchset with multiple edits
-    std::vector<mistral::agent::file_edit_t> edits;
+    std::vector<mistral::tools::file_edit_t> edits;
     edits.push_back({.file_path = "src/main.cpp", .search_text = "old1", .replace_text = "new1", .patch_number = 1});
     edits.push_back({.file_path = "src/utils.cpp", .search_text = "old2", .replace_text = "new2", .patch_number = 2});
     edits.push_back({.file_path = "lib/helper.hpp", .search_text = "old3", .replace_text = "new3", .patch_number = 3});

@@ -342,7 +342,7 @@ namespace mistral::agent
     code_tools_ = std::make_unique<mistral::tools::code_tools>(config_.code_index);
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
-    patchset_tools_ = std::make_unique<mistral::agent::patchset_tools>(*this);
+    patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
   }
 
   void agent_system::register_slash_commands()
@@ -613,28 +613,28 @@ namespace mistral::agent
     global_tools_.register_tool(
       "patchset_apply",
       "Apply a stored patchset of file edits by its ID. If validation fails, the response lists per-edit errors; fix them with patchset_update or patchset_remove, then apply again.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_apply,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_apply,
       arg("patchset_id", "The unique identifier of the patchset to apply")
     );
 
     global_tools_.register_tool(
       "patchset_get",
       "Get details of a stored patchset including all numbered edits.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_get,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_get,
       arg("patchset_id", "The unique identifier of the patchset")
     );
 
     global_tools_.register_tool(
       "patchset_validate",
       "Validate a stored patchset without applying (dry run). Returns detailed validation results.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_validate,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_validate,
       arg("patchset_id", "The unique identifier of the patchset to validate")
     );
 
     global_tools_.register_tool(
       "patchset_update",
       "Update a single edit in a stored patchset. The file_path, search_text and replace_text can each be updated (empty or omitted fields keep their existing values).",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_update,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_update,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The 1-indexed number of the patch to update"),
       arg("file_path", "The file path for the edit (keeps existing if empty)"),
@@ -645,7 +645,7 @@ namespace mistral::agent
     global_tools_.register_tool(
       "patchset_remove",
       "Remove a single edit block from a stored patchset by its patch number. The remaining edits keep their patch numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_remove,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_remove,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The number of the edit to remove (as shown by patchset_get or patchset_validate)")
     );
@@ -653,7 +653,7 @@ namespace mistral::agent
     global_tools_.register_tool(
       "patchset_clear",
       "Clear a stored patchset.",
-      &patchset_tools, &mistral::agent::patchset_tools::patchset_clear,
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_clear,
       arg("patchset_id", "The unique identifier of the patchset to clear")
     );
 
@@ -951,14 +951,14 @@ namespace mistral::agent
   // ---- Patchset Storage ----
 
   // Store a patchset, overwriting any previous one
-  void agent_system::store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits)
+  void agent_system::store_patchset(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits)
   {
-    current_patchset_ = patchset_t{patchset_id, edits};
+    current_patchset_ = tools::patchset_t{patchset_id, edits};
   }
 
   // Append edits to an existing non-applied patchset with matching ID.
   // If no matching patchset exists, stores as a new patchset.
-  void agent_system::append_edits(const std::string& patchset_id, const std::vector<file_edit_t>& edits)
+  void agent_system::append_edits(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits)
   {
     if (current_patchset_ && current_patchset_->patchset_id == patchset_id && !current_patchset_->applied)
     {
@@ -984,7 +984,7 @@ namespace mistral::agent
   }
 
   // Retrieve a stored patchset by ID
-  std::optional<patchset_t> agent_system::get_patchset(const std::string& patchset_id) const
+  std::optional<tools::patchset_t> agent_system::get_patchset(const std::string& patchset_id) const
   {
     if (current_patchset_ && current_patchset_->patchset_id == patchset_id) {
       return current_patchset_;

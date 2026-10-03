@@ -1,4 +1,4 @@
-#include "agent/edit_parser.h"
+#include "tools/edit_parser.h"
 #include "doctest/doctest.h"
 
 #include <filesystem>
@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   namespace test
   {
@@ -789,4 +789,4 @@ namespace mistral::agent
 
     TEST_SUITE_END();
   } // namespace test
-} // namespace mistral::agent
+} // namespace mistral::tools

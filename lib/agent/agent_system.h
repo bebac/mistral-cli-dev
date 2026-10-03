@@ -12,7 +12,7 @@
 #include "agent/tool_command.h"
 #include "agent/agent_system_stats_task.h"
 #include "tools/patchset_store.h"
-#include "agent/edit_types.h"
+#include "tools/edit_types.h"
 #include "slash_command/slash_command_registry.h"
 
 #include <dripcore/channel.h>
@@ -32,10 +32,6 @@ namespace mistral::tools
   class code_tools;
   class exec_tools;
   class task_tools;
-}
-
-namespace mistral::agent
-{
   class patchset_tools;
 }
 
@@ -43,7 +39,7 @@ namespace mistral::agent
 {
   // ---- Agent System Singleton ----
   // Provides shared resources, configuration access, and model management.
-  class agent_system : public patchset_store
+  class agent_system : public tools::patchset_store
   {
   public:
     static agent_system& instance();
@@ -95,7 +91,7 @@ namespace mistral::agent
     mistral::tools::code_tools& code_tools() { return *code_tools_; }
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
     mistral::tools::task_tools& task_tools() { return *task_tools_; }
-    mistral::agent::patchset_tools& patchset_tools() { return *patchset_tools_; }
+    mistral::tools::patchset_tools& patchset_tools() { return *patchset_tools_; }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -115,9 +111,9 @@ namespace mistral::agent
     void reset_usage_stats();
 
     // Patchset storage - only one at a time (the latest)
-    void store_patchset(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override;
-    void append_edits(const std::string& patchset_id, const std::vector<file_edit_t>& edits) override;
-    std::optional<patchset_t> get_patchset(const std::string& patchset_id) const override;
+    void store_patchset(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits) override;
+    void append_edits(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits) override;
+    std::optional<tools::patchset_t> get_patchset(const std::string& patchset_id) const override;
     std::optional<std::string> get_current_patchset_id() const;
     void remove_patchset(const std::string& patchset_id) override;
     void mark_applied(const std::string& patchset_id) override;
@@ -182,7 +178,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::code_tools> code_tools_;
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
-    std::unique_ptr<mistral::agent::patchset_tools> patchset_tools_;
+    std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;
 
     tool_registry global_tools_;
 
@@ -204,7 +200,7 @@ namespace mistral::agent
     std::shared_ptr<slash_command::slash_command_registry> slash_command_registry_;
 
     // Patchset storage - only one at a time (the latest)
-    std::optional<patchset_t> current_patchset_;
+    std::optional<tools::patchset_t> current_patchset_;
 
     // Current response channel for request cancellation
     mutable std::mutex current_response_ch_mtx_;

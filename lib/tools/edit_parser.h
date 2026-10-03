@@ -1,7 +1,7 @@
-#ifndef MISTRAL_PARSER_H
-#define MISTRAL_PARSER_H
+#ifndef MISTRAL_EDIT_PARSER_H
+#define MISTRAL_EDIT_PARSER_H
 
-#include "agent/edit_types.h"
+#include "tools/edit_types.h"
 
 #include <string>
 #include <string_view>
@@ -9,7 +9,7 @@
 #include <vector>
 #include <utility>
 
-namespace mistral::agent
+namespace mistral::tools
 {
   // Extract patchset ID from AI response containing "(patchset: <id>)"
   // Returns std::nullopt if not found or malformed
@@ -33,6 +33,6 @@ namespace mistral::agent
   std::optional<std::pair<std::string, std::vector<file_edit_t>>>
     parse_edits_with_patchset(std::string_view input
   );
-} // namespace mistral::agent
+} // namespace mistral::tools
 
 #endif // MISTRAL_PARSER_H

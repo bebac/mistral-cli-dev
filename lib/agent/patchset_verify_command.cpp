@@ -1,7 +1,7 @@
 #include "agent/patchset_verify_command.h"
 #include "agent/agent_system.h"
-#include "agent/edit_parser.h"
-#include "agent/edit_validator.h"
+#include "tools/edit_parser.h"
+#include "tools/edit_validator.h"
 
 #include <format>
 #include <string>
@@ -39,12 +39,12 @@ namespace mistral::agent
     }
 
     // Parse the response for patchset
-    auto parse_result = parse_edits_with_patchset(response);
+    auto parse_result = tools::parse_edits_with_patchset(response);
 
     if (!parse_result)
     {
       // Try to extract patchset ID to give more specific error
-      auto patchset_id = extract_patchset_id(response);
+      auto patchset_id = tools::extract_patchset_id(response);
       if (!patchset_id)
       {
         co_return "❌ Patchset verification failed:\n   - No patchset ID found in response";
@@ -62,7 +62,7 @@ namespace mistral::agent
           size_t pos = 0;
           while (true)
           {
-            auto id = extract_patchset_id(response.substr(pos));
+            auto id = tools::extract_patchset_id(response.substr(pos));
             if (!id)
               break;
             all_ids.push_back(*id);
@@ -100,7 +100,7 @@ namespace mistral::agent
       );
     }
 
-    auto validation_result = validate_all_edits(edits);
+    auto validation_result = tools::validate_all_edits(edits);
 
     // Build result message
     std::string result_msg = std::format(
