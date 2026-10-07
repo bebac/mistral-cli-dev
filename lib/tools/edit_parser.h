@@ -11,8 +11,10 @@
 
 namespace mistral::tools
 {
-  // Extract patchset ID from AI response containing "(patchset: <id>)"
-  // Returns std::nullopt if not found or malformed
+  // Extract patchset ID from AI response containing "(patchset: <id>)".
+  // Scans all "(patchset: " mentions and returns the first valid ID;
+  // invalid mentions (e.g. "(patchset: `id`)" backticked in prose) are
+  // skipped. Returns std::nullopt if no valid ID is found.
   std::optional<std::string> extract_patchset_id(std::string_view input);
 
   // Parse a single edit block from code block content

@@ -85,6 +85,33 @@ namespace mistral::tools
       CHECK(*result == "a");
     }
 
+    TEST_CASE("extract_patchset_id - skips invalid mentions")
+    {
+      // Prose announcement with markdown backticks before the real
+      // marker: the backticked mention is skipped, the valid one is used.
+      auto result = extract_patchset_id(
+        "Emitting the patchset now (patchset: `my-id`):\n\n"
+        "Here are the changes (patchset: my-id):");
+      CHECK(result.has_value());
+      CHECK(*result == "my-id");
+
+      // Invalid mentions before and after a valid one: the valid one wins
+      result = extract_patchset_id(
+        "(patchset: `first`) ... (patchset: second) ... (patchset: `third`)");
+      CHECK(result.has_value());
+      CHECK(*result == "second");
+
+      // Only invalid mentions: no ID
+      result = extract_patchset_id("(patchset: `only-invalid`)");
+      CHECK(!result.has_value());
+
+      // Backticked mention without closing parenthesis, then a valid marker
+      result = extract_patchset_id(
+        "(patchset: `oops\n\nHere are the changes (patchset: fine):");
+      CHECK(result.has_value());
+      CHECK(*result == "fine");
+    }
+
     TEST_CASE("validation_result_t methods")
     {
       validation_result_t result;

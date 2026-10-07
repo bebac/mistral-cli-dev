@@ -165,34 +165,53 @@ namespace mistral::tools
   std::optional<std::string> extract_patchset_id(std::string_view input)
   {
     constexpr std::string_view prefix = "(patchset: ";
-    size_t start = input.find(prefix);
-    // Most assistant messages contain no patchset: the not-found path
-    // is the common case.
-    if (start == std::string_view::npos) [[likely]] {
-      return std::nullopt;
-    }
-    start += prefix.length();
 
-    size_t end = input.find(')', start);
-    if (end == std::string_view::npos) {
-      return std::nullopt;
-    }
-
-    std::string id = mistral::utils::trim(std::string(input.substr(start, end - start)));
-
-    // Validate ID format: alphanumeric, hyphens, underscores only, no spaces
-    if (id.empty()) {
-      return std::nullopt;
-    }
-
-    for (char c : id)
+    // Scan all "(patchset: " mentions and use the first one whose ID is
+    // valid. Models often announce the patchset in prose first, e.g.
+    // "Emitting the patchset (patchset: `my-id`):" — markdown backticks
+    // make that first mention invalid. Rejecting the whole message on
+    // the first invalid mention silently discarded the actual patchset
+    // emitted further down. Skipping invalid mentions keeps such
+    // emissions working.
+    size_t search_from = 0;
+    while (true)
     {
-      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
+      size_t start = input.find(prefix, search_from);
+      // Most assistant messages contain no patchset: the not-found path
+      // is the common case.
+      if (start == std::string_view::npos) [[likely]] {
         return std::nullopt;
       }
-    }
+      size_t id_start = start + prefix.length();
 
-    return id;
+      size_t end = input.find(')', id_start);
+      if (end == std::string_view::npos) {
+        // No closing parenthesis after this mention: no later mention
+        // can be closed either.
+        return std::nullopt;
+      }
+
+      std::string id = mistral::utils::trim(
+        std::string(input.substr(id_start, end - id_start))
+      );
+
+      // Validate ID format: alphanumeric, hyphens, underscores only, no spaces
+      bool valid = !id.empty();
+      for (char c : id)
+      {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
+          valid = false;
+          break;
+        }
+      }
+
+      if (valid) {
+        return id;
+      }
+
+      // Invalid mention (e.g. backticked in prose): keep scanning.
+      search_from = id_start;
+    }
   }
 
   std::optional<file_edit_t> parse_edit_block(std::string_view file_path,
