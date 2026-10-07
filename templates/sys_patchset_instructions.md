@@ -49,6 +49,12 @@ Here are the changes (patchset: unique-id):
 - Closing: `~~~` (nothing after)
 - **Never** wrap entire patchset in code fence
 
+### Literal Content — Never Escape
+- SEARCH/REPLACE blocks contain **raw file content**: real newlines, real indentation, real quote characters
+- **Never write escape sequences** (`\n`, `\t`, `\"`, `\\`) — they are stored literally as two characters and corrupt the edit
+- One line of file content = one physical line in the block; every marker on its own line
+- Symptoms of escaping: `no_edits` (escaped newlines collapse the block onto one line, so no marker is at a line start) or `search_not_found` (a literal `\n` in SEARCH never matches file content)
+
 ### File Paths
 - Plain text only (no backticks, quotes, formatting)
 - Must be only content on line
@@ -105,6 +111,7 @@ Same `(patchset: id)` across responses **appends** edits. Use for:
 | `search_not_found` | Search text missing | Verify content with `read`, fix text |
 | `format_error` | Malformed edit block | Correct marker format |
 | `suspicious_replace_content` | Patch markers in replace text | Previous edit missing `>>>>>>> REPLACE` |
+| `no_edits` | ID parsed but 0 edit blocks extracted — usually escaped newlines collapsed a block onto one line, or a missing `>>>>>>> REPLACE` / mismatched `~~~` fence | Re-emit the block with real newlines and complete markers (same ID appends) |
 
 ### Non-Fixable (inform user)
 | Error | Cause | Action |
@@ -127,6 +134,7 @@ Same `(patchset: id)` across responses **appends** edits. Use for:
 - Use `read` when search doesn't match
 - Make search text minimal but unique
 - Preserve whitespace exactly in SEARCH
+- Emit edit blocks with **real newlines** — every line of content on its own physical line
 
 ### ❌ DO NOT
 - Emit edits without patchset ID
@@ -134,6 +142,7 @@ Same `(patchset: id)` across responses **appends** edits. Use for:
 - Use 2 tildes for fences
 - **Forget `>>>>>>> REPLACE`** ← Most destructive error
 - Put explanations/comments in SEARCH/REPLACE blocks
+- **Write escape sequences (`\n`, `\t`, `\"`) in edit blocks** — emit the literal characters instead
 - Reuse ID for different change sets (unless appending)
 - Put patchset ID in code blocks
 - Assume file content - verify with `read`
