@@ -632,13 +632,15 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_update",
-      "Update a single edit in a stored patchset. The file_path, search_text and replace_text can each be updated (empty or omitted fields keep their existing values).",
+      "Update a single edit in a stored patchset. file_path keeps the existing value when empty. "
+      "search_text and replace_text keep the existing value when omitted or null; "
+      "pass an explicit empty string to clear the field.",
       &patchset_tools, &mistral::tools::patchset_tools::patchset_update,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The 1-indexed number of the patch to update"),
       arg("file_path", "The file path for the edit (keeps existing if empty)"),
-      arg("search_text", "The search text (optional, keeps existing if not provided)"),
-      arg("replace_text", "The replace text (optional, keeps existing if not provided)")
+      arg("search_text", "The search text (omit or null to keep existing; empty string clears it)"),
+      arg("replace_text", "The replace text (omit or null to keep existing; empty string clears it)")
     );
 
     global_tools_.register_tool(
