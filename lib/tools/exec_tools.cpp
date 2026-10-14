@@ -70,7 +70,12 @@ namespace mistral::tools
       child_process_guard(pid_t pid) : pid_(pid) {}
       ~child_process_guard() {
         if (pid_ > 0) {
-          kill(pid_, SIGKILL);
+          // Kill the entire process group (the child is made a process
+          // group leader in exec()); fall back to the direct child if
+          // the group no longer exists (e.g. setpgid failed).
+          if (kill(-pid_, SIGKILL) == -1) {
+            kill(pid_, SIGKILL);
+          }
           // Non-blocking reap attempt. If the child doesn't die immediately
           // (e.g., stuck in uninterruptible I/O / D-state), we leave it
           // rather than blocking the event loop. It will be reaped by init
@@ -247,11 +252,31 @@ namespace mistral::tools
 
     // RAII guard to ensure child process is killed if we exit early
     child_process_guard child_guard(pid);
+
+    // Set the process group from the parent side as well (see the
+    // comment in the child branch: both sides must attempt it).
+    setpgid(pid, pid);
+
     int final_status = 0;
     bool child_exited_normally = false;
 
     if (pid == 0) {
       // Child process
+
+      // Start a new process group so the entire child tree can be
+      // killed on timeout (kill(-pid, SIGKILL)). Without this only
+      // the direct child dies and grandchildren survive (e.g. npm ->
+      // storybook -> esbuild), keeping ports and file watchers busy.
+      // The parent calls setpgid() as well: after fork() it is
+      // undefined which side runs first, so both sides must try.
+      setpgid(0, 0);
+
+      // Never let the child steal terminal input from the CLI.
+      int devnull_fd = open("/dev/null", O_RDONLY);
+      if (devnull_fd >= 0) {
+        dup2(devnull_fd, STDIN_FILENO);
+        close(devnull_fd);
+      }
 
       // Close read ends of pipes
       close(stdout_pipe.read_fd());
@@ -426,9 +451,13 @@ namespace mistral::tools
     if (stderr_read_fd >= 0) close(stderr_read_fd);
 
     if (timed_out) {
-      // Kill the child process
+      // Kill the child's entire process group so grandchildren do not
+      // survive the timeout. Fall back to the direct child if the
+      // group kill fails.
       child_guard.release();
-      kill(pid, SIGKILL);
+      if (kill(-pid, SIGKILL) == -1) {
+        kill(pid, SIGKILL);
+      }
       int status;
       waitpid(pid, &status, 0);
 

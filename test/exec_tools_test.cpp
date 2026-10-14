@@ -4,9 +4,13 @@
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
+#include <chrono>
+#include <errno.h>
 #include <fstream>
 #include <filesystem>
+#include <signal.h>
 #include <string>
+#include <thread>
 
 namespace mistral::tools
 {
@@ -243,6 +247,48 @@ TEST_CASE("exec_tools: timeout with output before timeout")
   CHECK(result["stdout"].get<std::string>().find("partial output") != std::string::npos);
   CHECK(result.contains("timed_out"));
   CHECK(result["timed_out"].get<bool>() == true);
+}
+
+TEST_CASE("exec_tools: timeout kills the entire process tree")
+{
+  using namespace mistral::tools;
+
+  exec_tools tools;
+
+  // The grandchild (sleep) writes its pid to a file; the direct child
+  // (sh) waits on it. On timeout the whole process group must be
+  // killed - killing only the direct child would leave the sleep
+  // grandchild running.
+  std::string pid_file = std::filesystem::temp_directory_path().string()
+    + "/exec_tools_tree_test_9173.pid";
+  std::filesystem::remove(pid_file);
+
+  std::string cmd = "sleep 9173 & echo $! > " + pid_file + "; wait";
+  auto result = run_async_exec(tools, "sh", {"-c", cmd}, "", 1);
+
+  CHECK(result.contains("timed_out"));
+  CHECK(result["timed_out"].get<bool>() == true);
+
+  // Read the grandchild pid written before the timeout fired
+  std::ifstream in(pid_file);
+  REQUIRE(in.is_open());
+  long grandchild_pid = 0;
+  in >> grandchild_pid;
+  in.close();
+  std::filesystem::remove(pid_file);
+  REQUIRE(grandchild_pid > 0);
+
+  // The grandchild must be gone. Allow a moment for the kill to
+  // propagate and for the orphan to be reaped.
+  bool gone = false;
+  for (int attempt = 0; attempt < 40 && !gone; ++attempt) {
+    if (kill(grandchild_pid, 0) == -1 && errno == ESRCH) {
+      gone = true;
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+  }
+  CHECK(gone);
 }
 
 TEST_CASE("exec_tools: stdout is capped to avoid blowing the context window")
