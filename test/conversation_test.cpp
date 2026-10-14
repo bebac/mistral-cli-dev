@@ -49,6 +49,29 @@ TEST_CASE("conversation: JSON serialization")
   CHECK(j[1]["content"] == "hi");
 }
 
+TEST_CASE("conversation: empty tool result serializes with content field")
+{
+  // A tool that returns an empty string (e.g. `ls` on an empty directory)
+  // must still produce a tool message with a content field. Strict servers
+  // (e.g. the Mistral API) reject tool messages without one (HTTP 422).
+  mistral::agent::conversation chat;
+  chat.add_user_message("list files");
+
+  std::vector<mistral::api::tool_call> calls = {{
+    .id = "call_123",
+    .type = "function",
+    .function = {.name = "ls", .arguments = R"({"path":"."})"}
+  }};
+  chat.add_assistant_message("", std::move(calls));
+  chat.add_tool_result("ls", "call_123", "");
+
+  auto j = mistral::api::json(chat.messages());
+  REQUIRE(j.size() == 3);
+  CHECK(j[2]["role"] == "tool");
+  CHECK(j[2].contains("content"));
+  CHECK(j[2]["content"] == "");
+}
+
 TEST_CASE("conversation: sliding window")
 {
   mistral::agent::conversation chat(3);

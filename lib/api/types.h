@@ -186,6 +186,14 @@ namespace mistral::api
       // If all content was thinking and !include_thinking, don't include content field
     }
 
+    // Tool messages must always carry a content field. Strict servers
+    // (e.g. the Mistral API) reject tool messages without one (HTTP 422),
+    // e.g. when a tool returned an empty result (such as `ls` on an
+    // empty directory).
+    if (m.role == "tool" && !j.contains("content")) {
+      j["content"] = "";
+    }
+
     if (m.tool_calls && !m.tool_calls->empty()) {
       j["tool_calls"] = *m.tool_calls;
     }
