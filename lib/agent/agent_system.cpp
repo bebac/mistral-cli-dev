@@ -79,68 +79,51 @@ namespace mistral::agent
       // Extract path from file:// URL
       std::string file_path = tool_policy.substr(7); // Remove "file://" prefix
 
-      try
+      // Check if file exists
+      if (!fs::exists(file_path))
       {
-        // Check if file exists
-        if (!fs::exists(file_path))
-        {
-          throw std::runtime_error("Tool policy file not found: " + file_path);
-        }
-
-        // Read and parse the file
-        std::ifstream policy_file(file_path);
-        if (!policy_file)
-        {
-          throw std::runtime_error("Failed to open tool policy file: " + file_path);
-        }
-
-        json policy_config = json::parse(policy_file, nullptr, true, true);
-
-        // Validate that it has at least a default field
-        if (!policy_config.contains("default"))
-        {
-          throw std::runtime_error("Tool policy file must contain a 'default' field: " + file_path);
-        }
-
-        return policy_config;
+        throw std::runtime_error("Tool policy file not found: " + file_path);
       }
-      catch (const std::exception& e)
+
+      // Read and parse the file
+      std::ifstream policy_file(file_path);
+      if (!policy_file)
       {
-        std::cerr << "error loading tool policy file '" << file_path
-                  << "': " << e.what() << std::endl;
-        throw;
+        throw std::runtime_error("Failed to open tool policy file: " + file_path);
       }
+
+      json policy_config = json::parse(policy_file, nullptr, true, true);
+
+      // Validate that it has at least a default field
+      if (!policy_config.contains("default"))
+      {
+        throw std::runtime_error("Tool policy file must contain a 'default' field: " + file_path);
+      }
+
+      return policy_config;
     }
 
     // Check if tool_policy is a JSON object string
     if (!tool_policy.empty() && (tool_policy.front() == '{' || tool_policy.front() == '['))
     {
-      try
+      json policy_config = json::parse(tool_policy, nullptr, true, true);
+
+      // If it's a simple string value wrapped in quotes, unwrap it
+      if (policy_config.is_string())
       {
-        json policy_config = json::parse(tool_policy, nullptr, true, true);
-
-        // If it's a simple string value wrapped in quotes, unwrap it
-        if (policy_config.is_string())
-        {
-          std::string simple_policy = policy_config.get<std::string>();
-          json result;
-          result["default"] = simple_policy;
-          return result;
-        }
-
-        // Validate that it has at least a default field
-        if (!policy_config.contains("default"))
-        {
-          throw std::runtime_error("Tool policy JSON must contain a 'default' field");
-        }
-
-        return policy_config;
+        std::string simple_policy = policy_config.get<std::string>();
+        json result;
+        result["default"] = simple_policy;
+        return result;
       }
-      catch (const std::exception& e)
+
+      // Validate that it has at least a default field
+      if (!policy_config.contains("default"))
       {
-        std::cerr << "error parsing tool policy JSON: " << e.what() << std::endl;
-        throw;
+        throw std::runtime_error("Tool policy JSON must contain a 'default' field");
       }
+
+      return policy_config;
     }
 
     // Simple string policy - convert to policy engine format
