@@ -333,13 +333,20 @@ private:
           "  approval \xc2\xb7 y=approve n=reject"
           " r=reject+msg a=all ?=help";
 
-        if (content_area_.was_at_bottom()) {
-          if (auto cont =
-                std::dynamic_pointer_cast<cpptui::Container>(root_)) {
-            cont->layout();
-          }
-          content_area_.scroll_to_bottom();
+        // The approval prompt is blocking: the agent is waiting for the
+        // user's response. Always jump to the bottom so the prompt is
+        // visible even if the user had scrolled up — otherwise it is
+        // easy to miss that the agent is waiting for approval.
+        if (auto cont =
+              std::dynamic_pointer_cast<cpptui::Container>(root_)) {
+          cont->layout();
         }
+        content_area_.scroll_to_bottom();
+
+        mistral::trace::logger::instance().trace(
+          mistral::trace::category::approval,
+          "approval: single_key mode entered, scrolled to bottom"
+        );
         break;
 
       case approval_state::text_input:

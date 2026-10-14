@@ -44,7 +44,7 @@ namespace mistral::tui
   //   - append(text, type)           — convenience: append + flush
   //   - scroll_page_up/down()        — page scrolling with clamping
   //   - scroll_line_up/down()        — line scrolling with clamping
-  //   - scroll_to_bottom()           — jump to bottom (used by approval timer)
+  //   - scroll_to_bottom()           — jump to bottom (used by approval prompt)
   //   - was_at_bottom()              — query last flush scroll position
   //
   // The content_type to BlockKind + color mapping is encapsulated in
@@ -167,10 +167,13 @@ namespace mistral::tui
     // Returns true if the last flush() found the user at the bottom.
     bool was_at_bottom() const { return at_bottom_; }
 
-    // Sets scroll to the maximum offset (bottom of content).
+    // Sets scroll to the maximum offset (bottom of content) and marks
+    // the view as at-bottom so subsequent flush() calls keep following
+    // newly appended content.
     void scroll_to_bottom()
     {
       scroll_->scroll_offset = max_scroll_offset();
+      at_bottom_ = true;
     }
 
     void scroll_page_up()
