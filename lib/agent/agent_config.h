@@ -121,6 +121,7 @@ namespace mistral::agent
     std::map<std::string, agent_config> agents;
     tools::code_index_settings code_index;
     std::string default_policy = "deny";
+    std::map<std::string, std::string> mcp_servers;  // name -> endpoint url
   };
 
 } // namespace mistral::agent

@@ -111,6 +111,9 @@ add_custom_command(
 
 add_library(mistral-core STATIC
     lib/http/tls_connection.cpp
+    lib/mcp/http1_client.cpp
+    lib/mcp/mcp_client.cpp
+    lib/mcp/mcp_manager.cpp
     lib/api/provider_base.cpp
     lib/api/providers/mistral_provider.cpp
     lib/api/providers/openai_provider.cpp
@@ -143,6 +146,7 @@ add_library(mistral-core STATIC
     lib/agent/usage_command.cpp
     lib/agent/tool_command.cpp
     lib/agent/compact_command.cpp
+    lib/agent/mcp_command.cpp
     lib/tools/patchset_tools.cpp
     lib/common/string_utils.cpp
     lib/trace/trace.cpp
