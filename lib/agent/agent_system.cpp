@@ -1,7 +1,9 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
 #include "agent/compact_command.h"
+#include "agent/mcp_command.h"
 #include "agent/subagent_task.h"
+#include "mcp/mcp_manager.h"
 #include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
@@ -60,6 +62,9 @@ namespace mistral::agent
 
     // Build global tool registry
     build_global_tool_registry();
+
+    // Configure MCP servers from the loaded configuration
+    mcp::mcp_manager::instance().configure(config_.mcp_servers);
 
     // Register slash commands
     slash_command_registry_ = std::make_shared<slash_command::slash_command_registry>();
@@ -291,6 +296,28 @@ namespace mistral::agent
       }
     }
 
+    // Parse MCP servers ("mcpServers": { "<name>": { "url": "..." } }
+    // or "<name>": "<url>")
+    if (j.contains("mcpServers") && j["mcpServers"].is_object())
+    {
+      for (auto& [name, server_json] : j["mcpServers"].items())
+      {
+        std::string url;
+        if (server_json.is_string())
+        {
+          url = server_json.get<std::string>();
+        }
+        else if (server_json.is_object() && server_json.contains("url"))
+        {
+          url = server_json["url"].get<std::string>();
+        }
+        if (!url.empty())
+        {
+          config.mcp_servers[name] = url;
+        }
+      }
+    }
+
     // Parse code index configuration
     if (j.contains("code_index") && j["code_index"].is_object())
     {
@@ -454,6 +481,7 @@ namespace mistral::agent
     registry.register_command(std::make_unique<usage_command>());
     registry.register_command(std::make_unique<tool_command>());
     registry.register_command(std::make_unique<compact_command>());
+    registry.register_command(std::make_unique<mcp_command>());
   }
 
   void agent_system::build_global_tool_registry()
@@ -814,6 +842,21 @@ namespace mistral::agent
     tool_registry filtered;
     for (const auto& tool_name : available_tools)
     {
+      // "mcp:<server>" pulls in all tools of one MCP server (or of
+      // all connected servers with "mcp:*"); the tools must already
+      // be registered via /mcp connect.
+      if (tool_name.starts_with("mcp:"))
+      {
+        for (const auto& mcp_name :
+             mcp::mcp_manager::instance().tool_names(tool_name.substr(4)))
+        {
+          if (auto tool = global_tools_.get_tool(mcp_name))
+          {
+            filtered.add_tool(mcp_name, tool->clone());
+          }
+        }
+        continue;
+      }
       if (auto tool = global_tools_.get_tool(tool_name))
       {
         filtered.add_tool(tool_name, tool->clone());

@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include "agent/policy_engine.h"
+#include "mcp/mcp_manager.h"
 
 #include <string>
 #include <vector>
@@ -1532,6 +1533,40 @@ TEST_CASE("Exec rule with cwd does not match different cwd in tool arguments")
 
   auto result = engine.evaluate(ctx);
   CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("MCP server tool rule matches only connected server tools")
+{
+  // Deterministic regardless of other tests: no servers configured.
+  mistral::mcp::mcp_manager::instance().configure({});
+
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "deny"},
+    {"allow", mistral::agent::json::array({
+      mistral::agent::json{{"type", "tool"}, {"tool", "mcp:storybook"}}
+    })}
+  });
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "stories-preview",
+    .tool_arguments = mistral::agent::json::object(),
+    .working_directory = "/home/user"
+  };
+
+  // Server not connected: the mcp: rule matches nothing, so the
+  // default policy applies.
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+
+  // A non-MCP tool is unaffected by the rule.
+  mistral::agent::policy_context ctx2{
+    .tool_name = "ls",
+    .tool_arguments = mistral::agent::json::object(),
+    .working_directory = "/home/user"
+  };
+  auto result2 = engine.evaluate(ctx2);
+  CHECK(result2.decision == mistral::agent::policy_decision::DENY);
 }
 
 TEST_SUITE_END();

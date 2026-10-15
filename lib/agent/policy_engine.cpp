@@ -1,5 +1,6 @@
 #include "agent/policy_engine.h"
 #include "common/string_utils.h"
+#include "mcp/mcp_manager.h"
 
 #include <algorithm>
 #include <sstream>
@@ -647,7 +648,20 @@ bool policy_engine::rule_matches(const policy_rule& rule, const policy_context& 
 {
   // Check tool name match
   if (rule.tool_name != "*" && rule.tool_name != ctx.tool_name) {
-    return false;
+    // "mcp:<server>" TOOL rules match any tool registered by that
+    // MCP server ("mcp:*" matches all connected servers). Connecting
+    // a server is the deliberate trust decision; the rule then
+    // covers all of its tools.
+    if (rule.type == rule_type::TOOL && rule.tool_name.starts_with("mcp:")) {
+      const auto& registered =
+        mcp::mcp_manager::instance().tool_names(rule.tool_name.substr(4));
+      if (std::find(registered.begin(), registered.end(), ctx.tool_name) ==
+          registered.end()) {
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
 
   switch (rule.type) {
