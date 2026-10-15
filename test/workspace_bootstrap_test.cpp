@@ -78,11 +78,12 @@ TEST_CASE("bootstrap: seeds all files into an empty workspace")
   auto res = mistral::agent::bootstrap_workspace(ws.path);
 
   REQUIRE(res.ran);
-  REQUIRE(res.created.size() == 5);
+  REQUIRE(res.created.size() == 6);
   CHECK(contains(res.created, "mistral-cli.json"));
   CHECK(contains(res.created, "policy.json"));
   CHECK(contains(res.created, "sys_prompt.md"));
   CHECK(contains(res.created, "sys_prompt_researcher.md"));
+  CHECK(contains(res.created, "sys_storybook_notes.md"));
   CHECK(contains(res.created, "sys_patchset_instructions.md"));
 
   CHECK(ws.read("mistral-cli.json") == str(mistral::embedded::config_json()));
@@ -90,6 +91,8 @@ TEST_CASE("bootstrap: seeds all files into an empty workspace")
   CHECK(ws.read("sys_prompt.md") == str(mistral::embedded::sys_prompt()));
   CHECK(ws.read("sys_prompt_researcher.md") ==
         str(mistral::embedded::sys_prompt_researcher()));
+  CHECK(ws.read("sys_storybook_notes.md") ==
+        str(mistral::embedded::sys_storybook_notes()));
   CHECK(ws.read("sys_patchset_instructions.md") ==
         str(mistral::embedded::sys_patchset_instructions()));
 
@@ -106,6 +109,7 @@ TEST_CASE("bootstrap: never overwrites seeded files")
 {
   temp_workspace ws;
   ws.write("sys_prompt.md", "my custom prompt");
+  ws.write("sys_storybook_notes.md", "my notes");
   ws.write("policy.json", "{}");
   ws.write("mistral-cli.json", "{}");
 
@@ -114,6 +118,7 @@ TEST_CASE("bootstrap: never overwrites seeded files")
   // sys_prompt_researcher.md + the managed file
   CHECK(res.created.size() == 2);
   CHECK(ws.read("sys_prompt.md") == "my custom prompt");
+  CHECK(ws.read("sys_storybook_notes.md") == "my notes");
   CHECK(ws.read("policy.json") == "{}");
   CHECK(ws.read("mistral-cli.json") == "{}");
 }
@@ -191,7 +196,7 @@ TEST_CASE("bootstrap: warns about untracked managed file")
   ws.write("sys_patchset_instructions.md", "handcrafted");
 
   auto res = mistral::agent::bootstrap_workspace(ws.path);
-  CHECK(res.created.size() == 4); // seeded files only
+  CHECK(res.created.size() == 5); // seeded files only
   REQUIRE(res.warnings.size() == 1);
   CHECK(contains(res.warnings, "not tracked"));
   CHECK(ws.read("sys_patchset_instructions.md") == "handcrafted");

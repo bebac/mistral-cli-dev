@@ -18,6 +18,7 @@ namespace mistral::embedded
   // Seeded files: written only if missing, never overwritten.
   std::string_view sys_prompt();
   std::string_view sys_prompt_researcher();
+  std::string_view sys_storybook_notes();
   std::string_view policy_json();
   std::string_view config_json();
 
