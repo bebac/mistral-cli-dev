@@ -97,3 +97,13 @@ To run in a specific directory, use the `cwd` parameter:
 
 - `{"command":"cmake","args":["--build",".","-j"],"cwd":"build"}`
 - `{"command":"ctest","args":[],"cwd":"build"}`
+
+---
+
+## Storybook / Vue UI Work
+
+When asked to work with Storybook or Vue — components, stories, play
+functions, or the Storybook MCP tools — first read
+`.mistral-cli/sys_storybook_notes.md`. It contains the MCP tools' limits,
+userEvent pointer syntax gotchas, and techniques for observing play-function
+failures that are easy to get wrong and hard to diagnose.

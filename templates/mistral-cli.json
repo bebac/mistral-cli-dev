@@ -47,7 +47,8 @@
         "task_get",
         "task_update",
         "task_search",
-        "web_search"
+        "web_search",
+        "mcp:*"
       ],
       "subagent_tools": {
         "web_search": "researcher"
@@ -67,6 +68,11 @@
           "temperature": 0.2
         }
       }
+    }
+  },
+  "mcpServers": {
+    "storybook": {
+      "url": "http://127.0.0.1:6006/mcp"
     }
   },
   "code_index": {

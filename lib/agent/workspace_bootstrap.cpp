@@ -114,6 +114,7 @@ namespace mistral::agent
       {"policy.json",                 embedded::policy_json()},
       {"sys_prompt.md",               embedded::sys_prompt()},
       {"sys_prompt_researcher.md",    embedded::sys_prompt_researcher()},
+      {"sys_storybook_notes.md",      embedded::sys_storybook_notes()},
     };
 
     for (const auto& [name, content] : seeded_files) {
