@@ -1,6 +1,7 @@
 #include "agent/agent_task_base.h"
 
 #include "common/string_utils.h"
+#include "mcp/mcp_manager.h"
 #include "tools/exec_tools.h"
 
 #include <algorithm>
@@ -38,6 +39,10 @@ namespace mistral::agent
 
     // Create tool registry with filtered tools
     tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
+
+    // Remember the MCP registry version to detect later registrations
+    // (see refresh_mcp_tools).
+    mcp_registry_version_ = mcp::mcp_manager::instance().registry_version();
 
     // Apply tool schema options (client-side, not part of the API request)
     auto schema_opts = agent_system::instance().resolve_tool_schema_options(agent_cfg);
@@ -84,8 +89,37 @@ namespace mistral::agent
     return provider_->parse_stream_delta(j);
   }
 
+  void agent_task_base::refresh_mcp_tools()
+  {
+    auto& mgr = mcp::mcp_manager::instance();
+    if (mgr.registry_version() == mcp_registry_version_) {
+      return;
+    }
+    mcp_registry_version_ = mgr.registry_version();
+
+    // Rebuild the filtered registry from the global one.
+    const auto& agent_cfg =
+      agent_system::instance().get_agent_config(agent_id_);
+    tools_ =
+      agent_system::instance().create_tool_registry(agent_cfg.available_tools);
+    auto schema_opts =
+      agent_system::instance().resolve_tool_schema_options(agent_cfg);
+    tools_.set_strict_mode(schema_opts.strict_mode);
+
+    // Surface the MCP servers' agent instructions to the model.
+    if (!mgr.instructions().empty()) {
+      chat_.set_system_message(
+        system_prompt_ + "\n\n# MCP server instructions\n\n" +
+        mgr.instructions());
+    }
+  }
+
   auto agent_task_base::agent_loop() -> dripcore::awaitable<void>
   {
+    // Pick up MCP tools registered after construction (e.g. via /mcp
+    // connect) before building the schema for this request.
+    refresh_mcp_tools();
+
     auto tools_schema = tools_.get_schema();
     bool final_answer = false;
     int retry_count = 0;

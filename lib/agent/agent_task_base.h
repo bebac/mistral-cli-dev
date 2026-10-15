@@ -17,6 +17,7 @@
 #include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -66,6 +67,11 @@ namespace mistral::agent
     virtual void agent_loop_on_error(const std::string& error) = 0;
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
     virtual void agent_loop_on_cancelled() {}
+
+    // Rebuilds the tool registry when MCP tools were registered after
+    // construction (e.g. via /mcp connect), and surfaces MCP server
+    // instructions in the system prompt.
+    void refresh_mcp_tools();
 
     // Helper methods
     std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
@@ -127,6 +133,9 @@ namespace mistral::agent
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;
 
     bool in_thinking_ = false;
+
+    // MCP registry version at construction / last refresh
+    uint64_t mcp_registry_version_ = 0;
   };
 } // namespace mistral::agent
 
