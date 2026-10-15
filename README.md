@@ -189,7 +189,7 @@ The AI can call tools to perform actions. For example:
 | `ast_search` | Search a file or tree with a tree-sitter query (scheme-like syntax). |
 | `exec` | Execute an external command (no shell involved). |
 | `note_list`, `note_read`, `note_write`, `note_search` | Manage notes in the notes directory. |
-| `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
+| `patchset_add`, `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
 | `task_create`, `task_list`, `task_get`, `task_update`, `task_search` | Project task tracking. |
 
 Which tools an agent may use is configured per agent via `available_tools`

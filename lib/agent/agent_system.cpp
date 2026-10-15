@@ -593,6 +593,21 @@ namespace mistral::agent
     );
 
     global_tools_.register_tool(
+      "patchset_add",
+      "Add a single edit to a stored patchset. Creates the patchset if the ID is new; "
+      "appends if the ID matches a stored non-applied patchset. Empty search_text means "
+      "new file creation; empty replace_text deletes the search text. Tool-based "
+      "alternative to emitting edit blocks in response text - use one channel per "
+      "patchset, never both. After adding all edits, validate with patchset_validate, "
+      "then apply with patchset_apply.",
+      &patchset_tools, &mistral::tools::patchset_tools::patchset_add,
+      arg("patchset_id", "The unique identifier of the patchset (alphanumeric, hyphens, underscores)"),
+      arg("file_path", "The file path for the edit, relative to the workspace root"),
+      arg("search_text", "The exact text to find (empty string to create a new file)"),
+      arg("replace_text", "The replacement text (empty string to delete the search text)")
+    );
+
+    global_tools_.register_tool(
       "patchset_apply",
       "Apply a stored patchset of file edits by its ID. If validation fails, the response lists per-edit errors; fix them with patchset_update or patchset_remove, then apply again.",
       &patchset_tools, &mistral::tools::patchset_tools::patchset_apply,

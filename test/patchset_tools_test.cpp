@@ -744,6 +744,130 @@ namespace mistral::tools
     CHECK(result["error_type"] == "patchset_not_found");
   }
 
+  // ---- patchset_add ----
+
+  TEST_CASE("patchset_add - creates new patchset when ID is new")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto result = tools.patchset_add("add1", f.path(), "hello", "goodbye");
+
+    CHECK(result["status"] == "success");
+    CHECK(result["patchset_id"] == "add1");
+    CHECK(result["created"] == true);
+    CHECK(result["patch_number"] == 1);
+    CHECK(result["edit_count"] == 1);
+
+    auto get_result = tools.patchset_get("add1");
+    CHECK(get_result["edit_count"] == 1);
+    CHECK(get_result["edits"][0]["file_path"] == f.path());
+    CHECK(get_result["edits"][0]["search_text"] == "hello");
+    CHECK(get_result["edits"][0]["replace_text"] == "goodbye");
+  }
+
+  TEST_CASE("patchset_add - appends to existing non-applied patchset")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    tools.patchset_add("add2", f.path(), "hello", "goodbye");
+    auto result = tools.patchset_add("add2", g.path(), "foo", "baz");
+
+    CHECK(result["status"] == "success");
+    CHECK(result["created"] == false);
+    CHECK(result["patch_number"] == 2);
+    CHECK(result["edit_count"] == 2);
+  }
+
+  TEST_CASE("patchset_add - appends to text-emitted patchset")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    // Simulate a patchset created by emitted edit blocks
+    store.store_patchset("add3", {make_edit(f.path(), "hello", "goodbye", 1)});
+
+    auto result = tools.patchset_add("add3", g.path(), "foo", "baz");
+    CHECK(result["status"] == "success");
+    CHECK(result["created"] == false);
+    CHECK(result["patch_number"] == 2);
+    CHECK(result["edit_count"] == 2);
+  }
+
+  TEST_CASE("patchset_add - numbering continues after patchset_remove without collision")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    temp_file h("baz qux");
+    tools.patchset_add("add4", f.path(), "hello", "goodbye"); // patch 1
+    tools.patchset_add("add4", g.path(), "foo", "baz");       // patch 2
+    CHECK(tools.patchset_remove("add4", 2)["status"] == "success");
+
+    // Numbering is max(existing) + 1 (mirrors agent_system::append_edits):
+    // the new edit takes the freed number 2, never colliding with a
+    // remaining edit.
+    auto result = tools.patchset_add("add4", h.path(), "baz", "quux");
+    CHECK(result["status"] == "success");
+    CHECK(result["patch_number"] == 2);
+    CHECK(result["edit_count"] == 2);
+  }
+
+  TEST_CASE("patchset_add - empty search_text stores new-file edit")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    auto result = tools.patchset_add("add5", "new_dir/new_file.txt", "", "content");
+    CHECK(result["status"] == "success");
+
+    auto get_result = tools.patchset_get("add5");
+    CHECK(get_result["edits"][0]["search_text"] == "");
+    CHECK(get_result["edits"][0]["replace_text"] == "content");
+  }
+
+  TEST_CASE("patchset_add - already applied returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("add6", f.path(), "hello", "goodbye");
+    store.mark_applied("add6");
+
+    auto result = tools.patchset_add("add6", f.path(), "hello", "again");
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "already_applied");
+  }
+
+  TEST_CASE("patchset_add - empty file_path returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    auto result = tools.patchset_add("add7", "", "hello", "goodbye");
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "missing_file_path");
+  }
+
+  TEST_CASE("patchset_add - empty patchset_id returns error")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    auto result = tools.patchset_add("", "some/file.txt", "hello", "goodbye");
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "missing_patchset_id");
+  }
+
   // ---- patchset_apply already_applied guard ----
 
   TEST_CASE("patchset_apply - already applied returns error")

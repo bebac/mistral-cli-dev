@@ -18,6 +18,17 @@ namespace mistral::tools
   public:
     explicit patchset_tools(patchset_store &store);
 
+    // Add a single edit to a patchset. Creates the patchset when the ID
+    // is new; appends when the ID matches a stored non-applied patchset
+    // (e.g. one started by emitted edit blocks). Empty search_text means
+    // new file creation.
+    json patchset_add(
+      std::string patchset_id,
+      std::string file_path,
+      std::string search_text,
+      std::string replace_text
+    );
+
     // Apply a stored patchset after validation. On validation failure
     // the response lists per-edit errors; fix with patchset_update or
     // patchset_remove and apply again.

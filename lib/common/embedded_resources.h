@@ -9,7 +9,7 @@ namespace mistral::embedded
   // Version of the managed sys_patchset_instructions.md content. Bump this
   // whenever templates/sys_patchset_instructions.md changes so that
   // workspace_bootstrap updates managed copies in existing workspaces.
-  inline constexpr int patchset_instructions_version = 3;
+  inline constexpr int patchset_instructions_version = 4;
 
   // Managed file: overwritten by workspace_bootstrap when the on-disk copy
   // is an unmodified stock copy of an older version.

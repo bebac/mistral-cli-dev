@@ -15,6 +15,7 @@
     { "type": "tool", "tool": "patchset_get" },
     { "type": "tool", "tool": "patchset_validate" },
     { "type": "tool", "tool": "patchset_update" },
+    { "type": "tool", "tool": "patchset_add" },
     { "type": "executable", "tool": "exec", "command": "grep" },
     { "type": "executable", "tool": "exec", "command": "find" },
     { "type": "executable", "tool": "exec", "command": "ls" },

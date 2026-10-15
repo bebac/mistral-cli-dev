@@ -88,10 +88,24 @@ Same `(patchset: id)` across responses **appends** edits. Use for:
 
 ---
 
+## 🧩 Tool-Based Alternative: `patchset_add`
+
+Instead of emitting edit blocks in response text, you can add edits one at a time with the `patchset_add` tool:
+
+- `patchset_add(patchset_id, file_path, search_text, replace_text)` — adds a single edit
+- Creates the patchset if the ID is new; appends if the ID matches a stored non-applied patchset
+- Empty `search_text` = new file creation; empty `replace_text` = delete the search text
+- Workflow from validation onward is identical: `patchset_validate` → `patchset_apply`
+
+> **Never mix channels for one patchset**: do not emit edit blocks in text for a patchset you are also building with `patchset_add` (or vice versa) — the same edit may be stored twice.
+
+---
+
 ## 🛠️ Tools
 
 | Tool | When | Purpose |
 |------|------|---------|
+| `patchset_add` | Alternative to emitting edit blocks | Add one edit via tool call (creates or appends to the patchset) |
 | `patchset_validate` | After every emit | Dry run validation |
 | `patchset_get` | Inspect stored patchset | View all edits |
 | `patchset_update` | Fix validation failure | Update file path, search/replace text |

@@ -19,6 +19,81 @@ namespace mistral::tools
   patchset_tools::patchset_tools(patchset_store &store)
     : store_(store) {}
 
+  json patchset_tools::patchset_add(
+    std::string patchset_id,
+    std::string file_path,
+    std::string search_text,
+    std::string replace_text)
+  {
+    if (patchset_id.empty())
+    {
+      return make_error_response(
+        "missing_patchset_id",
+        "patchset_id must not be empty"
+      );
+    }
+
+    if (file_path.empty())
+    {
+      return make_error_response(
+        "missing_file_path",
+        "file_path must not be empty"
+      );
+    }
+
+    auto patchset = store_.get_patchset(patchset_id);
+    if (patchset && patchset->applied)
+    {
+      return make_error_response(
+        "already_applied",
+        "Patchset '" + patchset_id + "' has already been applied. "
+        "Use a new patchset ID for new changes."
+      );
+    }
+
+    // Number after the highest existing patch number (mirrors
+    // agent_system::append_edits): patch numbers are stable identifiers
+    // (patchset_remove keeps gaps), so size-based numbering could collide
+    // with an existing number after a removal.
+    size_t next_patch_number = 1;
+    if (patchset)
+    {
+      for (const auto &edit : patchset->edits)
+      {
+        next_patch_number = std::max(next_patch_number, edit.patch_number + 1);
+      }
+    }
+
+    file_edit_t edit;
+    edit.file_path = file_path;
+    edit.search_text = search_text;
+    edit.replace_text = replace_text;
+    edit.patch_number = next_patch_number;
+
+    // Creates the patchset when the ID is new, appends when it matches
+    // a stored non-applied patchset.
+    store_.append_edits(patchset_id, {edit});
+
+    // Read back for the authoritative stored state
+    auto stored = store_.get_patchset(patchset_id);
+    if (!stored || stored->edits.empty())
+    {
+      return make_error_response(
+        "store_failed",
+        "Failed to store edit in patchset '" + patchset_id + "'"
+      );
+    }
+
+    return json{
+      {"status", "success"},
+      {"patchset_id", patchset_id},
+      {"created", !patchset.has_value()},
+      {"patch_number", stored->edits.back().patch_number},
+      {"file_path", file_path},
+      {"edit_count", stored->edits.size()}
+    };
+  }
+
   json patchset_tools::patchset_apply(std::string patchset_id)
   {
     // 1. Retrieve patchset from agent_system
