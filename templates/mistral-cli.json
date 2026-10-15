@@ -44,9 +44,15 @@
         "task_list",
         "task_get",
         "task_update",
-        "task_search"
+        "task_search",
+        "mcp:*"
       ],
       "tool_policy": "file://.mistral-cli/policy.json"
+    }
+  },
+  "mcpServers": {
+    "storybook": {
+      "url": "http://127.0.0.1:6006/mcp"
     }
   },
   "code_index": {
