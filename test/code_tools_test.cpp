@@ -396,6 +396,35 @@ TEST_CASE("code_tools: find_symbol locates definitions across files")
   CHECK(result["matches"][0]["name"] == "delta");
 }
 
+TEST_CASE("code_tools: find_symbol handles paths with trailing slashes")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+
+  // Baseline: absolute path without trailing slash.
+  auto result = mistral::tools::run_find_symbol(tools, "alpha", project.root.string());
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "alpha");
+
+  // Absolute path with trailing slash should return the same results.
+  const std::string root_with_slash = project.root.string() + "/";
+  result = mistral::tools::run_find_symbol(tools, "alpha", root_with_slash);
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "alpha");
+
+  // Subdirectory with trailing slash should also work.
+  const std::string sub_with_slash = (project.root / "sub").string() + "/";
+  result = mistral::tools::run_find_symbol(tools, "gamma", sub_with_slash);
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "gamma");
+
+  // Subdirectory without trailing slash should work too.
+  const std::string sub_no_slash = (project.root / "sub").string();
+  result = mistral::tools::run_find_symbol(tools, "gamma", sub_no_slash);
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "gamma");
+}
+
 TEST_CASE("code_tools: find_references finds usage sites, not definitions")
 {
   mistral::tools::code_tools tools;

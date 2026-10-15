@@ -39,6 +39,8 @@ namespace mistral::tools
 
     // Component-wise path prefix test (fs::path::starts_with is not
     // available in all C++ standard library implementations).
+    // Empty components in root are skipped so paths with trailing
+    // slashes (e.g. "." or "lib/") compare correctly.
     bool is_under(const fs::path& path, const fs::path& root)
     {
       if (root.empty() || path.empty()) {
@@ -46,10 +48,17 @@ namespace mistral::tools
       }
       auto root_it = root.begin();
       auto path_it = path.begin();
-      for (; root_it != root.end(); ++root_it, ++path_it) {
+      while (root_it != root.end()) {
+        // Skip empty components in root (e.g. from trailing slashes).
+        if (root_it->empty()) {
+          ++root_it;
+          continue;
+        }
         if (path_it == path.end() || *path_it != *root_it) {
           return false;
         }
+        ++root_it;
+        ++path_it;
       }
       return true;
     }
