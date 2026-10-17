@@ -46,9 +46,27 @@
         "task_list",
         "task_get",
         "task_update",
-        "task_search"
+        "task_search",
+        "web_search"
       ],
+      "subagent_tools": {
+        "web_search": "researcher"
+      },
       "tool_policy": "file://.mistral-cli/policy.json"
+    },
+    "researcher": {
+      "model": "mistral-small",
+      "server_agent": {
+        "name": "mistral-cli-researcher",
+        "description": "Web research assistant for mistral-cli",
+        "instructions": "file://.mistral-cli/sys_prompt_researcher.md",
+        "tools": [
+          { "type": "web_search" }
+        ],
+        "completion_args": {
+          "temperature": 0.2
+        }
+      }
     }
   },
   "code_index": {

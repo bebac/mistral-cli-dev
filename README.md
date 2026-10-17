@@ -117,8 +117,9 @@ into the executables and a new `.mistral-cli/` directory is bootstrapped
 automatically on startup (unless a custom config file is passed with `-c`,
 or `--no-bootstrap` is given):
 
-- `mistral-cli.json`, `policy.json`, `sys_prompt.md` are **seeded** — written
-  only if missing, so local customizations are never overwritten.
+- `mistral-cli.json`, `policy.json`, `sys_prompt.md`, `sys_prompt_researcher.md`
+  are **seeded** — written only if missing, so local customizations are
+  never overwritten.
 - `sys_patchset_instructions.md` is **managed** — refreshed from the embedded
   content when a newer executable finds an unmodified stock copy (tracked via
   `.mistral-cli/bootstrap.json`). A locally modified copy is left in place
@@ -191,6 +192,7 @@ The AI can call tools to perform actions. For example:
 | `note_list`, `note_read`, `note_write`, `note_search` | Manage notes in the notes directory. |
 | `patchset_add`, `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
 | `task_create`, `task_list`, `task_get`, `task_update`, `task_search` | Project task tracking. |
+| `web_search` | Search the web via a server-side research agent (Mistral Agents API `web_search` builtin tool). |
 
 Which tools an agent may use is configured per agent via `available_tools`
 in `mistral-cli.json`. File edits go through the patchset workflow
@@ -198,6 +200,68 @@ in `mistral-cli.json`. File edits go through the patchset workflow
 write tool. The code exploration tools are syntax-aware (no matches in
 comments, strings or preprocessor directives); see `doc/code-tools.md`
 for details and caveats.
+
+### Subagents
+
+An agent can delegate tool calls to another agent ("subagent"). This is how
+`web_search` works: the model calls the `web_search` tool, and the call is
+routed to a dedicated `researcher` agent that runs on the Mistral Agents API
+with the builtin `web_search` tool (server-side web search — the client never
+sees the search tool calls, only the researched answer).
+
+Two config keys in `mistral-cli.json` control this:
+
+- `subagent_tools` (on the calling agent): maps a tool name to the local
+  agent id that executes it, e.g. `"subagent_tools": {"web_search": "researcher"}`.
+  The tool's `query` argument becomes the subagent's prompt; the subagent's
+  final answer becomes the tool result.
+- `server_agent` (on the subagent): describes a server-side agent entity
+  (`POST /v1/agents`). When set, the subagent's task talks to the
+  **Conversations API** (`POST /v1/conversations` with `agent_id` +
+  `inputs`) instead of `POST /v1/chat/completions`. The server-side agent
+  owns the model, `instructions` (supports `file://`) and builtin `tools`
+  such as `{"type": "web_search"}` or `{"type": "web_search_premium"}`.
+  `completion_args` (e.g. `{"temperature": 0.2}`) is applied at creation
+  time. The Conversations API is required for builtin tools like
+  `web_search`: Chat Completions responses don't include the search result
+  references these tools produce, so the completions endpoint rejects the
+  connector (`invalid_tools`). Conversation responses include the answer
+  text plus `tool_reference` citation chunks (surfaced as a `Sources:`
+  markdown list) and connector token usage.
+
+The server-side agent entity is resolved lazily on first use: an existing
+agent with the same `name` is reused (`GET /v1/agents/pages?name=...`),
+otherwise a new one is created (`POST /v1/agents`), and the id is cached for
+the session. A fingerprint of the `server_agent` config is stored in the
+agent's `metadata`; when the local config changes (e.g. switching
+`web_search` → `web_search_premium`), the existing agent is updated in
+place (`PATCH /v1/agents/{id}`) on the next call — no manual cleanup needed.
+The Agents API is Mistral-only; agents configured with a non-Mistral
+provider fall back to an error when the subagent runs.
+
+**Troubleshooting:** if `web_search` calls fail with `invalid_tools` /
+"connector is not supported" (HTTP 400), the builtin web_search connector
+is not enabled for your Mistral workspace — check your plan/region in the
+Mistral console, or switch the `server_agent` tool to
+`{"type": "web_search_premium"}`.
+
+```json
+"agents": {
+  "main": {
+    "available_tools": ["web_search", "..."],
+    "subagent_tools": {"web_search": "researcher"}
+  },
+  "researcher": {
+    "model": "mistral-small",
+    "server_agent": {
+      "name": "mistral-cli-researcher",
+      "instructions": "file://.mistral-cli/sys_prompt_researcher.md",
+      "tools": [{"type": "web_search"}],
+      "completion_args": {"temperature": 0.2}
+    }
+  }
+}
+```
 
 ---
 

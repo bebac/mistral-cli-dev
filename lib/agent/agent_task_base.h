@@ -46,6 +46,20 @@ namespace mistral::agent
 
     // Common agent loop that processes a single message
     virtual auto agent_loop() -> dripcore::awaitable<void>;
+
+    // Request endpoint path for the agent loop.
+    // Default: POST /<api_version>/chat/completions.
+    virtual std::string chat_request_path() const;
+    // Build the request body for the agent loop.
+    // Default: a chat completion request via the provider.
+    virtual std::string build_request_body(const api::json& tools_schema) const;
+    // Whether the agent loop's request expects a streaming (SSE) response.
+    // Default: true (chat completions). Tasks using a non-streaming
+    // endpoint override this.
+    virtual bool request_stream() const;
+    // Parse one response data event into a stream delta.
+    // Default: chat completion chunks via the provider.
+    virtual api::stream_delta parse_response_delta(const api::json& j) const;
     virtual void agent_loop_on_sending_chat_request() = 0;
     virtual void agent_loop_on_message_content(const api::message_content& mc) = 0;
     virtual auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> = 0;

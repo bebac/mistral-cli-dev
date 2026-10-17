@@ -63,6 +63,27 @@ namespace mistral::agent
     }
   }
 
+  std::string agent_task_base::chat_request_path() const
+  {
+    return "/" + api_version_ + "/chat/completions";
+  }
+
+  std::string agent_task_base::build_request_body(const api::json& tools_schema) const
+  {
+    return provider_->build_chat_request(
+      model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
+  }
+
+  bool agent_task_base::request_stream() const
+  {
+    return true;
+  }
+
+  api::stream_delta agent_task_base::parse_response_delta(const api::json& j) const
+  {
+    return provider_->parse_stream_delta(j);
+  }
+
   auto agent_task_base::agent_loop() -> dripcore::awaitable<void>
   {
     auto tools_schema = tools_.get_schema();
@@ -84,16 +105,16 @@ namespace mistral::agent
       response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
 
       // Build and send API request.
-      auto body = provider_->build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
+      auto body = build_request_body(tools_schema);
 
       agent_loop_on_sending_chat_request();
 
       // Register response channel for cancellation support.
       agent_system::instance().set_current_response_ch(response_ch_);
 
-      // Build request with path from api_version
-      std::string path = "/" + api_version_ + "/chat/completions";
-      request_ch_->try_send({.path = path, .body = std::move(body), .stream = true, .response_ch = response_ch_});
+      // Build request with the endpoint path
+      std::string path = chat_request_path();
+      request_ch_->try_send({.path = path, .body = std::move(body), .stream = request_stream(), .response_ch = response_ch_});
 
       // Consume streaming events.
       std::vector<api::message_content> accumulated_content;
@@ -135,7 +156,7 @@ namespace mistral::agent
             }
           }
 
-          auto delta = provider_->parse_stream_delta(j);
+          auto delta = parse_response_delta(j);
 
           // Handle content
           for (const auto& mc : delta.content) {
@@ -427,6 +448,27 @@ namespace mistral::agent
 
   auto agent_task_base::execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>
   {
+    // Route subagent-backed tools to the configured subagent. The tool
+    // schema is registered locally (so the model can call it), but
+    // execution is delegated to another agent's subagent task.
+    const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
+    if (auto it = agent_cfg.subagent_tools.find(tc.function.name);
+        it != agent_cfg.subagent_tools.end())
+    {
+      // The subagent prompt is the tool's "query" argument when present,
+      // otherwise the raw JSON arguments.
+      std::string prompt = tc.function.arguments;
+      try {
+        auto args = api::json::parse(tc.function.arguments);
+        if (args.contains("query") && args["query"].is_string()) {
+          prompt = args["query"].get<std::string>();
+        }
+      } catch (...) {
+        // Malformed arguments are passed through as-is.
+      }
+      co_return co_await agent_system::instance().run_subagent(*this, it->second, prompt);
+    }
+
     // Build the request before the co_await expression: constructing a
     // nested braced temporary inside the co_await triggers a GCC 13
     // internal compiler error (build_special_member_call ICE).

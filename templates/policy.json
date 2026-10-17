@@ -17,6 +17,7 @@
     { "type": "tool", "tool": "patchset_clear" },
     { "type": "tool", "tool": "patchset_validate" },
     { "type": "tool", "tool": "patchset_update" },
+    { "type": "tool", "tool": "web_search" },
     { "type": "executable", "tool": "exec", "command": "date" },
     { "type": "executable", "tool": "exec", "command": "tail" },
     { "type": "executable", "tool": "exec", "command": "head" },

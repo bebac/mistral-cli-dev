@@ -25,6 +25,14 @@ namespace mistral::agent
     void agent_loop_on_message_content(const api::message_content& mc) override;
     auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> override;
     void agent_loop_on_error(const std::string& error) override;
+    void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content) override;
+    auto agent_loop() -> dripcore::awaitable<void> override;
+
+  private:
+    // Last error seen during the current turn, surfaced to the caller
+    // when the turn ends without content (a failed turn must not look
+    // like a valid empty answer).
+    std::string last_error_;
   };
 
 } // namespace mistral::agent

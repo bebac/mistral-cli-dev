@@ -50,6 +50,7 @@ endfunction()
 
 embed_file(sys_patchset_instructions "sys_patchset_instructions.md")
 embed_file(sys_prompt "sys_prompt.md")
+embed_file(sys_prompt_researcher "sys_prompt_researcher.md")
 embed_file(policy_json "policy.json")
 embed_file(config_json "mistral-cli.json")
 

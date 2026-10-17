@@ -92,6 +92,37 @@ namespace mistral::api
     }
   }
 
+  void provider_base::apply_messages(
+    json& body,
+    const std::vector<message>& messages) const
+  {
+    // Serialize messages using the provider-specific format
+    json messages_arr = json::array();
+    for (const auto& msg : messages)
+    {
+      messages_arr.push_back(serialize_message(msg, true));
+    }
+    body["messages"] = messages_arr;
+  }
+
+  void provider_base::apply_messages_and_sampling(
+    json& body,
+    const std::vector<message>& messages,
+    const sampling_params& params) const
+  {
+    apply_messages(body, messages);
+
+    // Apply common sampling parameters
+    if (params.reasoning_effort) body["reasoning_effort"] = *params.reasoning_effort;
+    if (params.temperature) body["temperature"] = *params.temperature;
+    if (params.top_p) body["top_p"] = *params.top_p;
+    if (params.top_k) body["top_k"] = *params.top_k;
+    if (params.max_tokens) body["max_tokens"] = *params.max_tokens;
+    if (params.frequency_penalty) body["frequency_penalty"] = *params.frequency_penalty;
+    if (params.presence_penalty) body["presence_penalty"] = *params.presence_penalty;
+    if (params.seed) body["seed"] = *params.seed;
+  }
+
   std::string provider_base::build_chat_request(
     const std::string& model,
     const std::vector<message>& messages,
@@ -104,23 +135,7 @@ namespace mistral::api
     body["model"] = model;
     body["stream"] = stream;
 
-    // Serialize messages using the provider-specific format
-    json messages_arr = json::array();
-    for (const auto& msg : messages)
-    {
-      messages_arr.push_back(serialize_message(msg, true));
-    }
-    body["messages"] = messages_arr;
-
-    // Apply common sampling parameters
-    if (params.reasoning_effort) body["reasoning_effort"] = *params.reasoning_effort;
-    if (params.temperature) body["temperature"] = *params.temperature;
-    if (params.top_p) body["top_p"] = *params.top_p;
-    if (params.top_k) body["top_k"] = *params.top_k;
-    if (params.max_tokens) body["max_tokens"] = *params.max_tokens;
-    if (params.frequency_penalty) body["frequency_penalty"] = *params.frequency_penalty;
-    if (params.presence_penalty) body["presence_penalty"] = *params.presence_penalty;
-    if (params.seed) body["seed"] = *params.seed;
+    apply_messages_and_sampling(body, messages, params);
 
     // Apply provider-specific fields
     apply_request_fields(body, stream, prompt_cache_key, params);

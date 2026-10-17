@@ -32,6 +32,7 @@ namespace mistral::tools
   class exec_tools;
   class task_tools;
   class patchset_tools;
+  class research_tools;
 }
 
 namespace mistral::agent
@@ -55,6 +56,14 @@ namespace mistral::agent
     std::string resolve_system_prompt(
         const agent_config& agent_cfg,
         const std::string& model_id) const;
+
+    // Resolve server-agent instructions (handles file:// URLs)
+    std::string resolve_server_agent_instructions(
+        const agent_config& agent_cfg) const;
+
+    // Server-side agent id cache (local agent id -> server agent entity id)
+    std::optional<std::string> get_server_agent_id(const std::string& agent_id) const;
+    void set_server_agent_id(const std::string& agent_id, const std::string& server_agent_id);
 
     // Resolve tool policy (handles file:// URLs and JSON strings)
     json resolve_tool_policy(
@@ -91,6 +100,7 @@ namespace mistral::agent
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
     mistral::tools::task_tools& task_tools() { return *task_tools_; }
     mistral::tools::patchset_tools& patchset_tools() { return *patchset_tools_; }
+    mistral::tools::research_tools& research_tools() { return *research_tools_; }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -161,6 +171,11 @@ namespace mistral::agent
     // Load configuration from file
     full_config load_config_from_file(const std::string& config_file) const;
 
+    // Resolve a prompt string (handles file:// URLs and templates)
+    std::string resolve_prompt_string(
+        const std::string& prompt,
+        const std::string& model_id) const;
+
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);
 
@@ -178,11 +193,16 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;
+    std::unique_ptr<mistral::tools::research_tools> research_tools_;
 
     tool_registry global_tools_;
 
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
+
+    // Server-side agent id cache (local agent id -> server agent entity id)
+    mutable std::mutex server_agent_ids_mtx_;
+    std::map<std::string, std::string> server_agent_ids_;
 
     // Last AI response storage
     mutable std::mutex last_response_mtx_;

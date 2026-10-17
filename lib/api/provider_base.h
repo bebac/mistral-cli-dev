@@ -32,6 +32,17 @@ namespace mistral::api
     stream_delta parse_stream_delta(const json& j) const final;
 
   protected:
+    // Serialize messages using the provider-specific format.
+    void apply_messages(
+      json& body,
+      const std::vector<message>& messages) const;
+
+    // Serialize messages and apply the standard sampling parameters.
+    // Used by build_chat_request.
+    void apply_messages_and_sampling(
+      json& body,
+      const std::vector<message>& messages,
+      const sampling_params& params) const;
     // Hook: add provider-specific fields to the request body.
     // Default: no additional fields.
     virtual void apply_request_fields(

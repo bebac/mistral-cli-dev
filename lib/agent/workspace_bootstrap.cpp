@@ -110,9 +110,10 @@ namespace mistral::agent
 
     // --- Seeded files: written only when missing, never overwritten. ---
     const std::vector<std::pair<const char*, std::string_view>> seeded_files = {
-      {"mistral-cli.json",   embedded::config_json()},
-      {"policy.json",        embedded::policy_json()},
-      {"sys_prompt.md",      embedded::sys_prompt()},
+      {"mistral-cli.json",            embedded::config_json()},
+      {"policy.json",                 embedded::policy_json()},
+      {"sys_prompt.md",               embedded::sys_prompt()},
+      {"sys_prompt_researcher.md",    embedded::sys_prompt_researcher()},
     };
 
     for (const auto& [name, content] : seeded_files) {

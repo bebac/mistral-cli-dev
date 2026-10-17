@@ -11,8 +11,9 @@ No manual setup is needed: `mistral-cli` and `mistral-tui` embed these
 defaults and bootstrap `.mistral-cli/` automatically on startup (unless a
 custom config file is passed with `-c`, or `--no-bootstrap` is given):
 
-- `mistral-cli.json`, `policy.json`, `sys_prompt.md` are **seeded** — written
-  only if missing, so local customizations are never overwritten.
+- `mistral-cli.json`, `policy.json`, `sys_prompt.md`, `sys_prompt_researcher.md`
+  are **seeded** — written only if missing, so local customizations are
+  never overwritten.
 - `sys_patchset_instructions.md` is **managed** — it documents the patchset
   editing workflow implemented by the executable's tools and is refreshed
   from the embedded content when a newer executable finds an unmodified
@@ -33,6 +34,7 @@ export MISTRAL_API_KEY="your_api_key_here"
 | `mistral-cli.json` | Models, agents and default tool policy |
 | `policy.json` | Tool policy: read-only tools allowed, everything else requires approval |
 | `sys_prompt.md` | System prompt template for the `main` agent |
+| `sys_prompt_researcher.md` | Instructions for the `researcher` server-side agent (web search) |
 | `sys_patchset_instructions.md` | Patchset editing workflow (included by `sys_prompt.md`) |
 | `bootstrap.json` | Bootstrap manifest: version + hash of the managed `sys_patchset_instructions.md` |
 
@@ -49,3 +51,8 @@ export MISTRAL_API_KEY="your_api_key_here"
   `.mistral-cli/` and include it from `sys_prompt.md`.
 - The `patcher` and `reviewer` agents in a full setup are just additional
   entries in the `agents` section pointing at other models or prompts.
+- The `researcher` agent demonstrates subagents: `main` routes the
+  `web_search` tool to it via `subagent_tools`, and its `server_agent` block
+  makes it run on the Mistral Agents API with the builtin `web_search`
+  tool. Use `web_search_premium` instead of `web_search` for the premium
+  search backend.

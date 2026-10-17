@@ -76,6 +76,7 @@ add_custom_command(
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_patchset_instructions.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_researcher.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/policy.json
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/mistral-cli.json
     COMMENT "Generating embedded workspace templates"
@@ -121,11 +122,13 @@ add_library(mistral-core STATIC
     lib/tools/code_tools.cpp
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp
+    lib/tools/research_tools.cpp
     lib/console/console_task.cpp
     lib/slash_command/slash_command_registry.cpp
     lib/slash_command/slash_command_executor_task.cpp
     lib/agent/agent_task_base.cpp
     lib/agent/subagent_task.cpp
+    lib/agent/server_agent_task.cpp
     lib/agent/policy_engine.cpp
     lib/agent/approval_manager.cpp
     lib/agent/approval_prompt.cpp

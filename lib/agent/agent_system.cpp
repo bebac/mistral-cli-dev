@@ -2,12 +2,15 @@
 #include "agent/agent_config.h"
 #include "agent/compact_command.h"
 #include "agent/subagent_task.h"
+#include "agent/server_agent_task.h"
+#include "agent/workspace_bootstrap.h"
 #include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
 #include "tools/code_tools.h"
 #include "tools/exec_tools.h"
 #include "tools/task_tools.h"
+#include "tools/research_tools.h"
 #include "template/template_engine.h"
 
 #include <api/chat_types.h>
@@ -48,6 +51,13 @@ namespace mistral::agent
     base_dir_ = base_dir;
     notes_dir_ = notes_dir;
     request_ch_ = std::move(request_ch);
+
+    // The server-side agent id cache is per-session: drop entries from a
+    // previous initialize() call.
+    {
+      std::lock_guard<std::mutex> lock(server_agent_ids_mtx_);
+      server_agent_ids_.clear();
+    }
 
     // Initialize stats channel
     stats_ch_ = std::make_shared<dripcore::channel<stat_message>>(32);
@@ -287,6 +297,52 @@ namespace mistral::agent
           agent_cfg.strict_mode = agent_json["strict_mode"].get<bool>();
         }
 
+        // Parse server_agent (Mistral Agents API entity). A block without
+        // a name is ignored (the agent falls back to chat completions).
+        if (agent_json.contains("server_agent") && agent_json["server_agent"].is_object())
+        {
+          const auto& server_json = agent_json["server_agent"];
+          server_agent_config server_cfg;
+          server_cfg.name = server_json.value("name", "");
+          server_cfg.instructions = server_json.value("instructions", "");
+          server_cfg.description = server_json.value("description", "");
+          if (server_json.contains("tools") && server_json["tools"].is_array())
+          {
+            for (const auto& tool_json : server_json["tools"])
+            {
+              api::builtin_tool tool;
+              tool.type = tool_json.value("type", "");
+              if (tool_json.contains("tool_configuration") &&
+                  !tool_json["tool_configuration"].is_null())
+              {
+                tool.tool_configuration = tool_json["tool_configuration"];
+              }
+              server_cfg.tools.push_back(std::move(tool));
+            }
+          }
+          if (server_json.contains("completion_args") &&
+              server_json["completion_args"].is_object())
+          {
+            server_cfg.completion_args = server_json["completion_args"];
+          }
+          if (!server_cfg.name.empty())
+          {
+            agent_cfg.server_agent = std::move(server_cfg);
+          }
+        }
+
+        // Parse subagent_tools (tool name -> subagent local agent id)
+        if (agent_json.contains("subagent_tools") && agent_json["subagent_tools"].is_object())
+        {
+          for (auto& [tool_name, sub_id] : agent_json["subagent_tools"].items())
+          {
+            if (sub_id.is_string())
+            {
+              agent_cfg.subagent_tools[tool_name] = sub_id.get<std::string>();
+            }
+          }
+        }
+
         config.agents[name] = std::move(agent_cfg);
       }
     }
@@ -326,6 +382,7 @@ namespace mistral::agent
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
+    research_tools_ = std::make_unique<mistral::tools::research_tools>();
   }
 
   void agent_system::register_slash_commands()
@@ -465,6 +522,7 @@ namespace mistral::agent
     auto& exec_tools = *exec_tools_;
     auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
+    auto& research_tools = *research_tools_;
 
     global_tools_.register_tool(
       "ls",
@@ -707,6 +765,21 @@ namespace mistral::agent
       &task_tools, &mistral::tools::task_tools::search_tasks,
       arg("query", "Text to search for")
     );
+
+    // ---- Research tools ----
+
+    // web_search is executed by routing to a server-side researcher agent
+    // (see agent_config::subagent_tools and agent_task_base::execute_tool);
+    // the registered implementation only serves direct/debug invocation.
+    global_tools_.register_tool(
+      "web_search",
+      "Search the web for current information. Delegates to a research "
+      "subagent that can search the web and returns a concise summary of "
+      "findings with sources. Use this for questions about recent events, "
+      "current software versions, or any facts you are unsure about.",
+      &research_tools, &mistral::tools::research_tools::web_search,
+      arg("query", "The search query or research question")
+    );
   }
 
   // ---- Configuration Access ----
@@ -888,39 +961,70 @@ namespace mistral::agent
     usage_stats_ = {};
   }
 
+  std::string agent_system::resolve_prompt_string(
+    const std::string& prompt,
+    const std::string& model_id
+  ) const
+  {
+    // Check if prompt is a file:// URL
+    if (prompt.find("file://") != 0) {
+      return prompt;
+    }
+
+    // Extract path from file:// URL
+    std::string file_path = prompt.substr(7); // Remove "file://" prefix
+
+    try {
+      // Check if file exists
+      if (!fs::exists(file_path)) {
+        throw std::runtime_error("Prompt file not found: " + file_path);
+      }
+
+      // Use template engine to process the file with variables
+      mistral::tmpl::template_engine tmpl;
+      tmpl.set_include_base(base_dir_);
+      tmpl.set_variable("model", model_id);
+      tmpl.set_variable("notes_dir", notes_dir_);
+
+      // Process the file as a template
+      return tmpl.process_file(file_path);
+    } catch (const std::exception& e) {
+      std::cerr << "error resolving prompt file: " << e.what() << std::endl;
+      throw;
+    }
+  }
+
   std::string agent_system::resolve_system_prompt(
     const agent_config& agent_cfg,
     const std::string& model_id
   ) const
   {
-    std::string system_prompt = agent_cfg.system_prompt;
+    return resolve_prompt_string(agent_cfg.system_prompt, model_id);
+  }
 
-    // Check if system_prompt is a file:// URL
-    if (system_prompt.find("file://") == 0) {
-      // Extract path from file:// URL
-      std::string file_path = system_prompt.substr(7); // Remove "file://" prefix
-
-      try {
-        // Check if file exists
-        if (!fs::exists(file_path)) {
-          throw std::runtime_error("System prompt file not found: " + file_path);
-        }
-
-        // Use template engine to process the file with variables
-        mistral::tmpl::template_engine tmpl;
-        tmpl.set_include_base(base_dir_);
-        tmpl.set_variable("model", model_id);
-        tmpl.set_variable("notes_dir", notes_dir_);
-
-        // Process the file as a template
-        system_prompt = tmpl.process_file(file_path);
-      } catch (const std::exception& e) {
-        std::cerr << "error resolving system prompt file: " << e.what() << std::endl;
-        throw;
-      }
+  std::string agent_system::resolve_server_agent_instructions(
+    const agent_config& agent_cfg
+  ) const
+  {
+    if (!agent_cfg.server_agent || agent_cfg.server_agent->instructions.empty()) {
+      return "";
     }
+    return resolve_prompt_string(
+      agent_cfg.server_agent->instructions, resolve_model_id(agent_cfg.model));
+  }
 
-    return system_prompt;
+  std::string server_agent_config_fingerprint(
+    const server_agent_config& cfg,
+    const std::string& resolved_instructions)
+  {
+    api::json canonical;
+    canonical["tools"] = cfg.tools;
+    canonical["instructions"] = resolved_instructions;
+    canonical["description"] = cfg.description;
+    if (cfg.completion_args) {
+      canonical["completion_args"] = *cfg.completion_args;
+    }
+    return fnv1a_64_hex(canonical.dump());
   }
 
   dripcore::awaitable<std::string> agent_system::run_subagent(
@@ -936,17 +1040,47 @@ namespace mistral::agent
     auto input_ch = std::make_shared<dripcore::channel<std::string>>(4);
     auto output_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
-    task.spawn_local<subagent_task>(agent_id, input_ch, output_ch);
+    // Agents with a server_agent block run on the Mistral Agents API
+    // (POST /v1/agents/completions); all others use chat completions.
+    if (get_agent_config(agent_id).server_agent) {
+      task.spawn_local<server_agent_task>(agent_id, input_ch, output_ch);
+    } else {
+      task.spawn_local<subagent_task>(agent_id, input_ch, output_ch);
+    }
 
     input_ch->try_send(message);
-    input_ch->close();
 
     auto response = co_await output_ch->recv(&task);
+    // Close the input channel only after the response: the agent loop
+    // checks is_closed() before starting a request, so closing earlier
+    // would abort the turn before any API request is made.
+    input_ch->close();
     if (!response) {
       co_return "Error: No response from subagent " + agent_id;
     }
 
     co_return *response;
+  }
+
+  // ---- Server-side Agent Id Cache ----
+
+  std::optional<std::string> agent_system::get_server_agent_id(
+    const std::string& agent_id) const
+  {
+    std::lock_guard<std::mutex> lock(server_agent_ids_mtx_);
+    auto it = server_agent_ids_.find(agent_id);
+    if (it == server_agent_ids_.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  void agent_system::set_server_agent_id(
+    const std::string& agent_id,
+    const std::string& server_agent_id)
+  {
+    std::lock_guard<std::mutex> lock(server_agent_ids_mtx_);
+    server_agent_ids_[agent_id] = server_agent_id;
   }
 
   // ---- Patchset Storage ----

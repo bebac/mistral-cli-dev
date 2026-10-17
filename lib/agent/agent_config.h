@@ -1,10 +1,12 @@
 #ifndef MISTRAL_AGENT_CONFIG_H
 #define MISTRAL_AGENT_CONFIG_H
 
+#include "api/agent_api.h"
 #include "tools/code_index.h"
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 
@@ -35,6 +37,37 @@ namespace mistral::agent
     std::optional<bool> strict_mode;              // Strict tool schema mode (OpenAI-style)
   };
 
+  // ---- Server-side Agent Configuration ----
+  // Describes a Mistral Agents API entity (POST /v1/agents). When set on
+  // an agent, its task talks to POST /v1/agents/completions with the
+  // server-side agent_id instead of POST /v1/chat/completions. The
+  // server-side agent owns the model, instructions and builtin tools
+  // (e.g. web_search), which execute server-side.
+  struct server_agent_config
+  {
+    std::string name;                     // Server-side agent name (required)
+    std::string instructions;             // Agent instructions (supports file://)
+    std::string description;
+    std::vector<api::builtin_tool> tools; // Builtin tools, e.g. web_search
+    // CompletionArgs (temperature, top_p, random_seed, ...) applied at
+    // creation time. AgentsCompletionRequest does not accept
+    // temperature/top_p/seed per request.
+    std::optional<api::json> completion_args;
+  };
+
+  // Metadata key under which the server-side agent's config fingerprint
+  // is stored (see server_agent_config_fingerprint).
+  inline constexpr std::string_view server_agent_config_hash_key =
+    "mistral-cli-config-hash";
+
+  // Fingerprint of a server_agent config (tools, resolved instructions,
+  // description, completion_args) as a hex string. Stored in the
+  // server-side agent's metadata so that config drift is detected when
+  // an existing agent is reused by name.
+  std::string server_agent_config_fingerprint(
+    const server_agent_config& cfg,
+    const std::string& resolved_instructions);
+
   // ---- Agent Configuration ----
   // Represents an agent configuration that references a model by name.
   struct agent_config
@@ -43,6 +76,15 @@ namespace mistral::agent
     std::string system_prompt;
     std::string tool_policy;        // Can be: "deny", "allow", "require_approval", a JSON object as string, or "file://path/to/policy.json"
     std::vector<std::string> available_tools;
+
+    // Server-side agent entity (Mistral Agents API). When set, the agent
+    // task uses /v1/agents/completions instead of /v1/chat/completions.
+    std::optional<server_agent_config> server_agent;
+
+    // Maps a tool name to a subagent (local agent id). Tool calls with
+    // these names are routed to the named agent's subagent task instead
+    // of being dispatched to the local tool registry.
+    std::map<std::string, std::string> subagent_tools;
 
     // Sampling parameters (overrides model defaults)
     std::optional<std::string> reasoning_effort;  // Override model default

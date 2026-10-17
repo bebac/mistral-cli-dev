@@ -99,8 +99,39 @@ namespace mistral::agent
 
   void subagent_task::agent_loop_on_error(const std::string& error)
   {
-    // Log error but continue - errors will be in accumulated content
-    // and returned via output_ch by base class
+    // Record the error so it can be surfaced to the caller when the
+    // turn ends without content.
+    last_error_ = error;
+  }
+
+  void subagent_task::agent_loop_on_completed(
+    std::vector<api::message_content>& accumulated_content)
+  {
+    // A failed turn must not look like an empty answer: surface the
+    // recorded error as the subagent's response.
+    if (accumulated_content.empty() && !last_error_.empty())
+    {
+      if (output_ch_)
+      {
+        std::string message = "Error: " + last_error_;
+        if (last_error_.find("connector is not supported") != std::string::npos)
+        {
+          message += " (hint: the builtin tool's connector is not enabled "
+                     "for this Mistral workspace — check the Mistral console "
+                     "or plan, or switch the server_agent tool type, e.g. "
+                     "web_search_premium)";
+        }
+        output_ch_->try_send(message);
+      }
+      return;
+    }
+    agent_task_base::agent_loop_on_completed(accumulated_content);
+  }
+
+  auto subagent_task::agent_loop() -> dripcore::awaitable<void>
+  {
+    last_error_.clear();
+    co_await agent_task_base::agent_loop();
   }
 
 } // namespace mistral::agent
