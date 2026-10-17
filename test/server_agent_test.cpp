@@ -139,6 +139,7 @@ namespace
     bool agent_exists = false;        // GET /v1/agents/pages returns a match
     bool drift_metadata = false;      // existing agent has a stale config hash
     bool fail_create = false;         // POST /v1/agents fails
+    bool fail_patch = false;          // PATCH /v1/agents/{id} fails
     bool fail_conversations = false;  // POST /v1/conversations fails
     bool plain_content = false;       // message.output content is a plain string
   };
@@ -270,8 +271,17 @@ namespace
       }
       else if (req.method == "PATCH" && req.path.starts_with("/v1/agents/"))
       {
-        respond_json(ch,
-          R"({"id":"agt_existing","name":"mistral-cli-researcher","model":"mistral-small-latest","version":2,"versions":[1,2],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})");
+        if (opts_.fail_patch)
+        {
+          ch->try_send({api::event_type::error,
+            "HTTP 400: {\"object\":\"error\",\"message\":\"WebSearchTool connector is not supported\",\"type\":\"invalid_tools\",\"code\":\"1800\"}", 400});
+          ch->try_send({api::event_type::done, {}});
+        }
+        else
+        {
+          respond_json(ch,
+            R"({"id":"agt_existing","name":"mistral-cli-researcher","model":"mistral-small-latest","version":2,"versions":[1,2],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})");
+        }
       }
       else if (req.method == "POST" && req.path == "/v1/conversations")
       {
@@ -880,6 +890,38 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(patch_body["metadata"].contains("mistral-cli-config-hash"));
   CHECK(captured[2].path == "/v1/conversations");
   CHECK(json::parse(captured[2].body)["agent_id"] == "agt_existing");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "surfaces setup errors through the subagent error path (with hint)")
+{
+  write_config(k_researcher_config);
+  initialize();
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  fake_http_options opts;
+  opts.agent_exists = true;
+  opts.drift_metadata = true;  // triggers PATCH
+  opts.fail_patch = true;
+  sched.spawn<fake_http_task>(request_ch, &captured, opts);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  // The PATCH failure is surfaced via agent_loop_on_error ->
+  // agent_loop_on_completed, including the connector hint.
+  REQUIRE(results.size() == 1);
+  CHECK(results[0].find("Error: could not set up server-side agent") == 0);
+  CHECK(results[0].find("HTTP 400") != std::string::npos);
+  CHECK(results[0].find("connector is not supported") != std::string::npos);
+  CHECK(results[0].find("hint:") != std::string::npos);
+
+  // find (hit, stale hash) + PATCH (failed) — no conversation request.
+  REQUIRE(captured.size() == 2);
+  CHECK(captured[0].method == "GET");
+  CHECK(captured[1].method == "PATCH");
 }
 
 TEST_CASE_FIXTURE(server_agent_test_fixture,

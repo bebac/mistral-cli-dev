@@ -4,7 +4,6 @@
 
 #include <cctype>
 #include <format>
-#include <iostream>
 
 namespace mistral::agent
 {
@@ -163,16 +162,17 @@ namespace mistral::agent
     {
       if (!co_await ensure_server_agent())
       {
-        // Report the failure to the caller (run_subagent) and stop.
-        if (output_ch_)
-        {
-          std::string message =
-            "Error: could not set up server-side agent for '" + agent_id_ + "'";
-          if (!setup_error_.empty()) {
-            message += ": " + setup_error_;
-          }
-          output_ch_->try_send(message);
+        // Surface the setup failure through the standard subagent error
+        // path: agent_loop_on_error records it, agent_loop_on_completed
+        // sends it to the caller (run_subagent).
+        std::string error =
+          "could not set up server-side agent for '" + agent_id_ + "'";
+        if (!setup_error_.empty()) {
+          error += ": " + setup_error_;
         }
+        agent_loop_on_error(error);
+        std::vector<api::message_content> no_content;
+        agent_loop_on_completed(no_content);
         co_return;
       }
       server_agent_resolved_ = true;
@@ -212,7 +212,6 @@ namespace mistral::agent
     {
       setup_error_ = "provider '" + model_cfg.provider +
         "' does not support the Mistral Agents API";
-      std::cerr << "[server_agent] " << setup_error_ << std::endl;
       co_return false;
     }
 
@@ -273,8 +272,8 @@ namespace mistral::agent
       if (evt->type == api::event_type::done) break;
       if (evt->type == api::event_type::error)
       {
-        // A failed lookup is treated as "not found" — creation is tried next.
-        std::cerr << "[server_agent] find agent failed: " << evt->payload << std::endl;
+        // A failed lookup is treated as "not found" — creation is tried
+        // next (and its error is surfaced if creation also fails).
         break;
       }
 
@@ -295,9 +294,9 @@ namespace mistral::agent
           }
         }
       }
-      catch (const std::exception& e)
+      catch (const std::exception&)
       {
-        std::cerr << "[server_agent] malformed find response: " << e.what() << std::endl;
+        // Malformed page: treated as "not found".
       }
     }
 
@@ -339,7 +338,6 @@ namespace mistral::agent
       if (evt->type == api::event_type::error)
       {
         setup_error_ = evt->payload;
-        std::cerr << "[server_agent] create agent failed: " << evt->payload << std::endl;
         break;
       }
 
@@ -353,7 +351,7 @@ namespace mistral::agent
       }
       catch (const std::exception& e)
       {
-        std::cerr << "[server_agent] malformed create response: " << e.what() << std::endl;
+        setup_error_ = std::string("malformed create response: ") + e.what();
       }
     }
 
@@ -397,7 +395,6 @@ namespace mistral::agent
       if (evt->type == api::event_type::error)
       {
         setup_error_ = evt->payload;
-        std::cerr << "[server_agent] update agent failed: " << evt->payload << std::endl;
         break;
       }
 
@@ -408,7 +405,7 @@ namespace mistral::agent
       }
       catch (const std::exception& e)
       {
-        std::cerr << "[server_agent] malformed update response: " << e.what() << std::endl;
+        setup_error_ = std::string("malformed update response: ") + e.what();
       }
     }
 
