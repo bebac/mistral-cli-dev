@@ -36,6 +36,8 @@
         "find_references",
         "ast_search",
         "patchset_get",
+        "patchset_add",
+        "patchset_clear",
         "patchset_validate",
         "patchset_update",
         "patchset_remove",
