@@ -20,8 +20,10 @@ namespace mistral::tools
 
     // Add a single edit to a patchset. Creates the patchset when the ID
     // is new; appends when the ID matches a stored non-applied patchset
-    // (e.g. one started by emitted edit blocks). Empty search_text means
-    // new file creation.
+    // (e.g. one started by emitted edit blocks). Only one patchset can
+    // be stored at a time: creating a new ID while a different
+    // non-applied patchset is stored fails with patchset_conflict.
+    // Empty search_text means new file creation.
     json patchset_add(
       std::string patchset_id,
       std::string file_path,

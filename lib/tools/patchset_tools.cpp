@@ -51,6 +51,30 @@ namespace mistral::tools
       );
     }
 
+    // Only one patchset can be stored at a time. Creating a patchset
+    // with a new ID while a different non-applied patchset is stored
+    // would silently overwrite it, so fail with guidance instead.
+    if (!patchset)
+    {
+      auto current_id = store_.get_current_patchset_id();
+      if (current_id)
+      {
+        auto current = store_.get_patchset(*current_id);
+        if (current && !current->applied)
+        {
+          return make_error_response(
+            "patchset_conflict",
+            "Only one patchset can be stored at a time. Patchset '" +
+              *current_id + "' is stored and not yet applied. Either "
+              "continue adding edits to it with patchset_id '" +
+              *current_id + "', apply it with patchset_apply, or discard "
+              "it with patchset_clear('" + *current_id + "') before "
+              "creating a new patchset."
+          );
+        }
+      }
+    }
+
     // Number after the highest existing patch number (mirrors
     // agent_system::append_edits): patch numbers are stable identifiers
     // (patchset_remove keeps gaps), so size-based numbering could collide

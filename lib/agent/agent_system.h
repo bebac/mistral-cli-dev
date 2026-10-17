@@ -113,7 +113,7 @@ namespace mistral::agent
     void store_patchset(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits) override;
     void append_edits(const std::string& patchset_id, const std::vector<tools::file_edit_t>& edits) override;
     std::optional<tools::patchset_t> get_patchset(const std::string& patchset_id) const override;
-    std::optional<std::string> get_current_patchset_id() const;
+    std::optional<std::string> get_current_patchset_id() const override;
     void remove_patchset(const std::string& patchset_id) override;
     void mark_applied(const std::string& patchset_id) override;
     bool has_patchset() const;

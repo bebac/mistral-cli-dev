@@ -598,8 +598,10 @@ namespace mistral::agent
       "appends if the ID matches a stored non-applied patchset. Empty search_text means "
       "new file creation; empty replace_text deletes the search text. Tool-based "
       "alternative to emitting edit blocks in response text - use one channel per "
-      "patchset, never both. After adding all edits, validate with patchset_validate, "
-      "then apply with patchset_apply.",
+      "patchset, never both. Only one patchset can be stored at a time: creating a new "
+      "ID while a different non-applied patchset is stored fails - apply it or discard "
+      "it with patchset_clear first. After adding all edits, validate with "
+      "patchset_validate, then apply with patchset_apply.",
       &patchset_tools, &mistral::tools::patchset_tools::patchset_add,
       arg("patchset_id", "The unique identifier of the patchset (alphanumeric, hyphens, underscores)"),
       arg("file_path", "The file path for the edit, relative to the workspace root"),

@@ -72,6 +72,15 @@ namespace mistral::tools
         }
       }
 
+      std::optional<std::string> get_current_patchset_id() const override
+      {
+        if (stored_)
+        {
+          return stored_->patchset_id;
+        }
+        return std::nullopt;
+      }
+
       bool has_patchset() const
       {
         return stored_.has_value();
@@ -866,6 +875,55 @@ namespace mistral::tools
     auto result = tools.patchset_add("", "some/file.txt", "hello", "goodbye");
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "missing_patchset_id");
+  }
+
+  TEST_CASE("patchset_add - new ID fails while a different non-applied patchset is stored")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    tools.patchset_add("add8", f.path(), "hello", "goodbye");
+
+    auto result = tools.patchset_add("add9", g.path(), "foo", "baz");
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "patchset_conflict");
+
+    // The stored patchset is untouched
+    auto get_result = tools.patchset_get("add8");
+    CHECK(get_result["edit_count"] == 1);
+  }
+
+  TEST_CASE("patchset_add - new ID succeeds after patchset_clear")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    tools.patchset_add("add10", f.path(), "hello", "goodbye");
+    CHECK(tools.patchset_clear("add10")["status"] == "success");
+
+    auto result = tools.patchset_add("add11", g.path(), "foo", "baz");
+    CHECK(result["status"] == "success");
+    CHECK(result["created"] == true);
+    CHECK(result["patch_number"] == 1);
+  }
+
+  TEST_CASE("patchset_add - new ID succeeds after previous patchset applied")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    tools.patchset_add("add12", f.path(), "hello", "goodbye");
+    CHECK(tools.patchset_apply("add12")["status"] == "success");
+
+    auto result = tools.patchset_add("add13", g.path(), "foo", "baz");
+    CHECK(result["status"] == "success");
+    CHECK(result["created"] == true);
   }
 
   // ---- patchset_apply already_applied guard ----

@@ -21,6 +21,7 @@ namespace mistral::tools
     virtual std::optional<patchset_t> get_patchset(const std::string& patchset_id) const = 0;
     virtual void remove_patchset(const std::string& patchset_id) = 0;
     virtual void mark_applied(const std::string& patchset_id) = 0;
+    virtual std::optional<std::string> get_current_patchset_id() const = 0;
   };
 } // namespace mistral::tools
 
