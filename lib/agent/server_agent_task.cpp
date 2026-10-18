@@ -124,7 +124,19 @@ namespace mistral::agent
               url = chunk["url"].get<std::string>();
             }
             if (!title.empty()) {
-              sources.emplace_back(std::move(title), std::move(url));
+              // The remote agent emits one tool_reference chunk per
+              // citation occurrence, so the same source can appear
+              // several times; keep the first occurrence only.
+              bool seen = false;
+              for (const auto& [t, u] : sources) {
+                if (t == title && u == url) {
+                  seen = true;
+                  break;
+                }
+              }
+              if (!seen) {
+                sources.emplace_back(std::move(title), std::move(url));
+              }
             }
           }
         }
@@ -186,7 +198,8 @@ namespace mistral::agent
     const auto& agent_cfg = sys.get_agent_config(agent_id_);
     return server_agent_config_fingerprint(
       *agent_cfg.server_agent,
-      sys.resolve_server_agent_instructions(agent_cfg));
+      sys.resolve_server_agent_instructions(agent_cfg),
+      model_);
   }
 
   auto server_agent_task::ensure_server_agent() -> dripcore::awaitable<bool>
@@ -224,8 +237,8 @@ namespace mistral::agent
 
       // The config fingerprint is stored in the agent's metadata at
       // creation/update time. A mismatch means the local config changed
-      // (e.g. the builtin tool type) — update the agent so the change
-      // takes effect without deleting anything server-side.
+      // (e.g. the builtin tool type or the model) — update the agent so
+      // the change takes effect without deleting anything server-side.
       std::string found_fp;
       if (found->metadata && found->metadata->contains(server_agent_config_hash_key) &&
           (*found->metadata)[server_agent_config_hash_key].is_string())
@@ -369,6 +382,9 @@ namespace mistral::agent
     // UpdateAgentRequest: all fields optional. The update creates a new
     // version server-side.
     api::json body;
+    // UpdateAgentRequest accepts model (mistral-openapi.yaml) — include
+    // it so model drift is fixed along with the rest of the config.
+    body["model"] = model_;
     body["instructions"] = sys.resolve_server_agent_instructions(agent_cfg);
     body["description"] = server_cfg.description;
     body["tools"] = server_cfg.tools;

@@ -138,10 +138,14 @@ namespace
   {
     bool agent_exists = false;        // GET /v1/agents/pages returns a match
     bool drift_metadata = false;      // existing agent has a stale config hash
+    bool drift_model_metadata = false;  // existing agent was created with another model
     bool fail_create = false;         // POST /v1/agents fails
     bool fail_patch = false;          // PATCH /v1/agents/{id} fails
     bool fail_conversations = false;  // POST /v1/conversations fails
     bool plain_content = false;       // message.output content is a plain string
+    // Override the message.output content chunks (defaults to the standard
+    // text + tool_reference set).
+    std::optional<json> conversation_content;
   };
 
   class fake_http_task : public dripcore::task
@@ -179,18 +183,25 @@ namespace
 
     // The config fingerprint the server-side agent would carry in its
     // metadata (computed from the initialized agent_system config).
-    static std::string current_config_fingerprint()
+    static std::string current_config_fingerprint(
+      const std::string& model_override = "")
     {
       const auto& sys = agent::agent_system::instance();
       const auto& cfg = sys.get_agent_config("researcher");
       return agent::server_agent_config_fingerprint(
-        *cfg.server_agent, sys.resolve_server_agent_instructions(cfg));
+        *cfg.server_agent, sys.resolve_server_agent_instructions(cfg),
+        model_override.empty()
+          ? sys.resolve_model_id(cfg.model) : model_override);
     }
 
     void respond_conversation(std::shared_ptr<event_ch> ch)
     {
       json content;
-      if (opts_.plain_content)
+      if (opts_.conversation_content)
+      {
+        content = *opts_.conversation_content;
+      }
+      else if (opts_.plain_content)
       {
         content = "Research findings";
       }
@@ -229,6 +240,17 @@ namespace
       {
         if (opts_.agent_exists)
         {
+          // Hash the existing agent would carry in its metadata.
+          std::string metadata_hash = current_config_fingerprint();
+          if (opts_.drift_metadata)
+          {
+            metadata_hash = "stale-hash";
+          }
+          else if (opts_.drift_model_metadata)
+          {
+            // As if the agent had been created with a different model.
+            metadata_hash = current_config_fingerprint("mistral-large-latest");
+          }
           json agent_json = {
             {"id", "agt_existing"},
             {"name", "mistral-cli-researcher"},
@@ -241,7 +263,7 @@ namespace
             {"source", "api"},
             {"metadata", json{{
               std::string(agent::server_agent_config_hash_key),
-              opts_.drift_metadata ? "stale-hash" : current_config_fingerprint()
+              metadata_hash
             }}}
           };
           json page = {
@@ -544,22 +566,31 @@ TEST_CASE("fingerprint: stable and sensitive to config changes")
   cfg.tools = {api::builtin_tool{.type = "web_search"}};
   cfg.completion_args = json{{"temperature", 0.2}};
 
-  const auto fp1 = agent::server_agent_config_fingerprint(cfg, "You research things.");
-  CHECK(fp1 == agent::server_agent_config_fingerprint(cfg, "You research things."));
+  const auto fp1 = agent::server_agent_config_fingerprint(
+    cfg, "You research things.", "mistral-small-latest");
+  CHECK(fp1 == agent::server_agent_config_fingerprint(
+    cfg, "You research things.", "mistral-small-latest"));
   CHECK(fp1.size() == 16);
+
+  // Sensitive to model changes.
+  CHECK(agent::server_agent_config_fingerprint(
+    cfg, "You research things.", "mistral-large-latest") != fp1);
 
   // Sensitive to tool changes.
   auto cfg2 = cfg;
   cfg2.tools = {api::builtin_tool{.type = "web_search_premium"}};
-  CHECK(agent::server_agent_config_fingerprint(cfg2, "You research things.") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(
+    cfg2, "You research things.", "mistral-small-latest") != fp1);
 
   // Sensitive to instruction changes.
-  CHECK(agent::server_agent_config_fingerprint(cfg, "Other instructions.") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(
+    cfg, "Other instructions.", "mistral-small-latest") != fp1);
 
   // Sensitive to completion_args changes.
   auto cfg3 = cfg;
   cfg3.completion_args = json{{"temperature", 0.5}};
-  CHECK(agent::server_agent_config_fingerprint(cfg3, "You research things.") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(
+    cfg3, "You research things.", "mistral-small-latest") != fp1);
 }
 
 TEST_SUITE_END;
@@ -893,6 +924,36 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
 }
 
 TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "updates the server-side agent when the model drifted")
+{
+  write_config(k_researcher_config);
+  initialize();
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  fake_http_options opts;
+  opts.agent_exists = true;
+  opts.drift_model_metadata = true;  // created with a different model
+  sched.spawn<fake_http_task>(request_ch, &captured, opts);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  REQUIRE(results.size() == 1);
+  CHECK(results[0] ==
+    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+
+  // find (hit, model drift) + PATCH (carries the model) + conversation.
+  REQUIRE(captured.size() == 3);
+  CHECK(captured[0].method == "GET");
+  CHECK(captured[1].method == "PATCH");
+  auto patch_body = json::parse(captured[1].body);
+  CHECK(patch_body["model"] == "mistral-small-latest");
+  CHECK(captured[2].path == "/v1/conversations");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
   "surfaces setup errors through the subagent error path (with hint)")
 {
   write_config(k_researcher_config);
@@ -1022,6 +1083,150 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(conv_body["agent_id"] == "agt_created");
   // The tool's "query" argument becomes the conversation inputs.
   CHECK(conv_body["inputs"] == "test query");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "renders sources without urls as bare titles and lists all sources")
+{
+  write_config(k_researcher_config);
+  initialize();
+
+  fake_http_options opts;
+  opts.conversation_content = json::array({
+    json{{"type", "text"}, {"text", "Answer"}},
+    json{{"type", "tool_reference"}, {"title", "With URL"},
+         {"url", "https://example.com/a"}},
+    json{{"type", "tool_reference"}, {"title", "Without URL"}}
+  });
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  sched.spawn<fake_http_task>(request_ch, &captured, opts);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  REQUIRE(results.size() == 1);
+  CHECK(results[0] ==
+    "Answer\n\nSources:\n- [With URL](https://example.com/a)\n- Without URL");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "deduplicates repeated tool_reference citations in the source list")
+{
+  write_config(k_researcher_config);
+  initialize();
+
+  fake_http_options opts;
+  opts.conversation_content = json::array({
+    json{{"type", "text"}, {"text", "Answer"}},
+    json{{"type", "tool_reference"}, {"title", "Same Source"},
+         {"url", "https://example.com/a"}},
+    json{{"type", "tool_reference"}, {"title", "Same Source"},
+         {"url", "https://example.com/a"}},
+    json{{"type", "tool_reference"}, {"title", "Other Source"},
+         {"url", "https://example.com/b"}},
+    json{{"type", "tool_reference"}, {"title", "Same Source"},
+         {"url", "https://example.com/a"}}
+  });
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  sched.spawn<fake_http_task>(request_ch, &captured, opts);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  REQUIRE(results.size() == 1);
+  CHECK(results[0] ==
+    "Answer\n\nSources:\n- [Same Source](https://example.com/a)"
+    "\n- [Other Source](https://example.com/b)");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "rejects a non-mistral provider before making any request")
+{
+  write_config(R"({
+    "models": {
+      "other": {
+        "provider": "openai",
+        "model_id": "gpt-test",
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url": "https://api.example.com",
+        "api_version": "v1"
+      }
+    },
+    "agents": {
+      "researcher": {
+        "model": "other",
+        "server_agent": {
+          "name": "mistral-cli-researcher",
+          "instructions": "You research things.",
+          "tools": [{"type": "web_search"}]
+        }
+      }
+    }
+  })");
+  initialize();
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  sched.spawn<fake_http_task>(request_ch, &captured, fake_http_options{});
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  REQUIRE(results.size() == 1);
+  CHECK(results[0].find("Error: could not set up server-side agent") == 0);
+  CHECK(results[0].find(
+    "provider 'openai' does not support the Mistral Agents API")
+    != std::string::npos);
+  // The provider check happens before any HTTP request.
+  CHECK(captured.empty());
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture,
+  "percent-encodes the server agent name in the find request")
+{
+  write_config(R"({
+    "models": {
+      "mistral-small": {
+        "provider": "mistral",
+        "model_id": "mistral-small-latest",
+        "api_key_env": "MISTRAL_API_KEY",
+        "base_url": "https://api.mistral.ai",
+        "api_version": "v1"
+      }
+    },
+    "agents": {
+      "researcher": {
+        "model": "mistral-small",
+        "server_agent": {
+          "name": "researcher & co",
+          "instructions": "You research things.",
+          "tools": [{"type": "web_search"}]
+        }
+      }
+    }
+  })");
+  initialize();
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  sched.spawn<fake_http_task>(request_ch, &captured, fake_http_options{});
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  REQUIRE(results.size() == 1);
+  // find (miss) + create + conversation.
+  REQUIRE(captured.size() == 3);
+  CHECK(captured[0].method == "GET");
+  CHECK(captured[0].path == "/v1/agents/pages?name=researcher%20%26%20co");
 }
 
 TEST_SUITE_END;

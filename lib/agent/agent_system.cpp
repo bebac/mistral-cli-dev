@@ -1015,9 +1015,11 @@ namespace mistral::agent
 
   std::string server_agent_config_fingerprint(
     const server_agent_config& cfg,
-    const std::string& resolved_instructions)
+    const std::string& resolved_instructions,
+    const std::string& model)
   {
     api::json canonical;
+    canonical["model"] = model;
     canonical["tools"] = cfg.tools;
     canonical["instructions"] = resolved_instructions;
     canonical["description"] = cfg.description;
@@ -1041,7 +1043,7 @@ namespace mistral::agent
     auto output_ch = std::make_shared<dripcore::channel<std::string>>(4);
 
     // Agents with a server_agent block run on the Mistral Agents API
-    // (POST /v1/agents/completions); all others use chat completions.
+    // (POST /v1/conversations); all others use chat completions.
     if (get_agent_config(agent_id).server_agent) {
       task.spawn_local<server_agent_task>(agent_id, input_ch, output_ch);
     } else {

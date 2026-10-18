@@ -9,10 +9,10 @@
 namespace mistral::agent
 {
   // Agent task backed by a server-side Mistral Agents API entity
-  // (POST /v1/agents + POST /v1/agents/completions). The server-side
+  // (POST /v1/agents + POST /v1/conversations). The server-side
   // agent owns the model, instructions and builtin tools (e.g.
   // web_search), which execute server-side; this task only supplies the
-  // messages and consumes the streamed completion.
+  // conversation inputs and consumes the (non-streaming) response.
   //
   // The server-side agent entity is resolved lazily on the first turn:
   // an existing agent with the same name is reused (GET
