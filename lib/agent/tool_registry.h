@@ -10,11 +10,17 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mistral::agent
 {
   using json = nlohmann::ordered_json;
+
+  // Custom approval prompt renderer: receives the parsed tool arguments
+  // and the policy reason, and returns a formatted prompt string.
+  using approval_renderer_fn =
+    std::function<std::string(const json& args, std::string_view reason)>;
 
   // ---- Argument metadata ----
 
@@ -102,6 +108,17 @@ namespace mistral::agent
     virtual dripcore::awaitable<json> execute(const json& args) = 0;
     virtual json get_schema(const std::string& tool_name, bool strict = false) = 0;
     virtual std::shared_ptr<tool_interface> clone() const = 0;
+
+    // Custom approval prompt rendering. Default: nullopt, meaning
+    // "fall back to the generic build_approval_prompt()".
+    virtual std::optional<std::string> render_approval(
+      const json& args, std::string_view reason) const
+    {
+      return std::nullopt;
+    }
+
+    // Attach a custom approval renderer. Default: no-op.
+    virtual void set_approval_renderer(approval_renderer_fn renderer) {}
   };
 
   // ---- Concrete tool wrapper ----
@@ -176,13 +193,27 @@ namespace mistral::agent
       };
     }
 
+    std::optional<std::string> render_approval(
+      const json& args, std::string_view reason) const override
+    {
+      if (approval_renderer_) return (*approval_renderer_)(args, reason);
+      return std::nullopt;
+    }
+
+    void set_approval_renderer(approval_renderer_fn renderer) override
+    {
+      approval_renderer_ = std::move(renderer);
+    }
+
     std::shared_ptr<tool_interface> clone() const override
     {
       // Create a new wrapper with the same function and metadata
       // Note: The captured variables in func_ (like tool instance pointers) are preserved
-      return std::make_shared<tool_wrapper<Ret, Args...>>(
+      auto copy = std::make_shared<tool_wrapper<Ret, Args...>>(
         func_, args_info_, description_
       );
+      copy->approval_renderer_ = approval_renderer_;
+      return copy;
     }
 
   private:
@@ -334,6 +365,7 @@ namespace mistral::agent
     std::function<Ret(Args...)> func_;
     std::vector<arg_info> args_info_;
     std::string description_;
+    std::optional<approval_renderer_fn> approval_renderer_;
   };
 
   // ---- Tool registry ----
@@ -452,6 +484,32 @@ namespace mistral::agent
     void add_tool(const std::string& name, std::shared_ptr<tool_interface> tool)
     {
       tools_[name] = std::move(tool);
+    }
+
+    // Register a custom approval renderer for a tool.
+    // The renderer receives the parsed tool arguments and the policy reason,
+    // and returns a formatted prompt string.
+    void register_approval_renderer(
+      const std::string& tool_name,
+      approval_renderer_fn renderer
+    )
+    {
+      if (auto tool = get_tool(tool_name)) {
+        tool->set_approval_renderer(std::move(renderer));
+      }
+    }
+
+    // Render an approval prompt for a tool.
+    // Returns nullopt if the tool has no custom renderer (or is unknown),
+    // signaling the caller to fall back to the generic build_approval_prompt().
+    std::optional<std::string> render_approval(
+      const std::string& tool_name,
+      const json& args,
+      std::string_view reason
+    ) const
+    {
+      auto tool = get_tool(tool_name);
+      return tool ? tool->render_approval(args, reason) : std::nullopt;
     }
 
   private:

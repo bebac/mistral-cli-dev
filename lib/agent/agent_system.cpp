@@ -1,5 +1,6 @@
 #include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/approval_renderers.h"
 #include "agent/compact_command.h"
 #include "agent/subagent_task.h"
 #include "agent/server_agent_task.h"
@@ -780,6 +781,9 @@ namespace mistral::agent
       &research_tools, &mistral::tools::research_tools::web_search,
       arg("query", "The search query or research question")
     );
+
+    // Register custom approval prompt renderers
+    register_approval_renderers(global_tools_);
   }
 
   // ---- Configuration Access ----

@@ -208,8 +208,17 @@ namespace mistral::agent
         }
         else
         {
-          std::string approval_prompt = build_approval_prompt(tc.function.name, tool_args,
-            policy_result.reason ? *policy_result.reason : "Policy requires approval");
+          // Note: std::string, not std::string_view — the ternary below
+          // produces a temporary std::string, which a string_view would dangle on.
+          std::string reason = policy_result.reason
+            ? *policy_result.reason
+            : "Policy requires approval";
+
+          // Try custom renderer first, fall back to generic
+          auto custom = tools_.render_approval(tc.function.name, tool_args, reason);
+          std::string approval_prompt = custom
+            ? *custom
+            : build_approval_prompt(tc.function.name, tool_args, reason);
 
           if (prompt_ch_) {
             prompt_ch_->try_send("[APPROVAL_PROMPT]" + approval_prompt);

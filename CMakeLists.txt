@@ -132,6 +132,7 @@ add_library(mistral-core STATIC
     lib/agent/policy_engine.cpp
     lib/agent/approval_manager.cpp
     lib/agent/approval_prompt.cpp
+    lib/agent/approval_renderers.cpp
     lib/agent/agent_system.cpp
     lib/agent/agent_system_task.cpp
     lib/agent/agent_system_stats_task.cpp
