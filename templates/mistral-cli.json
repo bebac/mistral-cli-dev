@@ -1,5 +1,12 @@
 {
   "models": {
+    "mistral-large": {
+      "provider": "mistral",
+      "model_id": "mistral-large-4",
+      "api_key_env": "MISTRAL_API_KEY",
+      "base_url": "https://api.mistral.ai",
+      "api_version": "v1"
+    },
     "mistral-medium": {
       "provider": "mistral",
       "model_id": "mistral-medium-latest",
@@ -13,18 +20,11 @@
       "api_key_env": "MISTRAL_API_KEY",
       "base_url": "https://api.mistral.ai",
       "api_version": "v1"
-    },
-    "mistral-lean": {
-      "provider": "mistral",
-      "model_id": "labs-leanstral-1-5",
-      "api_key_env": "MISTRAL_API_KEY",
-      "base_url": "https://api.mistral.ai",
-      "api_version": "v1"
     }
   },
   "agents": {
     "main": {
-      "model": "mistral-medium",
+      "model": "mistral-large",
       "system_prompt": "file://.mistral-cli/sys_prompt.md",
       "available_tools": [
         "ls",
