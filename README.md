@@ -8,15 +8,87 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 
 ## Features
 
-✅ **Interactive Chat**: Stream responses in real-time.
-✅ **TUI Mode**: Full-screen terminal UI (`mistral-tui`) with selectable themes.
-✅ **Tool Integration**: File listing/reading, syntax-aware code exploration (tree-sitter), exec, notes, task tracking, and patchset-based file editing.
-✅ **Multi-Agent Configuration**: Models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
-✅ **Workspace Bootstrap**: Default configuration files are embedded in the executables and seeded automatically on startup.
-✅ **Console History**: Persists command history between sessions.
-✅ **HTTP/2 + TLS**: Efficient, secure communication with the API.
-✅ **Cross-Platform**: Works on Unix-like systems (Linux, macOS).
-✅ **Unit Tested**: Comprehensive test suite (via [doctest](https://github.com/doctest/doctest)).
+### Chat & interface
+
+- **Interactive chat** — stream responses in real-time.
+- **TUI mode** — full-screen terminal UI (`mistral-tui`) with selectable themes.
+- **Console history** — persists command history between sessions.
+
+### Tools & workspace
+
+- **Tool integration** — file listing/reading, syntax-aware code exploration (tree-sitter), exec, notes, task tracking, and patchset-based file editing.
+- **Multi-agent configuration** — models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
+- **Workspace bootstrap** — default configuration files are embedded in the executables and seeded automatically on startup.
+
+### Engineering
+
+- **HTTP/2 + TLS** — efficient, secure communication with the API.
+- **Cross-platform** — works on Unix-like systems (Linux, macOS).
+- **Unit tested** — comprehensive test suite (via [doctest](https://github.com/doctest/doctest)).
+
+---
+
+## Roadmap
+
+Where the project is headed, grouped by theme.
+
+### TUI input & ergonomics
+
+- **Prompt history in the TUI** — the console already persists command
+  history between sessions, but the TUI input is a custom widget with no
+  history. Arrow-up recall of previous prompts is the main parity gap.
+- **Autocomplete in the TUI input** — tab-completion for file paths, and
+  potentially symbols, reusing the existing tree-sitter code tools. Long
+  paths and symbol names are painful to type by hand.
+
+### Session persistence
+
+- **Save and restore sessions** — conversation state is in-memory only
+  today; exiting loses everything. Persisting sessions would let
+  long-running agentic work (multi-file patchsets, research) survive
+  restarts and be resumed later.
+
+### Safety & containment
+
+- **Stronger policies and approval** — tool calls already go through a
+  policy engine with per-call approval to keep the model inside the
+  workspace, but the default policy (`templates/policy.json`) has holes:
+  it allowlists `exec` by executable name only, so `find` is allowed with
+  any arguments even though `find -exec` / `find -delete` can alter or
+  delete files, and `make` runs arbitrary recipes from a Makefile. The
+  optional `args` constraint cannot forbid dangerous flags — it only
+  checks that at least one argument matches. Next steps: argument-aware
+  rules or full command-line patterns, and a better approval UX
+  (per-tool approval prompts just landed for `patchset_apply` and
+  `exec`).
+
+### Output rendering
+
+- **Markdown rendering of final answers** — agent output currently streams
+  as raw text and markdown is shown literally. A streaming markdown
+  renderer would style headings, lists, and code fences.
+
+### Agent architecture
+
+- **Subagents and workflows** — subagents currently support one level of
+  delegation (e.g. `web_search` → `researcher`). Future directions: deeper
+  delegation, and richer task-tool workflows (dependencies between tasks,
+  parallel execution, better status tracking) so the model can plan and
+  track multi-step work.
+
+### Provider support & naming
+
+- **Beyond Mistral** — the client is provider-agnostic at the wire level:
+  the model's `provider` field in `mistral-cli.json` selects the format
+  (`mistral`, or the OpenAI-compatible provider that covers GreenPT,
+  DeepSeek, and other endpoints, including `reasoning_content` thinking
+  streams). Only Mistral and GreenPT are tested; other endpoints are
+  expected to work but unverified. What is still Mistral-only is the
+  `web_search` subagent (Mistral Agents API; it errors on other
+  providers) — and the name: `mistral-cli`, `.mistral-cli/`,
+  `mistral-cli.json` all say "Mistral" while the tool works with any
+  compatible endpoint. Future directions: provider-neutral web research,
+  broader provider support, and a rename that reflects it.
 
 ---
 
@@ -78,29 +150,29 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 
 #### Command-Line Options — mistral-cli
 
-| Option                   | Description                                                        | Default                                    |
-|--------------------------|--------------------------------------------------------------------|--------------------------------------------|
-| `-c, --config-file FILE` | Configuration file path.                                            | `.mistral-cli/mistral-cli.json`            |
-| `-n, --notes-dir DIR`    | Notes directory.                                                    | `.mistral-cli/notes`                       |
+| Option                   | Description                                                        | Default                                      |
+|--------------------------|--------------------------------------------------------------------|----------------------------------------------|
+| `-c, --config-file FILE` | Configuration file path.                                           | `.mistral-cli/mistral-cli.json`              |
+| `-n, --notes-dir DIR`    | Notes directory.                                                   | `.mistral-cli/notes`                         |
 | `-H, --host HOST`        | API host.                                                          | `api.mistral.ai` (or `base_url` from config) |
-| `-p, --port PORT`        | API port.                                                          | `443`                                      |
-| `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                     |
-| `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                            |
-| `-B, --no-bootstrap`     | Do not bootstrap the workspace.                                    |                                            |
-| `-U, --update-managed`   | Force-update managed files (e.g. `sys_patchset_instructions.md`).  |                                            |
-| `-h, --help`             | Show help.                                                         |                                            |
+| `-p, --port PORT`        | API port.                                                          | `443`                                        |
+| `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                       |
+| `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                              |
+| `-B, --no-bootstrap`     | Do not bootstrap the workspace.                                    |                                              |
+| `-U, --update-managed`   | Force-update managed files (e.g. `sys_patchset_instructions.md`).  |                                              |
+| `-h, --help`             | Show help.                                                         |                                              |
 
 #### Command-Line Options — mistral-tui
 
-| Option               | Description                                                       | Default                         |
-|----------------------|-------------------------------------------------------------------|---------------------------------|
-| `-c FILE`            | Config file.                                                      | `.mistral-cli/mistral-cli.json` |
-| `-H HOST`            | API host.                                                         | `api.mistral.ai`                |
-| `-p PORT`            | API port.                                                         | `443`                           |
-| `-a ID`              | Agent ID.                                                         | `main`                          |
-| `--theme NAME`       | Theme: `dark`, `light`, `nord`, `tokyo-night`, `solarized-light`. | `dark`                          |
-| `--no-bootstrap`     | Do not bootstrap the workspace.                                   |                                 |
-| `--update-managed`   | Force-update managed files.                                       |                                 |
+| Option                   | Description                                                        | Default                         |
+|--------------------------|--------------------------------------------------------------------|---------------------------------|
+| `-c FILE`                | Config file.                                                       | `.mistral-cli/mistral-cli.json` |
+| `-H HOST`                | API host.                                                          | `api.mistral.ai`                |
+| `-p PORT`                | API port.                                                          | `443`                           |
+| `-a ID`                  | Agent ID.                                                          | `main`                          |
+| `--theme NAME`           | Theme: `dark`, `light`, `nord`, `tokyo-night`, `solarized-light`.  | `dark`                          |
+| `--no-bootstrap`         | Do not bootstrap the workspace.                                    |                                 |
+| `--update-managed`       | Force-update managed files.                                        |                                 |
 
 The model is no longer selected on the command line; it comes from the agent's model configuration in `mistral-cli.json`.
 
@@ -131,11 +203,17 @@ See `templates/README.md` for details.
 
 ## Usage
 
-### Interactive Chat
+Both executables share the same agent core — the same tools, tool policy,
+slash commands, and approval flow — and differ only in the interface.
 
-1. Type your message and press **Enter**.
+### Console — mistral-cli
+
+1. Type your message at the `>` prompt and press **Enter**.
 2. The AI responds in real-time (streaming).
 3. Press **Ctrl+D** to exit.
+
+Input history persists between sessions (`.mistral-cli/history`, recall
+with the up arrow), and **Tab** completes slash commands and file names.
 
 Example:
 ```
@@ -146,36 +224,60 @@ Type your message, Ctrl-D to exit.
 < I'm a helpful AI assistant created by Mistral AI. How can I help you today?
 ```
 
-### Tool Calls
+### TUI — mistral-tui
 
-The AI can call tools to perform actions. For example:
+Full-screen interface: a header with a connectivity indicator, a
+scrollable transcript, a multi-line input box, and a footer showing the
+workspace, agent · model, and token usage. Select a theme with `--theme`
+(`dark`, `light`, `nord`, `tokyo-night`, `solarized-light`).
 
-- **List files**:
-  ```
-  > List files in the current directory.
-  < Calling tool: ls(path=".")
-  < Here are the files:
-  d        - build
-  f     3555 CMakeLists.txt
-  f     4406 src/main.cpp
-  ```
+- **Enter** inserts a newline; **Alt+Enter** — or **Enter** on an empty
+  last line (double-Enter) — sends the message.
+- Typing `/` opens a slash-command popup; **Tab** or **Enter** inserts
+  the selected command.
+- **Esc** interrupts the running agent turn; during an approval prompt
+  it rejects the call.
+- **PageUp** / **PageDown** scroll the transcript by page, **Alt+↑** /
+  **Alt+↓** by line.
+- `/exit` quits the TUI.
 
-- **Read a file**:
-  ```
-  > Read the first 5 lines of README.md.
-  < Calling tool: read(path="README.md", line_from=1, line_to=5)
-  < Here are the first 5 lines:
-  1|# Mistral CLI
-  2|
-  3|A command-line interface for Mistral AI models...
-  ```
+### Slash commands
 
-- **Search the codebase**:
-  ```
-  > Find where the tool registry is populated.
-  < Calling tool: find_references(name="register_tool", path="lib")
-  < lib/agent/agent_system.cpp:487:    global_tools_.register_tool(
-  ```
+Both interfaces support the same slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help [command]` | List slash commands, or show usage for one. |
+| `/model` | Show the current model. |
+| `/tools` | List the available tools. |
+| `/usage [reset]` | Show API usage statistics (`reset` zeroes them). |
+| `/compact [keep]` | Summarize the conversation history, keeping the last `keep` turns verbatim. |
+| `/save [file]` | Save the last AI response to a file (default: `last_response.txt`). |
+| `/load [file]` | Load a file as the last AI response. |
+| `/tool <name> <json>` | Call a tool directly, for debugging. |
+| `/clear` | Clear the chat history (not yet implemented). |
+| `/exit` | Quit the TUI (in the console, exit with **Ctrl+D**). |
+
+### Tool approval
+
+When a tool call requires approval (see the tool policy in
+`.mistral-cli/policy.json`), the interface pauses and shows the tool,
+its arguments, and the reason:
+
+```
+[APPROVAL REQUIRED]
+  Tool: patchset_apply
+  ...
+  Approve? [y/n/r/a/?]:
+```
+
+- `y` — approve this call
+- `n` — reject this call
+- `r` — reject, with a custom message for the AI
+- `a` — approve all similar calls for this session
+- `?` — show this help
+
+In the TUI, **Esc** during an approval prompt rejects the call.
 
 ### Available Tools
 
@@ -198,8 +300,7 @@ Which tools an agent may use is configured per agent via `available_tools`
 in `mistral-cli.json`. File edits go through the patchset workflow
 (see `.mistral-cli/sys_patchset_instructions.md`) rather than a direct
 write tool. The code exploration tools are syntax-aware (no matches in
-comments, strings or preprocessor directives); see `doc/code-tools.md`
-for details and caveats.
+comments, strings or preprocessor directives).
 
 ### Subagents
 
@@ -267,17 +368,16 @@ Mistral console, or switch the `server_agent` tool to
 
 ## Project Structure
 
-| Directory/File   | Purpose                                                                 |
-|------------------|-------------------------------------------------------------------------|
-| `src/`           | Executable entry points (`mistral-cli`, `mistral-tui`, demos).           |
-| `lib/`           | Core library (HTTP, API, console, TUI, tools, agent system).             |
-| `test/`          | Unit tests.                                                             |
-| `templates/`     | Default workspace files embedded into the executables at build time.    |
-| `queries/`       | Repo-local tree-sitter queries, embedded into the executables at build time. |
-| `doc/`           | Design documents (code tools, TUI, rendering).                          |
-| `third_party/`   | Submodule dependencies (`dripcore`, `stunning-waddle`, `isocline`, `just-a-uri`, `cpp-tui`, `tree-sitter` + C++ grammar) and `nlohmann/json`. |
-| `CMakeLists.txt` | Build configuration.                                                    |
-| `README.md`      | This file.                                                              |
+| Directory/File | Purpose |
+|----------------|---------|
+| `src/` | Executable entry points (`mistral-cli`, `mistral-tui`, demos). |
+| `lib/` | Core library (HTTP, API, console, TUI, tools, agent system). |
+| `test/` | Unit tests. |
+| `templates/` | Default workspace files embedded into the executables at build time. |
+| `queries/` | Repo-local tree-sitter queries, embedded into the executables at build time. |
+| `third_party/` | Submodule dependencies (`dripcore`, `stunning-waddle`, `isocline`, `just-a-uri`, `cpp-tui`, `tree-sitter` + C++ grammar) and `nlohmann/json`. |
+| `CMakeLists.txt` | Build configuration. |
+| `README.md` | This file. |
 
 ---
 
@@ -394,3 +494,4 @@ file for details.
 - [stunning-waddle](https://github.com/bebac/stunning-waddle) for HTTP/2 support.
 - [isocline](https://github.com/bebac/isocline) for the interactive console.
 - [cpp-tui](https://github.com/bebac/cpp-tui) for the terminal UI.
+- [tree-sitter](https://github.com/tree-sitter/tree-sitter)
