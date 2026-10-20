@@ -1,0 +1,82 @@
+name: build_mistral_cli
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      run_on_os:
+        description: 'Select OS to run'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - ubuntu-24.04
+          - macos-15
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.run_on_os }}" != "both" ]]; then
+            echo "matrix={\"os\":[\"${{ github.event.inputs.run_on_os }}\"]}" >> $GITHUB_OUTPUT
+          else
+            echo "matrix={\"os\":[\"ubuntu-24.04\",\"macos-15\"]}" >> $GITHUB_OUTPUT
+          fi
+
+  build_and_test:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # .gitmodules uses SSH URLs (git@github.com:...) for several
+      # submodules; rewrite them to HTTPS so the anonymous CI checkout works.
+      - name: rewrite_ssh_submodule_urls
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: checkout_repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install_linux_dependencies
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev
+
+      - name: install_dependencies_macos
+        if: matrix.os == 'macos-15'
+        run: |
+          brew install openssl
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+
+      # Note: no -DBUILD_TESTING=ON here. That flag propagates into the
+      # third_party subdirectories, where stunning-waddle and just-a-uri
+      # both define a "unit_tests" target (CMP0002 collision). The tests
+      # target in this project is built unconditionally.
+      - name: configure_cmake
+        run: |
+          cmake -S . -B build
+
+      - name: build_project
+        run: |
+          cmake --build build --parallel
+
+      # Run the test binary directly: on a fresh configure BUILD_TESTING
+      # ends up OFF (dripcore's option() runs before include(CTest)), so
+      # the add_test() registration is inert and ctest would find no tests.
+      - name: run_tests
+        run: |
+          ./build/tests
