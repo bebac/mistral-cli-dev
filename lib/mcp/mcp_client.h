@@ -1,13 +1,16 @@
 #ifndef MISTRAL_MCP_CLIENT_H
 #define MISTRAL_MCP_CLIENT_H
 
-#include "mcp/http1_client.h"
+#include <http/client_context.h>
 
 #include <dripcore/awaitable.h>
+#include <dripcore/socket.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 
 namespace mistral::mcp
@@ -18,9 +21,8 @@ namespace mistral::mcp
   // per HTTP POST; responses arrive as application/json or as a
   // text/event-stream body carrying a single JSON-RPC message).
   //
-  // Wire layer is mistral::mcp::http1_client, whose API mirrors
-  // stunning-waddle's driving pattern - swap it for stunning-waddle
-  // once it supports HTTP/1.1.
+  // Wire layer is stunning-waddle's http::client_context speaking
+  // HTTP/1.1 (protocol_version::v1_1) over a plain dripcore socket.
   //
   // Contract notes for the Storybook dev server endpoint are in
   // doc/storybook-mcp.md.
@@ -64,6 +66,7 @@ namespace mistral::mcp
   private:
     dripcore::awaitable<json> post(const json& message, int expect_id);
     void ensure_endpoint_parsed();
+    void close();
 
     std::string endpoint_url_;
     std::string host_;
@@ -71,7 +74,8 @@ namespace mistral::mcp
     std::string path_;
     std::string host_header_;
     std::chrono::seconds timeout_;
-    http1_client http1_;
+    std::optional<dripcore::socket> socket_;
+    std::unique_ptr<http::client_context> ctx_;
     std::string session_id_;
     json server_info_ = json::object();
     std::string instructions_;

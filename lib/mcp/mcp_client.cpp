@@ -1,5 +1,7 @@
 #include "mcp/mcp_client.h"
 
+#include "http/tls_connection.h"
+
 #include <dripcore/executor.h>
 #include <dripcore/sleep_awaiter.h>
 #include <http/sse.h>
@@ -75,12 +77,39 @@ namespace mistral::mcp
   dripcore::awaitable<bool> mcp_client::connect()
   {
     ensure_endpoint_parsed();
+    close();
     try {
-      http1_.connect(host_, port_);
-    } catch (const std::exception&) {
+      auto addr = net::address_info::resolve(host_, std::to_string(port_));
+      if (!addr) {
+        co_return false;
+      }
+      for (auto* res : *addr) {
+        try {
+          dripcore::socket sock{res->ai_family, res->ai_socktype,
+                                res->ai_protocol};
+          sock.connect(res->ai_addr, res->ai_addrlen);
+          sock.nonblocking(true);
+          socket_ = std::move(sock);
+          break;
+        } catch (const std::exception&) {
+          // Try the next resolved address.
+        }
+      }
+      if (!socket_) {
+        co_return false;
+      }
+      ctx_ = std::make_unique<http::client_context>();
+      ctx_->set_protocol_version(http::protocol_version::v1_1);
+      co_return true;
+    } catch (...) {
       co_return false;
     }
-    co_return true;
+  }
+
+  void mcp_client::close()
+  {
+    socket_.reset();
+    ctx_.reset();
   }
 
   // Sends one JSON-RPC message and pumps the I/O loop until the
@@ -90,7 +119,7 @@ namespace mistral::mcp
   dripcore::awaitable<json> mcp_client::post(
     const json& message, int expect_id)
   {
-    if (!http1_.connected()) {
+    if (!socket_) {
       if (!(co_await connect())) {
         throw std::runtime_error("cannot connect to " + host_ + ":" +
           std::to_string(port_));
@@ -99,14 +128,18 @@ namespace mistral::mcp
 
     std::string body = message.dump();
     http::headers h;
-    h.add("Host", host_header_);
     h.add("Content-Type", "application/json");
     h.add("Accept", "application/json, text/event-stream");
+    h.add("Content-Length", std::to_string(body.size()));
+    h.add("Connection", "close");
     if (!session_id_.empty()) {
       h.add("Mcp-Session-Id", session_id_);
     }
-    http1_.send_request("POST", path_, h,
-      std::as_bytes(std::span<const char>(body.data(), body.size())));
+    auto s = ctx_->open_stream();
+    s.send_headers("POST", path_, host_header_, h, false);
+    s.send_data(
+      std::as_bytes(std::span<const char>(body.data(), body.size())),
+      true);
 
     auto deadline = std::chrono::steady_clock::now() + timeout_;
 
@@ -117,29 +150,37 @@ namespace mistral::mcp
     bool closed = false;
 
     while (true) {
-      // Drain parser events.
-      while (http1_.has_events()) {
-        auto evt = http1_.next_event();
+      // Drain protocol events.
+      while (ctx_->has_events()) {
+        auto evt = ctx_->next_event();
+        if (!evt) {
+          break;
+        }
         switch (evt->type) {
-          case http1_event_type::response_headers: {
-            status = evt->status_code;
-            content_type = tolower(find_header(evt->headers, "content-type"));
-            auto sid = find_header(evt->headers, "mcp-session-id");
+          case http::event_type::headers: {
+            const auto& hdrs = std::get<http::headers>(evt->payload);
+            status = std::stoi(hdrs.get(":status"));
+            content_type = tolower(find_header(hdrs, "content-type"));
+            auto sid = find_header(hdrs, "mcp-session-id");
             if (!sid.empty()) {
               session_id_ = sid;
             }
             break;
           }
-          case http1_event_type::data:
+          case http::event_type::data: {
+            const auto& data = std::get<std::vector<std::byte>>(evt->payload);
             response_body.insert(
-              response_body.end(), evt->data.begin(), evt->data.end());
+              response_body.end(), data.begin(), data.end());
             break;
-          case http1_event_type::message_complete:
+          }
+          case http::event_type::stream_closed:
             complete = true;
             break;
-          case http1_event_type::connection_closed:
+          case http::event_type::connection_error:
             closed = true;
             break;
+          default:
+            break;  // goaway / window events: nothing to do
         }
       }
       if (complete || closed) {
@@ -147,42 +188,45 @@ namespace mistral::mcp
       }
 
       // Write pending request bytes.
-      auto out = http1_.output_begin();
+      auto out = ctx_->output_begin();
       if (!out.empty()) {
-        int n = http1_.write(out);
+        int n = static_cast<int>(socket_->send(out.data(), out.size(), 0));
         if (n > 0) {
-          http1_.output_end(static_cast<size_t>(n));
+          ctx_->output_end(static_cast<size_t>(n));
           continue;
         }
         if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-          http1_.close();
+          close();
           throw std::runtime_error(
             std::format("mcp write failed: {}", std::strerror(errno)));
         }
       }
 
-      // Read response bytes.
-      auto in = http1_.input_begin();
-      int n = http1_.read(in);
-      if (n > 0) {
-        http1_.input_end(static_cast<size_t>(n));
-        continue;
-      }
-      if (n == 0) {
-        http1_.eof();
-        continue;
-      }
-      if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        http1_.close();
-        throw std::runtime_error(
-          std::format("mcp read failed: {}", std::strerror(errno)));
+      // Read response bytes (skipped when the input buffer is full of
+      // unparsed data - the engine signals an error in that case).
+      auto in = ctx_->input_begin();
+      if (!in.empty()) {
+        int n = static_cast<int>(socket_->recv(in.data(), in.size(), 0));
+        if (n > 0) {
+          ctx_->input_end(static_cast<size_t>(n));
+          continue;
+        }
+        if (n == 0) {
+          ctx_->eof();
+          continue;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+          close();
+          throw std::runtime_error(
+            std::format("mcp read failed: {}", std::strerror(errno)));
+        }
       }
 
       // Nothing progressed: check the deadline and yield a timeslice.
       // (Same poll pattern as exec_tools - io_awaiter has no timeout
       // support, and MCP round trips are few and small.)
       if (std::chrono::steady_clock::now() >= deadline) {
-        http1_.close();
+        close();
         throw std::runtime_error("mcp request timed out after " +
           std::to_string(timeout_.count()) + "s");
       }
@@ -192,7 +236,7 @@ namespace mistral::mcp
     }
 
     // One request per connection (Connection: close).
-    http1_.close();
+    close();
 
     if (!complete) {
       throw std::runtime_error(
