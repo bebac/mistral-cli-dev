@@ -111,7 +111,6 @@ add_custom_command(
 
 add_library(mistral-core STATIC
     lib/http/tls_connection.cpp
-    lib/mcp/http1_client.cpp
     lib/mcp/mcp_client.cpp
     lib/mcp/mcp_manager.cpp
     lib/api/provider_base.cpp

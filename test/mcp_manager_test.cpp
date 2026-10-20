@@ -4,8 +4,10 @@
 #include "agent/agent_system.h"
 #include "agent/policy_engine.h"
 #include "agent/tool_registry.h"
+#include "http/tls_connection.h"
 
 #include <dripcore/scheduler.h>
+#include <dripcore/socket.h>
 #include <dripcore/task.h>
 
 #include <chrono>
@@ -18,10 +20,21 @@ namespace
   bool storybook_server_available()
   {
     try {
-      mistral::mcp::http1_client probe;
-      probe.connect("127.0.0.1", 6006);
-      probe.close();
-      return true;
+      auto addr = mistral::net::address_info::resolve("127.0.0.1", "6006");
+      if (!addr) {
+        return false;
+      }
+      for (auto* res : *addr) {
+        try {
+          dripcore::socket sock{res->ai_family, res->ai_socktype,
+                                res->ai_protocol};
+          sock.connect(res->ai_addr, res->ai_addrlen);
+          return true;
+        } catch (...) {
+          // Try the next resolved address.
+        }
+      }
+      return false;
     } catch (...) {
       return false;
     }

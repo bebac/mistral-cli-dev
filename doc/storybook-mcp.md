@@ -76,15 +76,20 @@ result: {
 
 ## Transport implications for the C++ client
 
-- stunning-waddle is HTTP/2-only; the vite dev server speaks HTTP/1.1.
-- The MCP client therefore needs a minimal HTTP/1.1 path: plain TCP
-  socket (the `address_info` resolver and the socket handling pattern in
+- The vite dev server speaks plain HTTP/1.1; the wire layer is
+  stunning-waddle's `http::v1::engine` via `http::client_context` with
+  `protocol_version::v1_1`, driven over a plain TCP socket (the
+  `address_info` resolver and the socket handling pattern in
   `lib/http/tls_connection.h` are reusable; drop the SSL layer), one
-  POST per JSON-RPC message, parse status line + headers + body.
+  POST per JSON-RPC message.
+- Requests set `Content-Length` and `Connection: close` explicitly (the
+  engine does not add them); the client reconnects for the next
+  request.
 - Body framing: responses observed as SSE (`text/event-stream`) that
   close after the response event; read until the SSE event whose JSON
   has the matching request id, or EOF. Also handle `application/json`
-  bodies and 202-with-empty-body for notifications.
+  bodies and 202-with-empty-body for notifications. The engine parses
+  Content-Length, chunked, and close-delimited bodies.
 - No streaming/subscription is required for the current tool set:
   every request is answered by one response. (`listChanged` capability
   notifications would arrive on a server-initiated SSE GET stream -
