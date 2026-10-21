@@ -588,6 +588,70 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy contains all tool
 
 TEST_SUITE_END;
 
+TEST_SUITE_BEGIN("agent_system::system_prompt");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: ask_user intro appended when tool is available")
+{
+  initialize_agent_system_empty();
+
+  mistral::agent::agent_config cfg;
+  cfg.system_prompt = "You are a helpful assistant.";
+  cfg.available_tools = {"ls", "read", "ask_user"};
+
+  auto& sys = mistral::agent::agent_system::instance();
+  std::string prompt = sys.resolve_system_prompt(cfg, "mistral-medium-latest");
+
+  CHECK(prompt.find("You are a helpful assistant.") != std::string::npos);
+  CHECK(prompt.find("## Asking the human") != std::string::npos);
+  CHECK(prompt.find("`ask_user`") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: ask_user intro appended for wildcard tools")
+{
+  initialize_agent_system_empty();
+
+  mistral::agent::agent_config cfg;
+  cfg.system_prompt = "You are a helpful assistant.";
+  cfg.available_tools = {"*"};
+
+  auto& sys = mistral::agent::agent_system::instance();
+  std::string prompt = sys.resolve_system_prompt(cfg, "mistral-medium-latest");
+
+  CHECK(prompt.find("## Asking the human") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: no ask_user intro when tool is unavailable")
+{
+  initialize_agent_system_empty();
+
+  mistral::agent::agent_config cfg;
+  cfg.system_prompt = "You are a helpful assistant.";
+  cfg.available_tools = {"ls", "read"};
+
+  auto& sys = mistral::agent::agent_system::instance();
+  std::string prompt = sys.resolve_system_prompt(cfg, "mistral-medium-latest");
+
+  CHECK(prompt == "You are a helpful assistant.");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: ask_user intro on empty prompt has no leading blank lines")
+{
+  initialize_agent_system_empty();
+
+  mistral::agent::agent_config cfg;
+  cfg.system_prompt = "";
+  cfg.available_tools = {"ask_user"};
+
+  auto& sys = mistral::agent::agent_system::instance();
+  std::string prompt = sys.resolve_system_prompt(cfg, "mistral-medium-latest");
+
+  // No leading blank lines: the section separator comes first.
+  CHECK(prompt.starts_with("---"));
+  CHECK(prompt.find("## Asking the human") != std::string::npos);
+}
+
+TEST_SUITE_END;
+
 TEST_SUITE_BEGIN("agent_system::tool_instances");
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_system")

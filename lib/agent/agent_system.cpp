@@ -1029,7 +1029,29 @@ namespace mistral::agent
     const std::string& model_id
   ) const
   {
-    return resolve_prompt_string(agent_cfg.system_prompt, model_id);
+    std::string prompt = resolve_prompt_string(agent_cfg.system_prompt, model_id);
+
+    // When the agent can ask the human, introduce the capability briefly
+    // in the system prompt: behavioral guidance lives there, and the
+    // tool description alone is easy to overlook. Conditional on the
+    // tool being available, so agents without ask_user never see a
+    // dangling reference.
+    const auto& tools = agent_cfg.available_tools;
+    const bool ask_user_available =
+      std::find(tools.begin(), tools.end(), "*") != tools.end() ||
+      std::find(tools.begin(), tools.end(), "ask_user") != tools.end();
+    if (ask_user_available) {
+      if (!prompt.empty()) prompt += "\n\n";
+      prompt += "---\n\n## Asking the human\n\n"
+        "You can ask the human directly with the `ask_user` tool. When "
+        "you reach a decision that changes the direction of the work — "
+        "an unforeseen design choice, conflicting requirements, or a "
+        "trade-off you cannot resolve from the codebase or conversation "
+        "— ask instead of guessing or silently picking a default. The "
+        "tool blocks until the human answers; the answer returns as the "
+        "tool result. See the tool description for when and how to ask.";
+    }
+    return prompt;
   }
 
   std::string agent_system::resolve_server_agent_instructions(

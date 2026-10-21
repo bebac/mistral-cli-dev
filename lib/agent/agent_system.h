@@ -53,7 +53,9 @@ namespace mistral::agent
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     );
 
-    // Resolve system prompt (handles file:// URLs)
+    // Resolve system prompt (handles file:// URLs). When the agent's
+    // available tools include ask_user (or the wildcard), a brief
+    // "Asking the human" introduction is appended.
     std::string resolve_system_prompt(
         const agent_config& agent_cfg,
         const std::string& model_id) const;
