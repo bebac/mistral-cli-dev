@@ -13,6 +13,9 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 - **Interactive chat** — stream responses in real-time.
 - **TUI mode** — full-screen terminal UI (`mistral-tui`) with selectable themes.
 - **Console history** — persists command history between sessions.
+- **Session persistence** — conversations are saved to
+  `.mistral-cli/chats/` as they happen; restart with `-r`/`--resume`
+  to continue the latest session.
 
 ### Tools & workspace
 
@@ -43,10 +46,14 @@ Where the project is headed, grouped by theme.
 
 ### Session persistence
 
-- **Save and restore sessions** — conversation state is in-memory only
-  today; exiting loses everything. Persisting sessions would let
-  long-running agentic work (multi-file patchsets, research) survive
-  restarts and be resumed later.
+- **Save and restore sessions** — conversations are saved to
+  `.mistral-cli/chats/` before every API request and after every
+  completed turn, and `-r`/`--resume` restores the latest session
+  (`chat.latest.json`) at startup, continuing the same chat file (and
+  API prompt cache) with a preview of the last turn. Remaining:
+  resuming a specific session by path (`/resume <path>`) and session
+  listing/management, so older sessions are reachable without
+  repointing the `chat.latest.json` symlink by hand.
 
 ### Safety & containment
 
@@ -157,6 +164,7 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 | `-H, --host HOST`        | API host.                                                          | `api.mistral.ai` (or `base_url` from config) |
 | `-p, --port PORT`        | API port.                                                          | `443`                                        |
 | `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                       |
+| `-r, --resume`           | Resume the latest chat session                                     |                                              |
 | `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                              |
 | `-B, --no-bootstrap`     | Do not bootstrap the workspace.                                    |                                              |
 | `-U, --update-managed`   | Force-update managed files (e.g. `sys_patchset_instructions.md`).  |                                              |
@@ -172,6 +180,7 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 | `-a ID`                  | Agent ID.                                                          | `main`                          |
 | `--theme NAME`           | Theme: `dark`, `light`, `nord`, `tokyo-night`, `solarized-light`.  | `dark`                          |
 | `--no-bootstrap`         | Do not bootstrap the workspace.                                    |                                 |
+| `--resume`               | Resume the latest chat session                                     |                                 |
 | `--update-managed`       | Force-update managed files.                                        |                                 |
 
 The model is no longer selected on the command line; it comes from the agent's model configuration in `mistral-cli.json`.
