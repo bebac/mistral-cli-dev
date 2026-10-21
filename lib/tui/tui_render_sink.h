@@ -68,6 +68,20 @@ namespace mistral::tui
       state_->enqueue(text + "\n", content_type::system);
     }
 
+    void output_resume_preview(const std::string& user_text,
+                               const std::string& assistant_text) override
+    {
+      // The leading newline keeps the header on its own line when it
+      // merges with the "Resumed session" status block above it. The user
+      // line renders in the user style (green), the assistant reply in
+      // the normal text style.
+      state_->enqueue("\nLast turn:", content_type::system);
+      state_->enqueue("> " + user_text + "\n", content_type::user);
+      if (!assistant_text.empty()) {
+        state_->enqueue(assistant_text + "\n", content_type::normal);
+      }
+    }
+
     void output_tool_call(const std::string& name,
                           const std::string& args) override
     {

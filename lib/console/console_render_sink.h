@@ -43,6 +43,16 @@ namespace mistral::agent
       std::cout << normal_color_ << " \xe2\x86\x92 " << display << std::endl;
     }
 
+    void output_resume_preview(const std::string& user_text,
+                               const std::string& assistant_text) override
+    {
+      std::cout << normal_color_ << "Last turn:" << std::endl;
+      std::cout << user_color_ << "> " << user_text << normal_color_ << std::endl;
+      if (!assistant_text.empty()) {
+        std::cout << normal_color_ << assistant_text << std::endl;
+      }
+    }
+
     void output_error(const std::string& text) override
     {
       std::cerr << "\n[error] " << text << std::endl;
@@ -77,6 +87,7 @@ namespace mistral::agent
     static constexpr char normal_color_[]   = "\033[0m";
     static constexpr char thinking_color_[] = "\033[90m";
     static constexpr char tool_color_[]     = "\033[32m";
+    static constexpr char user_color_[]     = "\033[32m";
   };
 } // namespace mistral::agent
 

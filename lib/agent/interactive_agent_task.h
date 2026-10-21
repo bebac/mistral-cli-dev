@@ -25,8 +25,8 @@
 #include <string_view>
 #include <variant>
 #include <vector>
-#include <cctype>
 #include <charconv>
+#include <filesystem>
 #include <format>
 
 namespace mistral::agent
@@ -55,10 +55,12 @@ namespace mistral::agent
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<std::string>> output_ch = nullptr,
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch = nullptr,
-      std::shared_ptr<render_sink> sink = nullptr
+      std::shared_ptr<render_sink> sink = nullptr,
+      bool resume = false
     )
       : agent_task_base(agent_id, input_ch, output_ch, prompt_ch)
       , sink_(std::move(sink))
+      , resume_(resume)
     {
       // Register the input channel so slash commands (e.g. /compact)
       // can route control messages to this task, which owns the
@@ -82,6 +84,10 @@ namespace mistral::agent
     dripcore::awaitable<> body() override
     {
       auto tools_schema = tools_.get_schema();
+
+      if (resume_) {
+        co_await resume_latest_session();
+      }
 
       while (true)
       {
@@ -469,7 +475,117 @@ namespace mistral::agent
       co_return;
     }
 
+    // Load the most recent chat (.mistral-cli/chats/chat.latest.json) into
+    // the conversation. The session id is recovered from the symlink
+    // target file name ("chat_<id>.json") and continued, so subsequent
+    // saves keep growing the same chat file and the API prompt cache
+    // (keyed on the session id) still hits. The current system prompt is
+    // re-applied so config changes take effect.
+    auto resume_latest_session() -> dripcore::awaitable<void>
+    {
+      namespace fs = std::filesystem;
+      const fs::path latest =
+        fs::path(".mistral-cli") / "chats" / "chat.latest.json";
+
+      std::error_code ec;
+      if (!fs::exists(latest, ec)) {
+        sink_->output_status("No previous session found, starting fresh.");
+        co_return;
+      }
+
+      // Recover the session id from the symlink target file name.
+      std::string resumed_session_id;
+      if (fs::is_symlink(latest, ec)) {
+        const auto target = fs::read_symlink(latest, ec);
+        if (!ec) {
+          if (auto id = conversation::session_id_from_filename(
+                target.filename().string())) {
+            resumed_session_id = *id;
+          }
+        }
+      }
+      if (resumed_session_id.empty()) {
+        if (auto id = conversation::session_id_from_filename(
+              latest.filename().string())) {
+          resumed_session_id = *id;
+        }
+      }
+
+      try {
+        size_t count = chat_.load(latest.string());
+        if (!resumed_session_id.empty()) {
+          session_id_ = resumed_session_id;
+        }
+        // The saved chat carries the old system prompt; re-apply the
+        // current one so config changes take effect.
+        if (!system_prompt_.empty()) {
+          chat_.set_system_message(system_prompt_);
+        }
+        sink_->output_status(std::format(
+          "Resumed session {} ({} message(s)) from {}",
+          session_id_, count, latest.string()));
+        render_last_turn_preview();
+      } catch (const std::exception& e) {
+        sink_->output_warning(std::format(
+          "Could not resume previous session ({}), starting fresh.", e.what()));
+      }
+      co_return;
+    }
+
+    // Render the most recent turn (last user message and last assistant
+    // reply) in full, so the user sees exactly where the session left
+    // off without replaying the whole history.
+    void render_last_turn_preview()
+    {
+      auto turn = chat_.last_turn();
+      if (turn.empty()) {
+        return;
+      }
+
+      const api::message* last_user = nullptr;
+      const api::message* last_assistant = nullptr;
+      for (const auto& msg : turn) {
+        if (msg.role == "user") {
+          last_user = &msg;
+        } else if (msg.role == "assistant") {
+          bool has_text = false;
+          for (const auto& mc : msg.content) {
+            if (mc.type == "text" && !mc.content.empty()) {
+              has_text = true;
+              break;
+            }
+          }
+          if (has_text) {
+            last_assistant = &msg;
+          }
+        }
+      }
+
+      if (!last_user) {
+        return;
+      }
+
+      sink_->output_resume_preview(
+        preview_text(*last_user),
+        last_assistant ? preview_text(*last_assistant) : std::string());
+    }
+
+    // Text content of a message (text blocks joined with spaces),
+    // rendered as-is: no whitespace collapsing, no truncation.
+    static std::string preview_text(const api::message& msg)
+    {
+      std::string text;
+      for (const auto& mc : msg.content) {
+        if (mc.type == "text") {
+          if (!text.empty()) text += " ";
+          text += mc.content;
+        }
+      }
+      return text;
+    }
+
     std::shared_ptr<render_sink> sink_;
+    bool resume_ = false;
   };
 } // namespace mistral::agent
 

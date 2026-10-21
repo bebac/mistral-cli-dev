@@ -25,6 +25,7 @@ int main(int argc, char* argv[])
   std::string theme_name  = "dark";
   bool bootstrap_enabled = true;
   bool bootstrap_update_managed = false;
+  bool resume = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -35,6 +36,7 @@ int main(int argc, char* argv[])
     else if (arg == "--theme" && i + 1 < argc) { theme_name = argv[++i]; }
     else if (arg == "--no-bootstrap") { bootstrap_enabled = false; }
     else if (arg == "--update-managed") { bootstrap_update_managed = true; }
+    else if (arg == "--resume") { resume = true; }
     else if (arg == "-h") {
       std::cout << "Usage: mistral-tui [OPTIONS]\n"
                 << "  -c FILE       Config file\n"
@@ -44,6 +46,7 @@ int main(int argc, char* argv[])
                 << "  --theme NAME  Theme: dark, light, nord,"
                 << " tokyo-night, solarized-light\n"
                 << "  --no-bootstrap       Do not bootstrap the workspace\n"
+                << "  --resume             Resume the latest chat session\n"
                 << "  --update-managed     Force-update managed files"
                 << " (e.g. sys_patchset_instructions.md)\n";
       return 0;
@@ -159,7 +162,8 @@ int main(int argc, char* argv[])
     .request_ch          = request_ch,
     .agent_response_ch   = agent_response_ch,
     .cmd_request_ch      = cmd_request_ch,
-    .slash_cmd_response_ch = slash_cmd_response_ch
+    .slash_cmd_response_ch = slash_cmd_response_ch,
+    .resume              = resume
   };
 
   try {

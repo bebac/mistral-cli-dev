@@ -48,6 +48,7 @@ namespace mistral::tui
     std::shared_ptr<dripcore::channel<std::string>> agent_response_ch;
     std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch;
+    bool resume = false;
   };
 
   // -------------------------------------------------------------------------
@@ -162,7 +163,7 @@ namespace mistral::tui
           callbacks_.flush, callbacks_.completed);
         sched.spawn<mistral::agent::interactive_agent_task>(
           cfg_.agent_id, cfg_.input_ch, cfg_.agent_response_ch,
-          cfg_.prompt_ch, sink);
+          cfg_.prompt_ch, sink, cfg_.resume);
 
         sched.spawn<mistral::common::signal_watcher_task>(
           sigint_pipe_.read_fd());

@@ -514,3 +514,235 @@ TEST_CASE("conversation: save_snapshot writes precompact file without touching l
 
   std::filesystem::remove_all(tmp);
 }
+
+TEST_CASE("conversation: save and load round-trip")
+{
+  namespace fs = std::filesystem;
+  auto tmp = fs::temp_directory_path() / "mistral_resume_test";
+  fs::remove_all(tmp);
+
+  mistral::agent::conversation chat;
+  chat.set_system_message("You are helpful.");
+  chat.add_user_message("list files");
+  std::vector<mistral::api::tool_call> calls = {{
+    .id = "call_123",
+    .type = "function",
+    .function = {.name = "ls", .arguments = R"({"path":"."})"}
+  }};
+  chat.add_assistant_message("", std::move(calls));
+  chat.add_tool_result("ls", "call_123", R"({"files":["a.txt"]})");
+  std::vector<mistral::api::message_content> assistant_content = {
+    {.type = "thinking", .content = "let me think", .closed = true},
+    {.type = "text", .content = "Found a.txt"},
+  };
+  chat.add_assistant_message(assistant_content);
+
+  chat.save(tmp.string(), "session42");
+
+  // The latest symlink points at the session chat file.
+  auto latest = tmp / "chats" / "chat.latest.json";
+  REQUIRE(fs::exists(latest));
+  REQUIRE(fs::is_symlink(latest));
+  CHECK(fs::read_symlink(latest).filename() == "chat_session42.json");
+
+  mistral::agent::conversation loaded;
+  size_t count = loaded.load(latest.string());
+
+  REQUIRE(count == 5);
+  const auto& msgs = loaded.messages();
+  REQUIRE(msgs.size() == 5);
+  CHECK(msgs[0].role == "system");
+  CHECK(msgs[0].content[0].content == "You are helpful.");
+  CHECK(msgs[1].role == "user");
+  CHECK(msgs[1].content[0].content == "list files");
+  CHECK(msgs[2].role == "assistant");
+  REQUIRE(msgs[2].tool_calls.has_value());
+  REQUIRE(msgs[2].tool_calls->size() == 1);
+  CHECK((*msgs[2].tool_calls)[0].id == "call_123");
+  CHECK((*msgs[2].tool_calls)[0].function.name == "ls");
+  CHECK(msgs[3].role == "tool");
+  CHECK(msgs[3].name == "ls");
+  CHECK(msgs[3].tool_call_id == "call_123");
+  CHECK(msgs[3].content[0].content == R"({"files":["a.txt"]})");
+  CHECK(msgs[4].role == "assistant");
+  REQUIRE(msgs[4].content.size() == 2);
+  CHECK(msgs[4].content[0].type == "thinking");
+  CHECK(msgs[4].content[0].content == "let me think");
+  CHECK(msgs[4].content[0].closed == true);
+  CHECK(msgs[4].content[1].type == "text");
+  CHECK(msgs[4].content[1].content == "Found a.txt");
+
+  fs::remove_all(tmp);
+}
+
+TEST_CASE("conversation: load replaces history and system message can be re-applied")
+{
+  namespace fs = std::filesystem;
+  auto tmp = fs::temp_directory_path() / "mistral_resume_test";
+  fs::remove_all(tmp);
+
+  mistral::agent::conversation chat;
+  chat.set_system_message("old prompt");
+  chat.add_user_message("hello");
+  chat.add_assistant_message("hi");
+  chat.save(tmp.string(), "session42");
+
+  // A conversation that already has content (as the agent task has after
+  // construction: a fresh system message).
+  mistral::agent::conversation loaded;
+  loaded.set_system_message("fresh prompt");
+  loaded.add_user_message("unrelated");
+
+  size_t count = loaded.load((tmp / "chats" / "chat.latest.json").string());
+  REQUIRE(count == 3);
+  REQUIRE(loaded.size() == 3);
+  CHECK(loaded.messages()[0].content[0].content == "old prompt");
+
+  // Re-applying the current system prompt replaces the loaded one in
+  // place instead of inserting a duplicate.
+  loaded.set_system_message("new prompt");
+  REQUIRE(loaded.size() == 3);
+  CHECK(loaded.messages()[0].role == "system");
+  CHECK(loaded.messages()[0].content[0].content == "new prompt");
+
+  fs::remove_all(tmp);
+}
+
+TEST_CASE("conversation: load throws on missing file")
+{
+  mistral::agent::conversation chat;
+  CHECK_THROWS_AS(
+    chat.load("/nonexistent/path/chat_x.json"), std::runtime_error);
+}
+
+TEST_CASE("conversation: load throws on malformed content")
+{
+  namespace fs = std::filesystem;
+  auto tmp = fs::temp_directory_path() / "mistral_resume_test";
+  fs::remove_all(tmp);
+  fs::create_directories(tmp);
+
+  mistral::agent::conversation chat;
+
+  auto bad_json = tmp / "chat_bad.json";
+  { std::ofstream out(bad_json); out << "{not json"; }
+  CHECK_THROWS_AS(chat.load(bad_json.string()), std::runtime_error);
+
+  // Valid JSON but not an array of messages.
+  auto not_array = tmp / "chat_notarray.json";
+  { std::ofstream out(not_array); out << R"({"role":"user"})"; }
+  CHECK_THROWS_AS(chat.load(not_array.string()), std::runtime_error);
+
+  fs::remove_all(tmp);
+}
+
+TEST_CASE("conversation: session_id_from_filename")
+{
+  using mistral::agent::conversation;
+  CHECK(conversation::session_id_from_filename("chat_abc123.json").value_or("") == "abc123");
+  CHECK(conversation::session_id_from_filename("chat_session42.json").value_or("") == "session42");
+  CHECK_FALSE(conversation::session_id_from_filename("chat_.json").has_value());
+  CHECK_FALSE(conversation::session_id_from_filename("other.json").has_value());
+  CHECK_FALSE(conversation::session_id_from_filename("chat_abc.txt").has_value());
+  CHECK_FALSE(conversation::session_id_from_filename("chat_abc.json.bak").has_value());
+}
+
+TEST_CASE("conversation: last_turn returns messages from the last user message")
+{
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("first question");
+  chat.add_assistant_message("first answer");
+  chat.add_user_message("second question");
+  chat.add_assistant_message("second answer");
+
+  auto turn = chat.last_turn();
+  REQUIRE(turn.size() == 2);
+  CHECK(turn[0].role == "user");
+  CHECK(turn[0].content[0].content == "second question");
+  CHECK(turn[1].role == "assistant");
+  CHECK(turn[1].content[0].content == "second answer");
+}
+
+TEST_CASE("conversation: last_turn includes tool messages of the turn")
+{
+  mistral::agent::conversation chat;
+  chat.add_user_message("list files");
+  std::vector<mistral::api::tool_call> calls = {{
+    .id = "call_1",
+    .type = "function",
+    .function = {.name = "ls", .arguments = "{}"}
+  }};
+  chat.add_assistant_message("", std::move(calls));
+  chat.add_tool_result("ls", "call_1", "a.txt");
+  chat.add_assistant_message("Found a.txt");
+
+  auto turn = chat.last_turn();
+  REQUIRE(turn.size() == 4);
+  CHECK(turn[0].role == "user");
+  CHECK(turn[1].role == "assistant");
+  CHECK(turn[2].role == "tool");
+  CHECK(turn[3].role == "assistant");
+}
+
+TEST_CASE("conversation: last_turn is empty without a user message")
+{
+  mistral::agent::conversation chat;
+  CHECK(chat.last_turn().empty());
+
+  chat.set_system_message("system");
+  chat.add_assistant_message("hello?");
+  CHECK(chat.last_turn().empty());
+}
+
+TEST_CASE("conversation: compacted history survives save/load round-trip")
+{
+  // The --resume-after-/compact path: the compacted conversation
+  // (system + synthetic summary turn + kept tail) must load back
+  // intact, and last_turn() must still point at the real last turn,
+  // not the summary turn.
+  namespace fs = std::filesystem;
+  auto tmp = fs::temp_directory_path() / "mistral_resume_test";
+  fs::remove_all(tmp);
+
+  mistral::agent::conversation chat;
+  chat.set_system_message("system");
+  chat.add_user_message("u1");
+  chat.add_assistant_message("a1");
+  chat.add_user_message("u2");
+  chat.add_assistant_message("a2");
+  chat.add_user_message("u3");
+  chat.add_assistant_message("a3");
+
+  // Compact everything except the last turn.
+  chat.apply_compaction("SUMMARY", 1);
+
+  chat.save(tmp.string(), "session42");
+
+  mistral::agent::conversation loaded;
+  size_t count = loaded.load((tmp / "chats" / "chat.latest.json").string());
+
+  REQUIRE(count == chat.size());
+  const auto& msgs = loaded.messages();
+  REQUIRE(msgs.size() == 5);
+  CHECK(msgs[0].role == "system");
+  CHECK(msgs[1].role == "user");
+  CHECK(msgs[1].content[0].content.find("SUMMARY") != std::string::npos);
+  CHECK(msgs[2].role == "assistant");
+  CHECK(msgs[2].content[0].content ==
+        "Understood. Continuing with the compacted context in mind.");
+  CHECK(msgs[3].role == "user");
+  CHECK(msgs[3].content[0].content == "u3");
+  CHECK(msgs[4].role == "assistant");
+  CHECK(msgs[4].content[0].content == "a3");
+
+  // The preview after resume shows the real last turn, not the summary.
+  auto turn = loaded.last_turn();
+  REQUIRE(turn.size() == 2);
+  CHECK(turn[0].role == "user");
+  CHECK(turn[0].content[0].content == "u3");
+  CHECK(turn[1].role == "assistant");
+  CHECK(turn[1].content[0].content == "a3");
+
+  fs::remove_all(tmp);
+}

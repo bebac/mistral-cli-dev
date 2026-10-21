@@ -75,6 +75,7 @@ int main(int argc, char* argv[])
   std::string tool_policy_file;
   std::string tool_default_policy = "deny";
   std::string agent_id            = "main";
+  bool resume                     = false;
 
   // Parse command-line arguments.
   static struct option long_options[] = {
@@ -83,6 +84,7 @@ int main(int argc, char* argv[])
     {"host",               required_argument, 0, 'H'},
     {"port",               required_argument, 0, 'p'},
     {"agent",              required_argument, 0, 'a'},
+    {"resume",             no_argument,       0, 'r'},
     {"system-prompt-show", no_argument,       0, 'e'},
     {"no-bootstrap",       no_argument,       0, 'B'},
     {"update-managed",     no_argument,       0, 'U'},
@@ -91,7 +93,7 @@ int main(int argc, char* argv[])
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:eP:D:BUh", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:erP:D:BUh", long_options, nullptr)) != -1)
   {
     switch (opt) {
       case 'c': config_file_path = optarg; break;
@@ -99,6 +101,7 @@ int main(int argc, char* argv[])
       case 'H': host = optarg; break;
       case 'p': port = std::atoi(optarg); break;
       case 'a': agent_id = optarg; break;
+      case 'r': resume = true; break;
       case 'e': system_prompt_show = true; break;
       case 'B': bootstrap_enabled = false; break;
       case 'U': bootstrap_update_managed = true; break;
@@ -109,6 +112,8 @@ int main(int argc, char* argv[])
                   << "  -H, --host HOST                API host (default: api.mistral.ai)\n"
                   << "  -p, --port PORT                API port (default: 443)\n"
                   << "  -a, --agent AGENT              Agent ID to use (default: main)\n"
+                  << "  -r, --resume                   Resume the latest chat session\n"
+                  << "                                 (.mistral-cli/chats/chat.latest.json)\n"
                   << "  -e, --system-prompt-show       Show system prompt, then exit\n"
                   << "  -B, --no-bootstrap             Do not bootstrap the workspace\n"
                   << "  -U, --update-managed           Force-update managed files (e.g. sys_patchset_instructions.md)\n"
@@ -305,7 +310,7 @@ int main(int argc, char* argv[])
 
   sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
   auto sink = std::make_shared<mistral::agent::console_render_sink>();
-  sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink);
+  sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink, resume);
   sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe.read_fd());
   sched.run();
 

@@ -374,6 +374,63 @@ TEST_CASE("output_status routes to system content type") {
   CHECK(h.appended[0].second == content_type::system);
 }
 
+TEST_CASE("output_resume_preview styles user and assistant lines") {
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush());
+
+  sink.output_resume_preview("what next?", "the answer");
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 3);
+  CHECK(h.appended[0].first == "\nLast turn:");
+  CHECK(h.appended[0].second == content_type::system);
+  CHECK(h.appended[1].first == "> what next?\n");
+  CHECK(h.appended[1].second == content_type::user);
+  CHECK(h.appended[2].first == "the answer\n");
+  CHECK(h.appended[2].second == content_type::normal);
+}
+
+TEST_CASE("output_resume_preview without assistant reply") {
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush());
+
+  sink.output_resume_preview("what next?", "");
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 2);
+  CHECK(h.appended[0].first == "\nLast turn:");
+  CHECK(h.appended[0].second == content_type::system);
+  CHECK(h.appended[1].first == "> what next?\n");
+  CHECK(h.appended[1].second == content_type::user);
+}
+
+TEST_CASE("output_resume_preview renders the complete last turn") {
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(
+    h.make_post(), h.make_append(), h.make_flush());
+
+  // The preview shows the complete last turn: long, multi-line content
+  // is enqueued in full, newlines preserved (no truncation, no
+  // whitespace collapsing).
+  const std::string long_reply =
+    "First line of the reply.\n\nSecond paragraph with `code`.\n- item";
+  sink.output_resume_preview("a long user message\nspanning lines", long_reply);
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 3);
+  CHECK(h.appended[0].first == "\nLast turn:");
+  CHECK(h.appended[0].second == content_type::system);
+  CHECK(h.appended[1].first == "> a long user message\nspanning lines\n");
+  CHECK(h.appended[1].second == content_type::user);
+  CHECK(h.appended[2].first == long_reply + "\n");
+  CHECK(h.appended[2].second == content_type::normal);
+}
+
 TEST_CASE("output_tool_result truncates long results") {
   sink_test_harness h;
   mistral::tui::tui_render_sink sink(

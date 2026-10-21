@@ -214,6 +214,46 @@ namespace mistral::api
     j = message_to_json(m, true);
   }
 
+  // Inverse of message_to_json: parse a message from its JSON form.
+  // Content may be a plain string (single text block) or an array of
+  // message_content blocks.
+  inline message message_from_json(const json& j)
+  {
+    message m;
+    j.at("role").get_to(m.role);
+
+    if (j.contains("content")) {
+      const auto& c = j["content"];
+      if (c.is_string()) {
+        message_content mc;
+        mc.type = "text";
+        mc.content = c.get<std::string>();
+        m.content.push_back(std::move(mc));
+      } else if (c.is_array()) {
+        for (const auto& block : c) {
+          m.content.push_back(block.get<message_content>());
+        }
+      }
+    }
+
+    if (j.contains("tool_calls") && j["tool_calls"].is_array()) {
+      std::vector<tool_call> calls;
+      calls.reserve(j["tool_calls"].size());
+      for (const auto& tc : j["tool_calls"]) {
+        calls.push_back(tc.get<tool_call>());
+      }
+      m.tool_calls = std::move(calls);
+    }
+    if (j.contains("name") && j["name"].is_string()) {
+      m.name = j["name"].get<std::string>();
+    }
+    if (j.contains("tool_call_id") && j["tool_call_id"].is_string()) {
+      m.tool_call_id = j["tool_call_id"].get<std::string>();
+    }
+
+    return m;
+  }
+
   // Serialize a message in OpenAI-compatible format.
   // Thinking content is extracted into a top-level `reasoning_content` string
   // field instead of being included as content array blocks (Mistral format).

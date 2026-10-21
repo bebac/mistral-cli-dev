@@ -4,9 +4,13 @@
 #include "api/types.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <fstream>
 #include <filesystem>
+#include <format>
+#include <optional>
+#include <stdexcept>
 
 namespace mistral::agent
 {
@@ -143,6 +147,18 @@ namespace mistral::agent
       return turns;
     }
 
+    // Messages of the most recent turn: from the last user message to the
+    // end of the history. Empty when there is no user message.
+    std::vector<api::message> last_turn() const
+    {
+      for (size_t i = messages_.size(); i-- > 0;) {
+        if (messages_[i].role == "user") {
+          return std::vector<api::message>(messages_.begin() + i, messages_.end());
+        }
+      }
+      return {};
+    }
+
     // Messages that apply_compaction() would replace: everything after
     // the system message (if any) and before the recent tail (the last
     // keep_turns turns). Empty when there is nothing to compact.
@@ -222,6 +238,57 @@ namespace mistral::agent
       std::filesystem::create_directories(chat_dir);
 
       save_to_file(std::format("{}/chat_{}_precompact.json", chat_dir.string(), session_id));
+    }
+
+    // Load messages from a chat file written by save(). Replaces the
+    // current history. Returns the number of messages loaded.
+    // Throws std::runtime_error when the file is unreadable or malformed.
+    size_t load(const std::string& chat_path)
+    {
+      std::ifstream in(chat_path);
+      if (!in) {
+        throw std::runtime_error("Failed to open chat file: " + chat_path);
+      }
+
+      api::json j;
+      try {
+        in >> j;
+      } catch (const std::exception& e) {
+        throw std::runtime_error(
+          std::format("Failed to parse chat file {}: {}", chat_path, e.what()));
+      }
+
+      if (!j.is_array()) {
+        throw std::runtime_error(std::format(
+          "Malformed chat file {}: expected a JSON array of messages", chat_path));
+      }
+
+      std::vector<api::message> loaded;
+      loaded.reserve(j.size());
+      for (const auto& msg_json : j) {
+        loaded.push_back(api::message_from_json(msg_json));
+      }
+
+      messages_ = std::move(loaded);
+      return messages_.size();
+    }
+
+    // Extract the session id from a chat file name ("chat_<id>.json").
+    // Returns nullopt when the name doesn't match the scheme.
+    static std::optional<std::string> session_id_from_filename(const std::string& filename)
+    {
+      constexpr std::string_view prefix = "chat_";
+      constexpr std::string_view suffix = ".json";
+      if (filename.size() <= prefix.size() + suffix.size()) {
+        return std::nullopt;
+      }
+      if (filename.compare(0, prefix.size(), prefix) != 0) {
+        return std::nullopt;
+      }
+      if (filename.compare(filename.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return std::nullopt;
+      }
+      return filename.substr(prefix.size(), filename.size() - prefix.size() - suffix.size());
     }
 
   private:
