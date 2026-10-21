@@ -25,6 +25,8 @@ namespace mistral::tui
   //   - "mistral" → sets agent_ready flag (agent is ready for input)
   //   - "[APPROVAL_PROMPT]..." → appends to content area via App::post,
   //     sets approval mode to single_key
+  //   - "[ASK_USER]..." → appends the question to the content area via
+  //     App::post, sets approval mode to ask (free-text answer)
   //   - Other (e.g. "Enter message for AI...") → appends to content area
   //     via App::post. No state transition here; the text_input mode is
   //     entered by the UI itself when the user presses 'r'.
@@ -70,6 +72,19 @@ namespace mistral::tui
                  text = std::move(prompt_text)]() {
             fn(text, mistral::tui::content_type::tool_approval);
             on_state(approval_state::single_key);
+          });
+        }
+        else if (msg->find("[ASK_USER]") == 0)
+        {
+          // ask_user tool: free-text question from the agent. Render the
+          // question attached to the tool block and switch the input into
+          // answer mode (Enter submits, Esc skips).
+          std::string prompt_text =
+            msg->substr(std::string("[ASK_USER]").length());
+          post_([fn = append_content_, on_state = on_approval_state_,
+                 text = std::move(prompt_text)]() {
+            fn(text, mistral::tui::content_type::tool_approval);
+            on_state(approval_state::ask);
           });
         }
         else if (*msg == "mistral")

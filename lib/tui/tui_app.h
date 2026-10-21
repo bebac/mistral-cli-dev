@@ -223,12 +223,13 @@ private:
         return;
       }
       if (input_->approval_mode_ != ChatInput::approval_mode::none) {
-        // ESC during approval mode: exit approval mode and send a
-        // reject response so the agent can continue.
+        // ESC during approval/ask mode: exit the mode and send a
+        // response so the agent can continue.
         if (input_->approval_mode_ == ChatInput::approval_mode::text_input) {
-          // In text_input mode the agent is waiting for the rejection
-          // message. Send an empty string so the agent uses the default
-          // rejection message.
+          // In text_input mode the agent is waiting for free text: a
+          // rejection message (approval flow) or an answer (ask_user).
+          // Send an empty string: the approval flow uses the default
+          // rejection message, ask_user treats it as "skipped".
           exit_approval_mode();
           backend_->send_input("");
         } else {
@@ -290,7 +291,7 @@ private:
   // Consolidated approval state transition: updates ChatInput mode,
   // divider visibility, hint text, and scroll position in one place.
   // Called from:
-  //   - prompt_bridge_task (via posted callback) for single_key
+  //   - prompt_bridge_task (via posted callback) for single_key and ask
   //   - on_approval_key for text_input ('r' key)
   //   - exit_approval_mode for idle
   void set_approval_state(approval_state state)
@@ -301,6 +302,7 @@ private:
         mode = ChatInput::approval_mode::single_key;
         break;
       case approval_state::text_input:
+      case approval_state::ask:
         mode = ChatInput::approval_mode::text_input;
         break;
       case approval_state::idle:
@@ -358,6 +360,31 @@ private:
         input_->set_text("");
         input_hint_->text =
           "  Enter message for AI (or Enter for default):";
+        break;
+
+      case approval_state::ask:
+        input_divider_->visible = true;
+        input_divider_->override_fg = cpptui::Theme::current().warning;
+        input_divider_top_->override_fg = cpptui::Theme::current().warning;
+        input_hint_->visible = true;
+        input_hint_->hint_fg = cpptui::Theme::current().warning;
+        input_->set_text("");
+        input_hint_->text =
+          "  answer \xc2\xb7 Enter to send \xc2\xb7 Esc to skip";
+
+        // The ask prompt is blocking: the agent is waiting for the
+        // human's answer. Always jump to the bottom so the question is
+        // visible even if the user had scrolled up.
+        if (auto cont =
+              std::dynamic_pointer_cast<cpptui::Container>(root_)) {
+          cont->layout();
+        }
+        content_area_.scroll_to_bottom();
+
+        mistral::trace::logger::instance().trace(
+          mistral::trace::category::approval,
+          "ask: answer mode entered, scrolled to bottom"
+        );
         break;
     }
 

@@ -443,7 +443,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
   // Check that all expected tools are registered
   std::vector<std::string> expected_tools = {
       "ls", "read", "outline", "read_symbol", "find_symbol", "find_references",
-      "note_list", "note_read", "note_write", "note_search"};
+      "note_list", "note_read", "note_write", "note_search", "ask_user"};
 
   for (const auto &tool_name : expected_tools)
   {

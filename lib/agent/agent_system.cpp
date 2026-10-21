@@ -12,6 +12,7 @@
 #include "tools/exec_tools.h"
 #include "tools/task_tools.h"
 #include "tools/research_tools.h"
+#include "tools/ask_tools.h"
 #include "template/template_engine.h"
 
 #include <api/chat_types.h>
@@ -384,6 +385,7 @@ namespace mistral::agent
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
     research_tools_ = std::make_unique<mistral::tools::research_tools>();
+    ask_tools_ = std::make_unique<mistral::tools::ask_tools>();
   }
 
   void agent_system::register_slash_commands()
@@ -524,6 +526,7 @@ namespace mistral::agent
     auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
     auto& research_tools = *research_tools_;
+    auto& ask_tools = *ask_tools_;
 
     global_tools_.register_tool(
       "ls",
@@ -780,6 +783,29 @@ namespace mistral::agent
       "current software versions, or any facts you are unsure about.",
       &research_tools, &mistral::tools::research_tools::web_search,
       arg("query", "The search query or research question")
+    );
+
+    // ---- Ask tools ----
+
+    global_tools_.register_tool(
+      "ask_user",
+      "Ask the human a question when you reach a decision point that changes "
+      "the direction of the work - an unforeseen design choice, conflicting "
+      "requirements, or a trade-off you cannot resolve from the codebase or "
+      "conversation. The agent pauses until the human answers; the answer is "
+      "returned as the tool result. Only ask when the decision genuinely "
+      "changes direction: batch related questions into one call, include a "
+      "recommendation so the human can confirm with a short reply, and never "
+      "ask for things you can decide yourself. Do not use this for status "
+      "updates or progress reports. The result contains the human's raw "
+      "answer; when the answer is a bare option number, matched_option "
+      "holds the resolved option text - prefer matched_option over "
+      "interpreting the raw answer.",
+      &ask_tools, &mistral::tools::ask_tools::ask_user,
+      arg("question", "The decision that needs a human answer, phrased as a clear question"),
+      arg("context", "What you discovered that forces this decision (1-3 sentences)", std::string("")),
+      arg("options", "The viable options, one per entry, each with a short label and its trade-off", std::vector<std::string>{}),
+      arg("recommendation", "Your recommended option and why. Lets the human confirm with a one-word reply", std::string(""))
     );
 
     // Register custom approval prompt renderers

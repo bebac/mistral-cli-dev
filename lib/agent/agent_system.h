@@ -33,6 +33,7 @@ namespace mistral::tools
   class task_tools;
   class patchset_tools;
   class research_tools;
+  class ask_tools;
 }
 
 namespace mistral::agent
@@ -101,6 +102,7 @@ namespace mistral::agent
     mistral::tools::task_tools& task_tools() { return *task_tools_; }
     mistral::tools::patchset_tools& patchset_tools() { return *patchset_tools_; }
     mistral::tools::research_tools& research_tools() { return *research_tools_; }
+    mistral::tools::ask_tools& ask_tools() { return *ask_tools_; }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -194,6 +196,7 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;
     std::unique_ptr<mistral::tools::research_tools> research_tools_;
+    std::unique_ptr<mistral::tools::ask_tools> ask_tools_;
 
     tool_registry global_tools_;
 

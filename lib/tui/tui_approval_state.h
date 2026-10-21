@@ -12,6 +12,8 @@ namespace mistral::tui
   // single_key:  Agent is waiting for y/n/r/a/? approval response.
   // text_input:  User pressed 'r' (reject with message); agent is
   //              waiting for the rejection message text.
+  // ask:         The ask_user tool is waiting for a free-text answer;
+  //              Enter submits, Esc skips (sends an empty answer).
   //
   // State transitions are event-driven: prompt_bridge_task posts
   // transitions to the UI thread via App::post(), eliminating the
@@ -21,6 +23,7 @@ namespace mistral::tui
     idle,
     single_key,
     text_input,
+    ask,
   };
 
   // Callback type for posting approval state transitions from the

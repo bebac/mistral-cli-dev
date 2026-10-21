@@ -123,6 +123,7 @@ add_library(mistral-core STATIC
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp
     lib/tools/research_tools.cpp
+    lib/tools/ask_tools.cpp
     lib/console/console_task.cpp
     lib/slash_command/slash_command_registry.cpp
     lib/slash_command/slash_command_executor_task.cpp

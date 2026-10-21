@@ -19,6 +19,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 namespace mistral::console
@@ -57,6 +58,7 @@ namespace mistral::console
     // For passing the prompt string to the input thread
     std::string current_prompt;
     bool is_approval_prompt = false;
+    bool is_ask_prompt = false;
 
     // For passing slash commands from input thread to coroutine
     std::optional<slash_command::slash_command_request> pending_slash_command;
@@ -78,17 +80,18 @@ namespace mistral::console
       return front;
     }
 
-    void set_prompt(std::string prompt, bool approval)
+    void set_prompt(std::string prompt, bool approval, bool ask)
     {
       std::lock_guard<std::mutex> lock(mtx);
       current_prompt = std::move(prompt);
       is_approval_prompt = approval;
+      is_ask_prompt = ask;
     }
 
-    std::pair<std::string, bool> get_prompt() const
+    std::tuple<std::string, bool, bool> get_prompt() const
     {
       std::lock_guard<std::mutex> lock(mtx);
-      return {current_prompt, is_approval_prompt};
+      return {current_prompt, is_approval_prompt, is_ask_prompt};
     }
 
     void set_pending_slash_command(slash_command::slash_command_request req)
@@ -271,7 +274,7 @@ namespace mistral::console
       if (n <= 0 || state->shutdown.load()) break;
 
       std::string input;
-      auto [prompt_to_display, approval_mode] = state->get_prompt();
+      auto [prompt_to_display, approval_mode, ask_mode] = state->get_prompt();
 
       if (approval_mode)
       {
@@ -283,8 +286,15 @@ namespace mistral::console
       }
       else
       {
+        // Ask mode (ask_user tool): print the question block, then read
+        // a full answer line with a short prompt.
+        const char* readline_prompt = prompt_to_display.c_str();
+        if (ask_mode) {
+          std::cout << prompt_to_display << std::flush;
+          readline_prompt = "Your answer: ";
+        }
         // Chat mode: read full line
-        char* raw = ic_readline(prompt_to_display.c_str());
+        char* raw = ic_readline(readline_prompt);
         if (!raw) {
           // EOF (Ctrl-D).
           state->eof.store(true);
@@ -362,21 +372,27 @@ namespace mistral::console
       auto prompt = co_await prompt_ch_->recv(this);
       if (!prompt) break;  // Agent closed the prompt channel.
 
-      // Check for approval marker
+      // Check for approval/ask markers
       const std::string approval_prefix = "[APPROVAL_PROMPT]";
+      const std::string ask_prefix = "[ASK_USER]";
       bool is_approval = false;
+      bool is_ask = false;
       std::string display_prompt;
 
       if (prompt->find(approval_prefix) == 0) {
         is_approval = true;
         display_prompt = prompt->substr(approval_prefix.length());
       }
+      else if (prompt->find(ask_prefix) == 0) {
+        is_ask = true;
+        display_prompt = prompt->substr(ask_prefix.length());
+      }
       else {
         display_prompt = *prompt;
       }
 
       // Store the prompt and mode in the state for the input thread
-      state_->set_prompt(display_prompt, is_approval);
+      state_->set_prompt(display_prompt, is_approval, is_ask);
 
       // Signal the thread to call readline (or readchar for approvals).
       state_->signal_prompt_go();

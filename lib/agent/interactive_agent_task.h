@@ -11,6 +11,7 @@
 #include "agent/agent_config.h"
 #include "agent/compact_command.h"
 #include "agent/render_sink.h"
+#include "tools/ask_tools.h"
 
 #include "api/types.h"
 #include "common/string_utils.h"
@@ -63,6 +64,19 @@ namespace mistral::agent
       // can route control messages to this task, which owns the
       // conversation.
       agent_system::instance().set_current_input_ch(input_ch_);
+
+      // Route ask_user prompts to the human: send the question on the
+      // prompt channel (the console/TUI render it and switch the input
+      // into answer mode), then suspend until the answer arrives on
+      // input_ch_. An empty answer means the human skipped the question.
+      agent_system::instance().ask_tools().set_prompt_handler(
+        [this](const std::string& prompt) -> dripcore::awaitable<std::string> {
+          if (prompt_ch_) {
+            prompt_ch_->try_send(prompt);
+          }
+          auto response = co_await input_ch_->recv(this);
+          co_return response.value_or("");
+        });
     }
 
     dripcore::awaitable<> body() override

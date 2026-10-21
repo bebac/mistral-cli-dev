@@ -47,7 +47,8 @@
         "task_get",
         "task_update",
         "task_search",
-        "web_search"
+        "web_search",
+        "ask_user"
       ],
       "subagent_tools": {
         "web_search": "researcher"
