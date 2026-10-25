@@ -1,12 +1,14 @@
 #ifndef MISTRAL_MCP_MANAGER_H
 #define MISTRAL_MCP_MANAGER_H
 
-#include "mcp/mcp_client.h"
+#include "mcp/mcp_client_interface.h"
+#include "agent/agent_config.h"
 
 #include <dripcore/awaitable.h>
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,10 +18,27 @@ namespace mistral::mcp
   // registering their tools into the agent system's global tool
   // registry, and exposing status for the /mcp slash command.
   //
-  // Servers are configured in mistral-cli.json:
-  //   "mcpServers": {
-  //     "storybook": { "url": "http://127.0.0.1:6006/mcp" }
-  //   }
+  // Servers are configured in mistral-cli.json. Two transports:
+  //
+  //   HTTP (Streamable HTTP):
+  //     "mcpServers": {
+  //       "storybook": { "url": "http://127.0.0.1:6006/mcp" }
+  //     }
+  //
+  //   stdio (spawn a child process, JSON-RPC over pipes):
+  //     "mcpServers": {
+  //       "xerj": {
+  //         "command": "xerj",
+  //         "args": ["mcp"],
+  //         "env": { "XERJ_URL": "http://localhost:9200" },
+  //         "preflight": {
+  //           "check_url": "http://localhost:9200",
+  //           "start_command": ["xerj", "--insecure",
+  //                             "--data-dir", "~/xerj-data"],
+  //           "post_start_command": ["xerj", "autoindex", "."]
+  //         }
+  //       }
+  //     }
   //
   // Agents opt in to MCP tools via available_tools entries:
   //   "mcp:*"           - all tools from all connected servers
@@ -30,17 +49,33 @@ namespace mistral::mcp
   public:
     static mcp_manager& instance();
 
-    // Configure from the "mcpServers" config section (name -> url).
+    // Configure from the "mcpServers" config section.
     // Replaces any previous configuration.
-    void configure(const std::map<std::string, std::string>& servers);
+    void configure(const std::map<std::string, agent::mcp_server_config>& servers);
 
-    // Connect one configured server: MCP initialize handshake,
-    // tools/list, register tools into the global tool registry.
-    // Returns a summary json. Must run in dripcore task context.
+    // Connect one configured server: run preflight (if any), MCP
+    // initialize handshake, tools/list, register tools into the
+    // global tool registry. Returns a summary json.
+    // Must run in dripcore task context.
     dripcore::awaitable<json> connect(const std::string& name);
 
     // Connect all configured servers. Returns an array of summaries.
     dripcore::awaitable<json> connect_all();
+
+    // Connect all servers marked auto_connect=true. Returns an array
+    // of summaries (same shape as connect_all).
+    dripcore::awaitable<json> connect_auto();
+
+    // Names of servers with auto_connect=true (for display).
+    std::vector<std::string> auto_connect_servers() const;
+
+    // True if all auto-connect servers are connected.
+    bool auto_connect_all_connected() const;
+
+    // Close all connected clients (kill stdio child processes).
+    // Called during TUI shutdown so child processes are reaped
+    // before process exit, not from static destructors.
+    void shutdown();
 
     // Status of all configured servers (for /mcp).
     json status() const;
@@ -62,13 +97,26 @@ namespace mistral::mcp
 
     struct server_state
     {
-      std::string url;
-      std::shared_ptr<mcp_client> client;
+      agent::mcp_server_config config;
+      std::shared_ptr<mcp_client_interface> client;
       bool connected = false;
       std::vector<std::string> tool_names;
       std::string instructions;
       std::string error;
     };
+
+    // Run the preflight for one server: check_url, start_command,
+    // post_start_command. Returns an error string or empty on success.
+    dripcore::awaitable<std::string> run_preflight(const agent::mcp_server_config& cfg);
+
+    // HTTP GET to check if a URL is reachable. Returns true on 2xx.
+    dripcore::awaitable<bool> http_check(const std::string& url);
+
+    // Spawn a detached process (start_command). Returns the pid or -1.
+    pid_t spawn_detached(const std::vector<std::string>& command);
+
+    // Run a command and wait for it to complete (post_start_command).
+    dripcore::awaitable<int> run_command(const std::vector<std::string>& command);
 
     void rebuild_instructions();
 

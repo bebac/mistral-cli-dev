@@ -1,6 +1,8 @@
 #ifndef MISTRAL_CODE_TOOLS_H
 #define MISTRAL_CODE_TOOLS_H
 
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+
 #include "tools/code_index.h"
 
 #include <dripcore/awaitable.h>
@@ -59,5 +61,7 @@ namespace mistral::tools
   };
 
 } // namespace mistral::tools
+
+#endif // MISTRAL_ENABLE_TREE_SITTER
 
 #endif // MISTRAL_CODE_TOOLS_H

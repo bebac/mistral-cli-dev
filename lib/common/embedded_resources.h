@@ -18,15 +18,18 @@ namespace mistral::embedded
   // Seeded files: written only if missing, never overwritten.
   std::string_view sys_prompt();
   std::string_view sys_prompt_researcher();
+  std::string_view sys_prompt_xerj();
   std::string_view sys_storybook_notes();
   std::string_view policy_json();
   std::string_view config_json();
 
+#ifdef MISTRAL_ENABLE_TREE_SITTER
   // Tree-sitter symbol queries, embedded at build time (see
   // cmake/embed_queries.cmake). Definition queries come from the grammar
   // submodules, reference queries are maintained in this repository.
   std::string_view cpp_tags_query();
   std::string_view cpp_references_query();
+#endif // MISTRAL_ENABLE_TREE_SITTER
 
 } // namespace mistral::embedded
 

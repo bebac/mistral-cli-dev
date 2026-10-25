@@ -16,6 +16,8 @@
 #include "trace/trace.h"
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
+#include "mcp/mcp_manager.h"
+#include "mcp/mcp_auto_connect_task.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
@@ -62,6 +64,11 @@ void terminate_handler()
 int main(int argc, char* argv[])
 {
   std::set_terminate(terminate_handler);
+
+  // Ignore SIGPIPE: writing to a closed pipe/socket (e.g. MCP stdio
+  // child exited) raises SIGPIPE whose default action terminates the
+  // process. We handle EPIPE errors explicitly instead.
+  ::signal(SIGPIPE, SIG_IGN);
 
   // Default configuration.
   std::string base_dir           = ".mistral-cli";
@@ -312,7 +319,15 @@ int main(int argc, char* argv[])
   auto sink = std::make_shared<mistral::agent::console_render_sink>();
   sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink, resume);
   sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe.read_fd());
+
+  // Spawn MCP auto-connect task (connects servers with auto_connect=true)
+  sched.spawn<mistral::mcp::mcp_auto_connect_task>();
+
   sched.run();
+
+  // Close MCP clients (kill stdio child processes) now that the
+  // scheduler has finished — no coroutines are using them.
+  mistral::mcp::mcp_manager::instance().shutdown();
 
   // Restore default SIGINT handler. wakeup_pipe destructor closes fds.
   signal(SIGINT, SIG_DFL);

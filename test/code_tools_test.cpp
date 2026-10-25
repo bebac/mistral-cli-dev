@@ -1,4 +1,6 @@
 #include <doctest/doctest.h>
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+
 #include "tools/code_tools.h"
 
 #include <dripcore/scheduler.h>
@@ -664,3 +666,5 @@ TEST_CASE("code_tools: ast_search reports query errors")
   result = mistral::tools::run_ast_search(tools, "", sample.path.string());
   CHECK(result.contains("error"));
 }
+
+#endif // MISTRAL_ENABLE_TREE_SITTER

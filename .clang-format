@@ -1,0 +1,62 @@
+# Set the language to C++ (works for C/C++ projects)
+Language: Cpp
+
+# Set the desired column limit (80 is the standard default)
+ColumnLimit: 120
+
+# Break string literals according to ColumnLimit.
+BreakStringLiterals: true
+
+PointerAlignment: Left
+
+# --- Function Brace and Body Formatting ---
+
+# Crucial Setting for Braces: Ensures the opening brace of a function is on a new line
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterNamespace: true
+  AfterClass: true
+  AfterFunction: true
+  AfterControlStatement: true
+  BeforeElse: true
+  BeforeCatch: true
+  BeforeWhile: true
+
+# Crucial Setting for Short Functions: Never allows short functions to be formatted
+# on a single line (which includes having the braces on the same line).
+AllowShortFunctionsOnASingleLine: None # Use 'None' to force multi-line formatting
+
+# Crucial Setting for Indentation:
+IndentWidth: 2
+NamespaceIndentation: All
+
+# --- Function Parameter Formatting ---
+
+# Prevents parameters from being 'packed' together
+BinPackParameters: false
+
+# Same for call-site arguments: when a call does not fit on one line,
+# put each argument on its own line instead of packing as many as fit
+BinPackArguments: false
+
+# Forces each parameter onto a new, indented line
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# --- Return Type Formatting ---
+
+# Prevents a line break after the return type
+AlwaysBreakAfterReturnType: None
+
+# Applies a high cost (penalty) to putting the return type on its own line.
+PenaltyReturnTypeOnItsOwnLine: 1000
+
+# --- Other common settings ---
+
+AlignTrailingComments: true
+
+# When a call's arguments don't fit on one line: break right after the
+# open bracket, put each argument on its own line (with BinPack*: false)
+# and the closing bracket on its own line
+AlignAfterOpenBracket: BlockIndent
+ContinuationIndentWidth: 2
+SpaceBeforeParens: ControlStatements

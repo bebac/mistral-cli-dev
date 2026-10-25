@@ -10,7 +10,9 @@
 #include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
+#ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_tools.h"
+#endif
 #include "tools/exec_tools.h"
 #include "tools/task_tools.h"
 #include "tools/research_tools.h"
@@ -354,28 +356,83 @@ namespace mistral::agent
       }
     }
 
-    // Parse MCP servers ("mcpServers": { "<name>": { "url": "..." } }
-    // or "<name>": "<url>")
+    // Parse MCP servers. Two config shapes:
+    //   "<name>": "<url>"                          (HTTP, shorthand)
+    //   "<name>": { "url": "..." }                 (HTTP)
+    //   "<name>": { "command": "...", "args": [...], "env": {...} }  (stdio)
+    // Optional "preflight": { "check_url", "start_command", "post_start_command" }
     if (j.contains("mcpServers") && j["mcpServers"].is_object())
     {
       for (auto& [name, server_json] : j["mcpServers"].items())
       {
-        std::string url;
+        agent::mcp_server_config cfg;
+
         if (server_json.is_string())
         {
-          url = server_json.get<std::string>();
+          cfg.url = server_json.get<std::string>();
         }
-        else if (server_json.is_object() && server_json.contains("url"))
+        else if (server_json.is_object())
         {
-          url = server_json["url"].get<std::string>();
+          if (server_json.contains("url") && server_json["url"].is_string())
+          {
+            cfg.url = server_json["url"].get<std::string>();
+          }
+          if (server_json.contains("command") &&
+              server_json["command"].is_string())
+          {
+            cfg.command = server_json["command"].get<std::string>();
+          }
+          if (server_json.contains("args") && server_json["args"].is_array())
+          {
+            for (const auto& a : server_json["args"])
+            {
+              if (a.is_string())
+                cfg.args.push_back(a.get<std::string>());
+            }
+          }
+          if (server_json.contains("env") && server_json["env"].is_object())
+          {
+            for (auto& [k, v] : server_json["env"].items())
+            {
+              if (v.is_string())
+                cfg.env[k] = v.get<std::string>();
+            }
+          }
+          if (server_json.contains("preflight") &&
+              server_json["preflight"].is_object())
+          {
+            const auto& pf = server_json["preflight"];
+            if (pf.contains("check_url") && pf["check_url"].is_string())
+              cfg.check_url = pf["check_url"].get<std::string>();
+            if (pf.contains("start_command") && pf["start_command"].is_array())
+            {
+              for (const auto& c : pf["start_command"])
+                if (c.is_string())
+                  cfg.start_command.push_back(c.get<std::string>());
+            }
+            if (pf.contains("post_start_command") &&
+                pf["post_start_command"].is_array())
+            {
+              for (const auto& c : pf["post_start_command"])
+                if (c.is_string())
+                  cfg.post_start_command.push_back(c.get<std::string>());
+            }
+          }
+          if (server_json.contains("auto_connect") &&
+              server_json["auto_connect"].is_boolean())
+          {
+            cfg.auto_connect = server_json["auto_connect"].get<bool>();
+          }
         }
-        if (!url.empty())
+
+        if (!cfg.url.empty() || !cfg.command.empty())
         {
-          config.mcp_servers[name] = url;
+          config.mcp_servers[name] = std::move(cfg);
         }
       }
     }
 
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     // Parse code index configuration
     if (j.contains("code_index") && j["code_index"].is_object())
     {
@@ -391,6 +448,7 @@ namespace mistral::agent
         config.code_index.max_results = j["code_index"]["max_results"].get<int>();
       }
     }
+#endif // MISTRAL_ENABLE_TREE_SITTER
 
     // Parse policy
     if (j.contains("policy") && j["policy"].is_object())
@@ -407,7 +465,9 @@ namespace mistral::agent
   {
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     code_tools_ = std::make_unique<mistral::tools::code_tools>(config_.code_index);
+#endif
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
@@ -549,7 +609,9 @@ namespace mistral::agent
     // Register all available tools
     auto& file_tools = *file_tools_;
     auto& note_tools = *note_tools_;
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     auto& code_tools = *code_tools_;
+#endif
     auto& exec_tools = *exec_tools_;
     auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
@@ -576,6 +638,7 @@ namespace mistral::agent
       arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
     );
 
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     global_tools_.register_tool(
       "outline",
       "List the symbols (classes, structs, functions, methods, types) defined in a C/C++ "
@@ -629,6 +692,7 @@ namespace mistral::agent
       arg("query", "Tree-sitter query to run"),
       arg("path", "File or directory to search (workspace root by default)", std::string("."))
     );
+#endif // MISTRAL_ENABLE_TREE_SITTER
 
     global_tools_.register_tool(
       "note_list",
@@ -1058,6 +1122,11 @@ namespace mistral::agent
       tmpl.set_include_base(base_dir_);
       tmpl.set_variable("model", model_id);
       tmpl.set_variable("notes_dir", notes_dir_);
+
+      // Set feature flags for conditional includes ({{> file if=var}}).
+      // xerj_enabled: true when the xerj MCP server is configured.
+      tmpl.set_variable("xerj_enabled",
+        config_.mcp_servers.contains("xerj") ? "true" : "false");
 
       // Process the file as a template
       return tmpl.process_file(file_path);

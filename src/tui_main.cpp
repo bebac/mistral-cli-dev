@@ -10,12 +10,18 @@
 #include <uri.h>
 
 #include <cstdlib>
+#include <csignal>
 #include <filesystem>
 #include <iostream>
 #include <string>
 
 int main(int argc, char* argv[])
 {
+  // Ignore SIGPIPE: writing to a closed pipe/socket (e.g. MCP stdio
+  // child exited) raises SIGPIPE whose default action terminates the
+  // process. We handle EPIPE errors explicitly instead.
+  std::signal(SIGPIPE, SIG_IGN);
+
   std::string base_dir    = ".mistral-cli";
   std::string notes_dir   = ".mistral-cli/notes";
   std::string host        = "api.mistral.ai";

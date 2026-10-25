@@ -13,6 +13,8 @@
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
 #include "http/http_coordinator_task.h"
+#include "mcp/mcp_manager.h"
+#include "mcp/mcp_auto_connect_task.h"
 #include "api/types.h"
 
 #include <dripcore/scheduler.h>
@@ -167,6 +169,12 @@ namespace mistral::tui
 
         sched.spawn<mistral::common::signal_watcher_task>(
           sigint_pipe_.read_fd());
+
+        // Spawn MCP auto-connect task (connects servers with
+        // auto_connect=true). Runs on the dripcore thread; status
+        // is surfaced via the TUI footer (polled in tui_app timer).
+        sched.spawn<mistral::mcp::mcp_auto_connect_task>();
+
         sched.run();
       });
     }
@@ -187,6 +195,12 @@ namespace mistral::tui
       sigint_pipe_.close_write();
 
       dripcore_thread_.join();
+
+      // Close MCP clients (kill stdio child processes) now that the
+      // dripcore thread has finished — no coroutines are using them.
+      // This must happen before process exit so child processes are
+      // reaped in a controlled manner, not from static destructors.
+      mistral::mcp::mcp_manager::instance().shutdown();
 
       input_pipe_.close_read();
       slash_cmd_pipe_.close_read();

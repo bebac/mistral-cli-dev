@@ -1,3 +1,5 @@
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+
 #include <doctest/doctest.h>
 
 #include "tree_sitter/api.h"
@@ -147,3 +149,5 @@ TEST_CASE("tree-sitter queries extract symbol definitions like tags.scm")
   ts_tree_delete(tree);
   ts_parser_delete(parser);
 }
+
+#endif // MISTRAL_ENABLE_TREE_SITTER

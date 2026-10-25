@@ -162,3 +162,108 @@ TEST_CASE("template_engine: passthrough when no directives")
   std::string plain = "Just a plain string with {braces} and $dollars.";
   CHECK(engine.process(plain) == plain);
 }
+
+TEST_CASE("template_engine: conditional include if= (truthy)")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA CONTENT");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "true");
+
+  CHECK(engine.process("A {{> extra if=feature}} B") == "A EXTRA CONTENT B");
+}
+
+TEST_CASE("template_engine: conditional include if= (falsy)")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA CONTENT");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "false");
+
+  CHECK(engine.process("A {{> extra if=feature}} B") == "A  B");
+}
+
+TEST_CASE("template_engine: conditional include if= (unset)")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA CONTENT");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  // Variable not set — should be falsy.
+
+  CHECK(engine.process("A {{> extra if=feature}} B") == "A  B");
+}
+
+TEST_CASE("template_engine: conditional include unless= (truthy)")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA CONTENT");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "true");
+
+  CHECK(engine.process("A {{> extra unless=feature}} B") == "A  B");
+}
+
+TEST_CASE("template_engine: conditional include unless= (falsy)")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA CONTENT");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "false");
+
+  CHECK(engine.process("A {{> extra unless=feature}} B") == "A EXTRA CONTENT B");
+}
+
+TEST_CASE("template_engine: conditional include with missing file (optional)")
+{
+  temp_dir tmp;
+  // File does not exist.
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "true");
+
+  // Should silently skip, not throw.
+  CHECK(engine.process("A {{> missing if=feature}} B") == "A  B");
+}
+
+TEST_CASE("template_engine: truthy values")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "X");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+
+  // All these should be truthy.
+  for (const char* val : {"true", "TRUE", "True", "1", "yes", "YES", "on", "ON"})
+  {
+    engine.set_variable("v", val);
+    CHECK(engine.process("{{> extra if=v}}") == "X");
+  }
+}
+
+TEST_CASE("template_engine: falsy values")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "X");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+
+  // All these should be falsy.
+  for (const char* val : {"false", "FALSE", "0", "no", "NO", "off", "OFF", ""})
+  {
+    engine.set_variable("v", val);
+    CHECK(engine.process("{{> extra if=v}}") == "");
+  }
+}

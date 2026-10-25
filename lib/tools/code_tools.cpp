@@ -1,5 +1,7 @@
 #include "tools/code_tools.h"
 
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+
 #include <dripcore/sleep_awaiter.h>
 
 #include <algorithm>
@@ -402,3 +404,5 @@ namespace mistral::tools
   }
 
 } // namespace mistral::tools
+
+#endif // MISTRAL_ENABLE_TREE_SITTER

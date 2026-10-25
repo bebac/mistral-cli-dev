@@ -64,9 +64,9 @@ namespace mistral::tools
     }
 
     int n = 0;
-    auto [ptr, ec] = std::from_chars(
-      trimmed.data(), trimmed.data() + trimmed.size(), n);
-    if (ec != std::errc() || ptr != trimmed.data() + trimmed.size()) {
+    auto [ptr, ec] = std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), n);
+    if (ec != std::errc() || ptr != trimmed.data() + trimmed.size())
+    {
       return std::nullopt;
     }
 
@@ -82,9 +82,11 @@ namespace mistral::tools
     std::string question,
     std::string context,
     std::vector<std::string> options,
-    std::string recommendation)
+    std::string recommendation
+  )
   {
-    if (!prompt_handler_) {
+    if (!prompt_handler_)
+    {
       co_return json{
         {"status", "unavailable"},
         {"message",

@@ -2,7 +2,9 @@
 #define MISTRAL_AGENT_CONFIG_H
 
 #include "api/agent_api.h"
+#ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_index.h"
+#endif
 
 #include <optional>
 #include <string>
@@ -113,15 +115,62 @@ namespace mistral::agent
     bool strict_mode = false;  // OpenAI-style strict tool schema mode
   };
 
+  // ---- MCP Server Configuration ----
+  // Describes one MCP server. Two transports are supported:
+  //
+  //   HTTP (Streamable HTTP):
+  //     { "url": "http://127.0.0.1:6006/mcp" }
+  //
+  //   stdio (spawn a child process, JSON-RPC over pipes):
+  //     { "command": "xerj", "args": ["mcp"],
+  //       "env": { "XERJ_URL": "http://localhost:9200" } }
+  //
+  // An optional preflight section ensures a dependency is running
+  // before the MCP server is connected:
+  //
+  //   "preflight": {
+  //     "check_url": "http://localhost:9200",
+  //     "start_command": ["xerj", "--insecure", "--data-dir", "~/xerj-data"],
+  //     "post_start_command": ["xerj", "autoindex", "."]
+  //   }
+  //
+  // Preflight flow: HTTP GET check_url; if it fails, spawn
+  // start_command as a detached process, poll check_url until it
+  // responds (or timeout), then run post_start_command.
+  struct mcp_server_config
+  {
+    // HTTP transport (Streamable HTTP endpoint).
+    std::string url;
+
+    // stdio transport (spawn a child process).
+    std::string command;
+    std::vector<std::string> args;
+    std::map<std::string, std::string> env;
+
+    // Preflight: ensure a dependency is running before connecting.
+    std::string check_url;
+    std::vector<std::string> start_command;
+    std::vector<std::string> post_start_command;
+
+    // Auto-connect on startup (default false). When true, the MCP
+    // manager connects this server automatically when the scheduler
+    // starts, without requiring /mcp connect.
+    bool auto_connect = false;
+
+    bool is_stdio() const { return !command.empty(); }
+  };
+
   // ---- Full Configuration ----
   // Represents the complete configuration loaded from mistral-cli.json.
   struct full_config
   {
     std::map<std::string, model_config> models;
     std::map<std::string, agent_config> agents;
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     tools::code_index_settings code_index;
+#endif
     std::string default_policy = "deny";
-    std::map<std::string, std::string> mcp_servers;  // name -> endpoint url
+    std::map<std::string, mcp_server_config> mcp_servers;
   };
 
 } // namespace mistral::agent

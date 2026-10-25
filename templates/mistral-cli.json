@@ -74,6 +74,18 @@
   "mcpServers": {
     "storybook": {
       "url": "http://127.0.0.1:6006/mcp"
+    },
+    "xerj": {
+      "command": "xerj",
+      "args": ["mcp"],
+      "env": {
+        "XERJ_URL": "http://localhost:9200"
+      },
+      "preflight": {
+        "check_url": "http://localhost:9200",
+        "start_command": ["xerj", "--insecure", "--data-dir", "~/xerj-data"],
+        "post_start_command": ["xerj", "autoindex", "."]
+      }
     }
   },
   "code_index": {

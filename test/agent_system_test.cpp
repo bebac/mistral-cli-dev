@@ -442,7 +442,10 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
 
   // Check that all expected tools are registered
   std::vector<std::string> expected_tools = {
-      "ls", "read", "outline", "read_symbol", "find_symbol", "find_references",
+      "ls", "read",
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+      "outline", "read_symbol", "find_symbol", "find_references", "ast_search",
+#endif
       "note_list", "note_read", "note_write", "note_search", "ask_user"};
 
   for (const auto &tool_name : expected_tools)
@@ -529,8 +532,10 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildc
   CHECK(filtered_registry.get_schema() == system.global_tools().get_schema());
   CHECK(filtered_registry.has_tool("ls"));
   CHECK(filtered_registry.has_tool("read"));
+#ifdef MISTRAL_ENABLE_TREE_SITTER
   CHECK(filtered_registry.has_tool("outline"));
   CHECK(filtered_registry.has_tool("find_symbol"));
+#endif
   CHECK(filtered_registry.has_tool("note_list"));
 }
 
@@ -548,7 +553,13 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
   CHECK(copy.get_schema() == global.get_schema());
 
   // Check that all tools are present
-  for (const auto &tool_name : {"ls", "read", "outline", "read_symbol", "find_symbol", "find_references", "note_list", "note_read", "note_write", "note_search"})
+  std::vector<std::string> all_tools = {
+    "ls", "read",
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+    "outline", "read_symbol", "find_symbol", "find_references", "ast_search",
+#endif
+    "note_list", "note_read", "note_write", "note_search"};
+  for (const auto &tool_name : all_tools)
   {
     CHECK(copy.has_tool(tool_name));
   }
@@ -583,7 +594,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy contains all tool
   CHECK(copy.get_schema() == global.get_schema());
   CHECK(copy.has_tool("ls"));
   CHECK(copy.has_tool("read"));
+#ifdef MISTRAL_ENABLE_TREE_SITTER
   CHECK(copy.has_tool("read_symbol"));
+#endif
 }
 
 TEST_SUITE_END;

@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # -----------------------------------------------------------------------------
+# Feature options
+# -----------------------------------------------------------------------------
+
+# Tree-sitter code tools (outline, read_symbol, find_symbol, find_references,
+# ast_search). When OFF, the binary is smaller and builds faster, but the
+# syntax-aware code tools are unavailable — use XERJ (via MCP) for code
+# search instead.
+option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" ON)
+
+# -----------------------------------------------------------------------------
 # Third-party: dripcore
 # -----------------------------------------------------------------------------
 
@@ -25,25 +35,27 @@ add_subdirectory(third_party/just-a-uri)
 add_subdirectory(third_party/isocline)
 
 # -----------------------------------------------------------------------------
-# Third-party: tree-sitter (parsing engine) + grammars
+# Third-party: tree-sitter (parsing engine) + grammars (optional)
 # -----------------------------------------------------------------------------
 
-# tree-sitter and its grammars default to shared libraries; we link them
-# statically into mistral-core.
-set(BUILD_SHARED_LIBS OFF)
+if(MISTRAL_ENABLE_TREE_SITTER)
+  # tree-sitter and its grammars default to shared libraries; we link them
+  # statically into mistral-core.
+  set(BUILD_SHARED_LIBS OFF)
 
-add_subdirectory(third_party/tree-sitter)
+  add_subdirectory(third_party/tree-sitter)
 
-# Grammars are compiled from their checked-in generated sources. We do not use
-# the grammar's own CMakeLists because it can try to regenerate parser.c with
-# the tree-sitter CLI, which we do not want as a build dependency.
-add_library(tree-sitter-cpp STATIC
-    third_party/grammars/tree-sitter-cpp/src/parser.c
-    third_party/grammars/tree-sitter-cpp/src/scanner.c
-)
-target_include_directories(tree-sitter-cpp PRIVATE
-    third_party/grammars/tree-sitter-cpp/src
-)
+  # Grammars are compiled from their checked-in generated sources. We do not use
+  # the grammar's own CMakeLists because it can try to regenerate parser.c with
+  # the tree-sitter CLI, which we do not want as a build dependency.
+  add_library(tree-sitter-cpp STATIC
+      third_party/grammars/tree-sitter-cpp/src/parser.c
+      third_party/grammars/tree-sitter-cpp/src/scanner.c
+  )
+  target_include_directories(tree-sitter-cpp PRIVATE
+      third_party/grammars/tree-sitter-cpp/src
+  )
+endif()
 
 # -----------------------------------------------------------------------------
 # Third-party: OpenSSL
@@ -77,6 +89,7 @@ add_custom_command(
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_patchset_instructions.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_researcher.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_xerj.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/policy.json
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/mistral-cli.json
     COMMENT "Generating embedded workspace templates"
@@ -84,35 +97,43 @@ add_custom_command(
 )
 
 # -----------------------------------------------------------------------------
-# Embedded tree-sitter queries (generated at build time)
+# Embedded tree-sitter queries (generated at build time, optional)
 # -----------------------------------------------------------------------------
 
-set(EMBEDDED_QUERIES_CPP
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_queries.cpp)
+if(MISTRAL_ENABLE_TREE_SITTER)
+  set(EMBEDDED_QUERIES_CPP
+      ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_queries.cpp)
 
-add_custom_command(
-    OUTPUT ${EMBEDDED_QUERIES_CPP}
-    COMMAND ${CMAKE_COMMAND}
-            -DOUT=${EMBEDDED_QUERIES_CPP}
-            -DGRAMMARS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars
-            -DREPO_QUERIES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/queries
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
-    DEPENDS
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars/tree-sitter-cpp/queries/tags.scm
-        ${CMAKE_CURRENT_SOURCE_DIR}/queries/cpp-references.scm
-    COMMENT "Generating embedded tree-sitter queries"
-    VERBATIM
-)
+  add_custom_command(
+      OUTPUT ${EMBEDDED_QUERIES_CPP}
+      COMMAND ${CMAKE_COMMAND}
+              -DOUT=${EMBEDDED_QUERIES_CPP}
+              -DGRAMMARS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars
+              -DREPO_QUERIES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/queries
+              -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
+      DEPENDS
+          ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_queries.cmake
+          ${CMAKE_CURRENT_SOURCE_DIR}/third_party/grammars/tree-sitter-cpp/queries/tags.scm
+          ${CMAKE_CURRENT_SOURCE_DIR}/queries/cpp-references.scm
+      COMMENT "Generating embedded tree-sitter queries"
+      VERBATIM
+  )
+else()
+  # Stub: no queries when tree-sitter is disabled. The declarations in
+  # embedded_resources.h are guarded by MISTRAL_ENABLE_TREE_SITTER.
+  set(EMBEDDED_QUERIES_CPP "")
+endif()
 
 # -----------------------------------------------------------------------------
 # Core library
 # -----------------------------------------------------------------------------
 
-add_library(mistral-core STATIC
+set(MISTRAL_CORE_SOURCES
     lib/http/tls_connection.cpp
     lib/mcp/mcp_client.cpp
+    lib/mcp/mcp_stdio_client.cpp
     lib/mcp/mcp_manager.cpp
+    lib/mcp/mcp_auto_connect_task.cpp
     lib/api/provider_base.cpp
     lib/api/providers/mistral_provider.cpp
     lib/api/providers/openai_provider.cpp
@@ -120,8 +141,6 @@ add_library(mistral-core STATIC
     lib/template/template_engine.cpp
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
-    lib/tools/code_index.cpp
-    lib/tools/code_tools.cpp
     lib/tools/exec_tools.cpp
     lib/tools/task_tools.cpp
     lib/tools/research_tools.cpp
@@ -149,10 +168,22 @@ add_library(mistral-core STATIC
     lib/agent/mcp_command.cpp
     lib/tools/patchset_tools.cpp
     lib/common/string_utils.cpp
+    lib/common/executable_finder.cpp
     lib/trace/trace.cpp
     lib/agent/workspace_bootstrap.cpp
     ${EMBEDDED_TEMPLATES_CPP}
-    ${EMBEDDED_QUERIES_CPP}
+)
+
+if(MISTRAL_ENABLE_TREE_SITTER)
+    list(APPEND MISTRAL_CORE_SOURCES
+        lib/tools/code_index.cpp
+        lib/tools/code_tools.cpp
+        ${EMBEDDED_QUERIES_CPP}
+    )
+endif()
+
+add_library(mistral-core STATIC
+    ${MISTRAL_CORE_SOURCES}
 )
 
 target_compile_features(mistral-core PUBLIC cxx_std_20)
@@ -162,16 +193,23 @@ target_include_directories(mistral-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/common
 )
 
-target_link_libraries(mistral-core PUBLIC
+set(MISTRAL_CORE_LIBS
     dripcore
     stunning-waddle
     just-a-uri
     nlohmann_json
     isocline
-    tree-sitter
-    tree-sitter-cpp
     OpenSSL::SSL
     OpenSSL::Crypto
+)
+
+if(MISTRAL_ENABLE_TREE_SITTER)
+    list(APPEND MISTRAL_CORE_LIBS tree-sitter tree-sitter-cpp)
+    target_compile_definitions(mistral-core PUBLIC MISTRAL_ENABLE_TREE_SITTER=1)
+endif()
+
+target_link_libraries(mistral-core PUBLIC
+    ${MISTRAL_CORE_LIBS}
 )
 
 # -----------------------------------------------------------------------------
@@ -189,10 +227,32 @@ target_link_libraries(mistral-cli PRIVATE
 )
 
 # -----------------------------------------------------------------------------
+# MCP connect simulator (debug tool — simulates /mcp connect without TUI)
+# -----------------------------------------------------------------------------
+
+add_executable(mcp-connect-sim
+    src/mcp_connect_sim.cpp
+)
+
+target_compile_features(mcp-connect-sim PRIVATE cxx_std_20)
+
+target_link_libraries(mcp-connect-sim PRIVATE
+    mistral-core
+)
+
+# -----------------------------------------------------------------------------
 # Tests
 # -----------------------------------------------------------------------------
 
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "test/*.cpp")
+
+# Exclude tree-sitter-dependent tests when the feature is disabled.
+if(NOT MISTRAL_ENABLE_TREE_SITTER)
+    list(REMOVE_ITEM TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/code_tools_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/tree_sitter_test.cpp
+    )
+endif()
 
 add_executable(tests
     ${TEST_SOURCES}

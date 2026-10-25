@@ -28,7 +28,9 @@ namespace mistral::tools
 {
   class file_tools;
   class note_tools;
+#ifdef MISTRAL_ENABLE_TREE_SITTER
   class code_tools;
+#endif
   class exec_tools;
   class task_tools;
   class patchset_tools;
@@ -99,7 +101,9 @@ namespace mistral::agent
     // Access to global tool instances
     mistral::tools::file_tools& file_tools() { return *file_tools_; }
     mistral::tools::note_tools& note_tools() { return *note_tools_; }
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     mistral::tools::code_tools& code_tools() { return *code_tools_; }
+#endif
     mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
     mistral::tools::task_tools& task_tools() { return *task_tools_; }
     mistral::tools::patchset_tools& patchset_tools() { return *patchset_tools_; }
@@ -193,7 +197,9 @@ namespace mistral::agent
 
     std::unique_ptr<mistral::tools::file_tools> file_tools_;
     std::unique_ptr<mistral::tools::note_tools> note_tools_;
+#ifdef MISTRAL_ENABLE_TREE_SITTER
     std::unique_ptr<mistral::tools::code_tools> code_tools_;
+#endif
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;

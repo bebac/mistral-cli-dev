@@ -1,6 +1,8 @@
 #ifndef MISTRAL_MCP_CLIENT_H
 #define MISTRAL_MCP_CLIENT_H
 
+#include "mcp/mcp_client_interface.h"
+
 #include <http/client_context.h>
 
 #include <dripcore/awaitable.h>
@@ -15,8 +17,6 @@
 
 namespace mistral::mcp
 {
-  using json = nlohmann::ordered_json;
-
   // MCP client for the Streamable HTTP transport (one JSON-RPC message
   // per HTTP POST; responses arrive as application/json or as a
   // text/event-stream body carrying a single JSON-RPC message).
@@ -26,7 +26,7 @@ namespace mistral::mcp
   //
   // Contract notes for the Storybook dev server endpoint are in
   // doc/storybook-mcp.md.
-  class mcp_client
+  class mcp_client : public mcp_client_interface
   {
   public:
     explicit mcp_client(
@@ -40,20 +40,20 @@ namespace mistral::mcp
     // MCP initialize handshake + notifications/initialized.
     // On success, session_id()/server_info()/instructions() are
     // populated. Throws std::runtime_error on failure.
-    dripcore::awaitable<bool> initialize();
+    dripcore::awaitable<bool> initialize() override;
 
-    bool initialized() const { return !session_id_.empty(); }
+    bool initialized() const override { return !session_id_.empty(); }
     const std::string& session_id() const { return session_id_; }
     const json& server_info() const { return server_info_; }
-    const std::string& instructions() const { return instructions_; }
+    const std::string& instructions() const override { return instructions_; }
 
     // tools/list - returns the full result object (contains "tools").
-    dripcore::awaitable<json> list_tools();
+    dripcore::awaitable<json> list_tools() override;
 
     // tools/call - returns the full result object (content[] and,
     // when the tool declares an outputSchema, structuredContent).
     dripcore::awaitable<json> call_tool(
-      const std::string& name, const json& args);
+      const std::string& name, const json& args) override;
 
     // Generic JSON-RPC request. Returns the "result" member; throws
     // std::runtime_error on transport failure or JSON-RPC error.

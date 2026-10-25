@@ -121,7 +121,14 @@ namespace mistral::tui
       // Skip empty fragments.
       if (text.empty()) return;
 
-      content_->append_fragment(text, type);
+      // Complete-message types (user, error, warning, system) are
+      // always separate blocks — pass force_new so ContentLog doesn't
+      // merge them with the previous block of the same kind.
+      bool force_new = (type == content_type::user ||
+                        type == content_type::error ||
+                        type == content_type::warning ||
+                        type == content_type::system);
+      content_->append_fragment(text, type, force_new);
     }
 
     // Re-wraps only dirty blocks and updates scroll position.

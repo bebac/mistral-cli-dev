@@ -11,11 +11,16 @@ namespace mistral::tmpl
 {
   // Simple template engine with three expansion types:
   //
-  //   ${var}        — Variable substitution from a key-value map.
-  //   ${{command}}  — Shell command expansion (captures stdout).
-  //   {{> path}}    — File inclusion relative to an include base directory.
-  //                   The .md extension is appended if missing.
-  //                   Includes are resolved recursively with cycle detection.
+  //   ${var}              — Variable substitution from a key-value map.
+  //   ${{command}}        — Shell command expansion (captures stdout).
+  //   {{> path}}          — File inclusion relative to an include base directory.
+  //                         The .md extension is appended if missing.
+  //                         Includes are resolved recursively with cycle detection.
+  //   {{> path if=var}}   — Conditional include: only include if `var` is truthy.
+  //   {{> path unless=var}} — Conditional include: only include if `var` is NOT truthy.
+  //
+  // Truthy values: "true", "1", "yes", "on" (case-insensitive).
+  // Falsy values: "false", "0", "no", "off", "" (empty), or unset.
   //
   class template_engine
   {
@@ -48,7 +53,11 @@ namespace mistral::tmpl
 
     std::string expand_variable(const std::string& name) const;
     std::string expand_command(const std::string& command) const;
-    std::string expand_include(const std::string& path, std::set<std::string>& include_stack) const;
+    std::string expand_include(const std::string& path, std::set<std::string>& include_stack,
+                               bool optional = false) const;
+
+    // Check if a variable is set to a truthy value.
+    bool is_truthy(const std::string& name) const;
 
     static std::string read_file(const std::filesystem::path& path);
 

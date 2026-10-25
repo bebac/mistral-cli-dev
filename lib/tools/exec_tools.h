@@ -32,12 +32,8 @@ namespace mistral::tools
     // file). Returns std::nullopt when the call looks valid.
     static std::optional<std::string> validate(
       const std::string& command,
-      const std::vector<std::string>& args);
-
-  private:
-    // Find executable path using PATH lookup (like which). Explicit
-    // paths (containing '/') are verified to exist and be executable.
-    static std::string find_executable(const std::string& command);
+      const std::vector<std::string>& args
+    );
   };
 
 } // namespace mistral::tools

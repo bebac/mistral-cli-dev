@@ -99,9 +99,15 @@ namespace mistral::agent
 
     std::string out = "mcp servers:\n";
     for (const auto& s : servers) {
+      std::string endpoint;
+      if (s.contains("url")) {
+        endpoint = s["url"].get<std::string>();
+      } else if (s.contains("command")) {
+        endpoint = s["command"].get<std::string>() + " (stdio)";
+      }
       out += std::format("  {} ({}) - {}\n",
         s["name"].get<std::string>(),
-        s["url"].get<std::string>(),
+        endpoint,
         s["connected"].get<bool>() ? "connected" : "disconnected");
       if (s.contains("error")) {
         out += std::format("    error: {}\n", s["error"].get<std::string>());

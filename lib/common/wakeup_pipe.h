@@ -1,6 +1,7 @@
 #ifndef MISTRAL_WAKEUP_PIPE_H
 #define MISTRAL_WAKEUP_PIPE_H
 
+#include <fcntl.h>
 #include <stdexcept>
 #include <utility>
 #include <unistd.h>
@@ -16,6 +17,14 @@ namespace mistral::common
       {
         throw std::runtime_error("failed to create wakeup pipe");
       }
+      // Set FD_CLOEXEC so child processes (e.g. MCP stdio servers
+      // spawned via fork/exec) do NOT inherit these fds. Without
+      // this, the child holds the write end open, and when the
+      // parent closes its write end during shutdown, the pipe never
+      // sees EOF — the dripcore tasks block forever on readable()
+      // and sched.run() never returns (CTRL-C hang).
+      ::fcntl(fds_[0], F_SETFD, FD_CLOEXEC);
+      ::fcntl(fds_[1], F_SETFD, FD_CLOEXEC);
     }
 
     ~wakeup_pipe()

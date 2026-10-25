@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include "mcp/mcp_manager.h"
+#include "mcp/mcp_client.h"
 #include "mcp/mcp_tool.h"
 #include "agent/agent_system.h"
 #include "agent/policy_engine.h"
@@ -50,7 +51,9 @@ namespace
     {
       try {
         auto& mgr = mistral::mcp::mcp_manager::instance();
-        mgr.configure({{"storybook", "http://127.0.0.1:6006/mcp"}});
+        mistral::agent::mcp_server_config storybook_cfg;
+        storybook_cfg.url = "http://127.0.0.1:6006/mcp";
+        mgr.configure({{"storybook", storybook_cfg}});
 
         auto result = co_await mgr.connect("storybook");
         out_ = result;
@@ -135,10 +138,11 @@ TEST_CASE("mcp_tool: forwards remote schema verbatim")
 TEST_CASE("mcp_manager: configure and status without connection")
 {
   auto& mgr = mistral::mcp::mcp_manager::instance();
-  mgr.configure({
-    {"a", "http://127.0.0.1:1/mcp"},
-    {"b", "http://127.0.0.1:2/mcp"}
-  });
+  mistral::agent::mcp_server_config cfg_a;
+  cfg_a.url = "http://127.0.0.1:1/mcp";
+  mistral::agent::mcp_server_config cfg_b;
+  cfg_b.url = "http://127.0.0.1:2/mcp";
+  mgr.configure({{"a", cfg_a}, {"b", cfg_b}});
 
   auto status = mgr.status();
   REQUIRE(status.size() == 2);

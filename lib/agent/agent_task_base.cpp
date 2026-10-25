@@ -148,7 +148,9 @@ namespace mistral::agent
 
       // Build request with the endpoint path
       std::string path = chat_request_path();
-      request_ch_->try_send({.path = path, .body = std::move(body), .stream = request_stream(), .response_ch = response_ch_});
+      request_ch_->try_send(
+        {.path = path, .body = std::move(body), .stream = request_stream(), .response_ch = response_ch_}
+      );
 
       // Consume streaming events.
       std::vector<api::message_content> accumulated_content;

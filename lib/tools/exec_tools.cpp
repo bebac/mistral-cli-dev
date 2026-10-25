@@ -1,5 +1,7 @@
 #include "tools/exec_tools.h"
 
+#include "common/executable_finder.h"
+
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -111,53 +113,6 @@ namespace mistral::tools
     }
   } // namespace
 
-  std::string exec_tools::find_executable(const std::string& command)
-  {
-    // If it's already an absolute or relative path, verify that it
-    // exists and is executable so bogus paths fail fast with a clear
-    // "command not found" instead of reaching execvp() (exit 127).
-    if (command.find('/') != std::string::npos) {
-      std::error_code ec;
-      if (fs::exists(command, ec) && fs::is_regular_file(command, ec) &&
-          access(command.c_str(), X_OK) == 0) {
-        return command;
-      }
-      return "";
-    }
-
-    // Search PATH
-    const char* path_env = std::getenv("PATH");
-    if (!path_env) {
-      return "";
-    }
-
-    std::string path_str(path_env);
-    size_t start = 0;
-    size_t end = path_str.find(':');
-
-    while (start < path_str.size()) {
-      std::string dir = (end == std::string::npos)
-        ? path_str.substr(start)
-        : path_str.substr(start, end - start);
-
-      if (!dir.empty()) {
-        fs::path candidate = fs::path(dir) / command;
-        if (fs::exists(candidate) && fs::is_regular_file(candidate)) {
-          // Check if it's executable
-          if (access(candidate.string().c_str(), X_OK) == 0) {
-            return candidate.string();
-          }
-        }
-      }
-
-      if (end == std::string::npos) break;
-      start = end + 1;
-      end = path_str.find(':', start);
-    }
-
-    return "";
-  }
-
   std::optional<std::string> exec_tools::validate(
     const std::string& command,
     const std::vector<std::string>& args)
@@ -191,7 +146,7 @@ namespace mistral::tools
       }
     }
 
-    if (find_executable(command).empty()) {
+    if (utils::find_executable(command).empty()) {
       return std::format("command not found: {}", command);
     }
 
@@ -206,7 +161,7 @@ namespace mistral::tools
   )
   {
     // Find the executable path
-    std::string exec_path = find_executable(command);
+    std::string exec_path = utils::find_executable(command);
     if (exec_path.empty()) {
       co_return {
         {"error", std::format("command not found: {}", command)},
@@ -290,6 +245,18 @@ namespace mistral::tools
       dup2(stderr_pipe.write_fd(), STDERR_FILENO);
       close(stderr_pipe.write_fd());
 
+      // Close ALL other inherited file descriptors (kqueue fd from
+      // the dripcore event loop, wakeup pipe fds, MCP stdio pipe
+      // fds, etc.). Without this, the child holds the parent's
+      // wakeup pipe write ends open — when the parent closes its
+      // write ends during shutdown, the pipes never see EOF and the
+      // dripcore event loop hangs forever.
+      long max_fd = sysconf(_SC_OPEN_MAX);
+      if (max_fd < 0) max_fd = 1024;
+      for (long fd = 3; fd < max_fd; ++fd) {
+        close(static_cast<int>(fd));
+      }
+
       // Change working directory if specified
       if (!cwd.empty()) {
         if (chdir(cwd.c_str()) != 0) {
@@ -323,6 +290,12 @@ namespace mistral::tools
     // Set pipes to non-blocking mode for timeout support
     if (stdout_read_fd >= 0) fcntl(stdout_read_fd, F_SETFL, O_NONBLOCK);
     if (stderr_read_fd >= 0) fcntl(stderr_read_fd, F_SETFL, O_NONBLOCK);
+
+    // Set FD_CLOEXEC so future fork/exec children do NOT inherit
+    // these pipe read fds (prevents pipe-EOF deadlocks when the
+    // parent spawns another child while this exec is in flight).
+    if (stdout_read_fd >= 0) fcntl(stdout_read_fd, F_SETFD, FD_CLOEXEC);
+    if (stderr_read_fd >= 0) fcntl(stderr_read_fd, F_SETFD, FD_CLOEXEC);
 
     // Read stdout and stderr from child with timeout
     std::string stdout_content;

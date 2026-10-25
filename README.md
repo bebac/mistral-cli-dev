@@ -20,6 +20,7 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 ### Tools & workspace
 
 - **Tool integration** — file listing/reading, syntax-aware code exploration (tree-sitter), exec, notes, task tracking, and patchset-based file editing.
+- **MCP integration** — connect to [Model Context Protocol](https://modelcontextprotocol.io/) servers (HTTP or stdio) for additional tools, with auto-connect on startup and a TUI status indicator.
 - **Multi-agent configuration** — models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
 - **Workspace bootstrap** — default configuration files are embedded in the executables and seeded automatically on startup.
 
@@ -60,7 +61,7 @@ Where the project is headed, grouped by theme.
 - **Stronger policies and approval** — tool calls already go through a
   policy engine with per-call approval to keep the model inside the
   workspace, but the default policy (`templates/policy.json`) has holes:
-  it allowlists `exec` by executable name only, so `find` is allowed with
+  it allows `exec` by executable name only, so `find` is allowed with
   any arguments even though `find -exec` / `find -delete` can alter or
   delete files, and `make` runs arbitrary recipes from a Makefile. The
   optional `args` constraint cannot forbid dangerous flags — it only
@@ -198,7 +199,8 @@ into the executables and a new `.mistral-cli/` directory is bootstrapped
 automatically on startup (unless a custom config file is passed with `-c`,
 or `--no-bootstrap` is given):
 
-- `mistral-cli.json`, `policy.json`, `sys_prompt.md`, `sys_prompt_researcher.md`
+- `mistral-cli.json`, `policy.json`, `sys_prompt.md`, `sys_prompt_researcher.md`,
+  `sys_prompt_xerj.md`, `sys_storybook_notes.md`
   are **seeded** — written only if missing, so local customizations are
   never overwritten.
 - `sys_patchset_instructions.md` is **managed** — refreshed from the embedded
@@ -237,8 +239,9 @@ Type your message, Ctrl-D to exit.
 
 Full-screen interface: a header with a connectivity indicator, a
 scrollable transcript, a multi-line input box, and a footer showing the
-workspace, agent · model, and token usage. Select a theme with `--theme`
-(`dark`, `light`, `nord`, `tokyo-night`, `solarized-light`).
+workspace, agent · model, MCP connection status, and token usage. Select
+a theme with `--theme` (`dark`, `light`, `nord`, `tokyo-night`,
+`solarized-light`).
 
 - **Enter** inserts a newline; **Alt+Enter** — or **Enter** on an empty
   last line (double-Enter) — sends the message.
@@ -264,6 +267,7 @@ Both interfaces support the same slash commands:
 | `/save [file]` | Save the last AI response to a file (default: `last_response.txt`). |
 | `/load [file]` | Load a file as the last AI response. |
 | `/tool <name> <json>` | Call a tool directly, for debugging. |
+| `/mcp [connect [server]|tools]` | Show MCP status, connect to servers, or list MCP tools. |
 | `/clear` | Clear the chat history (not yet implemented). |
 | `/exit` | Quit the TUI (in the console, exit with **Ctrl+D**). |
 
@@ -304,6 +308,7 @@ In the TUI, **Esc** during an approval prompt rejects the call.
 | `patchset_add`, `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
 | `task_create`, `task_list`, `task_get`, `task_update`, `task_search` | Project task tracking. |
 | `web_search` | Search the web via a server-side research agent (Mistral Agents API `web_search` builtin tool). |
+| `mcp:*` | Tools from connected MCP servers (e.g. `mcp:xerj_search`, `mcp:storybook_get_component`). |
 
 Which tools an agent may use is configured per agent via `available_tools`
 in `mistral-cli.json`. File edits go through the patchset workflow
@@ -372,6 +377,76 @@ Mistral console, or switch the `server_agent` tool to
   }
 }
 ```
+
+### MCP servers
+
+mistral-cli can connect to [Model Context Protocol](https://modelcontextprotocol.io/)
+(MCP) servers to expose additional tools to the agent. Two transports are
+supported:
+
+- **HTTP** (Streamable HTTP) — connect to a running MCP server:
+  ```json
+  "mcpServers": {
+    "storybook": { "url": "http://127.0.0.1:6006/mcp" }
+  }
+  ```
+- **stdio** — spawn the server as a child process (JSON-RPC over pipes):
+  ```json
+  "mcpServers": {
+    "xerj": {
+      "command": "xerj",
+      "args": ["mcp"],
+      "env": { "XERJ_URL": "http://localhost:9200" }
+    }
+  }
+  ```
+
+**Preflight** — an optional `preflight` section ensures a dependency is
+running before connecting (e.g. start the XERJ node and autoindex the
+workspace):
+
+```json
+"preflight": {
+  "check_url": "http://localhost:9200",
+  "start_command": ["xerj", "--insecure", "--data-dir", "~/xerj-data"],
+  "post_start_command": ["xerj", "autoindex", "."]
+}
+```
+
+**Auto-connect** — set `auto_connect: true` to connect the server
+automatically on startup (no `/mcp connect` needed):
+
+```json
+"xerj": {
+  "command": "xerj",
+  "args": ["mcp"],
+  "auto_connect": true,
+  ...
+}
+```
+
+**Managing connections** — use the `/mcp` slash command:
+
+| Command | Description |
+|---------|-------------|
+| `/mcp` | Show status of all configured MCP servers. |
+| `/mcp connect [server]` | Connect to a server (all if no name given). |
+| `/mcp tools` | List registered MCP tools. |
+
+In the TUI, the footer shows the MCP connection status (`xerj ●` when
+connected, `xerj ○` when not).
+
+**Conditional prompt includes** — the system prompt template supports
+conditional includes, so optional tool docs are only shown when the
+relevant MCP server is configured:
+
+```
+{{> sys_prompt_xerj.md if=xerj_enabled}}
+```
+
+The `xerj_enabled` variable is set automatically when the `xerj` server
+is present in `mcpServers`. Conditional includes silently skip if the
+file doesn't exist, so existing workspaces keep working.
 
 ---
 

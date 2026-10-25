@@ -1,7 +1,7 @@
 #ifndef MISTRAL_MCP_TOOL_H
 #define MISTRAL_MCP_TOOL_H
 
-#include "mcp/mcp_client.h"
+#include "mcp/mcp_client_interface.h"
 #include "agent/tool_registry.h"
 
 namespace mistral::mcp
@@ -10,10 +10,13 @@ namespace mistral::mcp
   // tool registry. The remote inputSchema is forwarded verbatim (MCP
   // schemas use draft-07 with anyOf unions that cannot be re-derived
   // from C++ types), and execute() forwards to tools/call.
+  //
+  // Works with any mcp_client_interface implementation (HTTP or stdio
+  // transport).
   class mcp_tool : public agent::tool_interface
   {
   public:
-    mcp_tool(std::shared_ptr<mcp_client> client, std::string name,
+    mcp_tool(std::shared_ptr<mcp_client_interface> client, std::string name,
             std::string description, json input_schema)
       : client_(std::move(client))
       , name_(std::move(name))
@@ -54,7 +57,7 @@ namespace mistral::mcp
     }
 
   private:
-    std::shared_ptr<mcp_client> client_;
+    std::shared_ptr<mcp_client_interface> client_;
     std::string name_;
     std::string description_;
     json input_schema_;

@@ -8,6 +8,7 @@
 #include "tui/tui_chat_input.h"
 #include "tui/tui_approval_state.h"
 #include "agent/agent_system.h"
+#include "mcp/mcp_manager.h"
 #include "trace/trace.h"
 
 #include <cpptui.hpp>
@@ -258,6 +259,33 @@ private:
         dot_->fg_color = cpptui::Theme::current().border;
       }
 
+      // Update footer center with MCP auto-connect status.
+      auto& mcp_mgr = mistral::mcp::mcp_manager::instance();
+      auto mcp_servers = mcp_mgr.auto_connect_servers();
+      if (!mcp_servers.empty()) {
+        std::string names;
+        for (size_t i = 0; i < mcp_servers.size(); ++i) {
+          if (i > 0) names += " ";
+          names += mcp_servers[i];
+        }
+        bool all_connected = mcp_mgr.auto_connect_all_connected();
+        std::string indicator = all_connected ? "\xe2\x97\x8f" : "\xe2\x97\x8b";
+        footer_->center_text = cfg_.agent_id + " \xc2\xb7 " +
+          cfg_.resolved_model + " \xc2\xb7 " + names + " " + indicator;
+
+        // Show a single status message in the content area (once).
+        // Connection status is shown in the footer dot; errors are
+        // logged to stderr by mcp_auto_connect_task.
+        if (mcp_status_msg_state_ == 0) {
+          content_area_.append("Running MCP auto-connect...",
+                               content_type::system);
+          mcp_status_msg_state_ = 1;
+        }
+      } else {
+        footer_->center_text = cfg_.agent_id + " \xc2\xb7 " +
+          cfg_.resolved_model;
+      }
+
       auto stats = mistral::agent::agent_system::instance().get_usage_stats();
       if (stats.contains("total_tokens")) {
         footer_->right_text =
@@ -442,6 +470,10 @@ private:
   std::shared_ptr<SlashCommandPopup> slash_popup_;
   std::shared_ptr<FooterBar> footer_;
   std::shared_ptr<cpptui::Vertical> root_;
+
+  // MCP auto-connect status message state (for content area):
+  // 0 = not shown, 1 = "Running MCP auto-connect..." shown
+  int mcp_status_msg_state_ = 0;
 };
 
 } // namespace mistral::tui
