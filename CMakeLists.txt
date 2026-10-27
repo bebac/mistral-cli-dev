@@ -169,6 +169,7 @@ set(MISTRAL_CORE_SOURCES
     lib/tools/patchset_tools.cpp
     lib/common/string_utils.cpp
     lib/common/executable_finder.cpp
+    lib/common/subprocess.cpp
     lib/trace/trace.cpp
     lib/agent/workspace_bootstrap.cpp
     ${EMBEDDED_TEMPLATES_CPP}

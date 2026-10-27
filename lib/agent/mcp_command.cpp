@@ -69,6 +69,12 @@ namespace mistral::agent
             r.value("error", std::string("unknown error"))
           );
         }
+        if (r.contains("warning"))
+        {
+          out += std::format(
+            "warning '{}': {}\n", r["server"].get<std::string>(), r["warning"].get<std::string>()
+          );
+        }
       }
       if (out.empty())
       {

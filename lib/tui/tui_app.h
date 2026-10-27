@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -278,12 +279,38 @@ namespace mistral::tui
             cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model + " \xc2\xb7 " + names + " " + indicator;
 
           // Show a single status message in the content area (once).
-          // Connection status is shown in the footer dot; errors are
-          // logged to stderr by mcp_auto_connect_task.
+          // Connection status is shown in the footer dot; once the
+          // auto-connect task has finished, failures and preflight
+          // warnings are printed (once) — success stays silent.
           if (mcp_status_msg_state_ == 0)
           {
             content_area_.append("Running MCP auto-connect...", content_type::system);
             mcp_status_msg_state_ = 1;
+          }
+          else if (mcp_status_msg_state_ == 1 && mcp_mgr.auto_connect_finished())
+          {
+            std::string errors;
+            std::string warnings;
+            for (const auto& r : mcp_mgr.auto_connect_report())
+            {
+              if (r.contains("error"))
+              {
+                errors += std::format("  {}: {}\n", r["server"].get<std::string>(), r["error"].get<std::string>());
+              }
+              if (r.contains("warning"))
+              {
+                warnings += std::format("  {}: {}\n", r["server"].get<std::string>(), r["warning"].get<std::string>());
+              }
+            }
+            if (!errors.empty())
+            {
+              content_area_.append("MCP auto-connect failed:\n" + errors, content_type::error);
+            }
+            if (!warnings.empty())
+            {
+              content_area_.append("MCP preflight warning:\n" + warnings, content_type::warning);
+            }
+            mcp_status_msg_state_ = 2;
           }
         }
         else
@@ -471,8 +498,10 @@ namespace mistral::tui
     std::shared_ptr<FooterBar> footer_;
     std::shared_ptr<cpptui::Vertical> root_;
 
-    // MCP auto-connect status message state (for content area):
-    // 0 = not shown, 1 = "Running MCP auto-connect..." shown
+    // MCP auto-connect content-area message state:
+    // 0 = "Running MCP auto-connect..." not shown yet,
+    // 1 = running message shown, waiting for the outcome,
+    // 2 = outcome shown (failure/warning lines, if any)
     int mcp_status_msg_state_ = 0;
   };
 

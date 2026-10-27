@@ -270,8 +270,12 @@ namespace mistral::mcp
     return pid;
   }
 
-  dripcore::awaitable<int> mcp_manager::run_command(const std::vector<std::string>& command)
+  dripcore::awaitable<int> mcp_manager::run_command(const std::vector<std::string>& command, std::string* captured_output)
   {
+    if (captured_output)
+    {
+      captured_output->clear();
+    }
     if (command.empty())
       co_return -1;
     std::string exec_path = utils::find_executable(command[0]);
@@ -338,27 +342,67 @@ namespace mistral::mcp
     ::fcntl(out_pipe[0], F_SETFL, O_NONBLOCK);
     ::fcntl(err_pipe[0], F_SETFL, O_NONBLOCK);
 
+    // Capture output (stdout + stderr interleaved), keeping only the
+    // tail — early output (progress bars, scan logs) is noise, the
+    // error message is at the end.
+    constexpr size_t k_max_captured_output = 4096;
+    std::string output;
+    auto append_output = [&output](const char* data, ssize_t n) {
+      output.append(data, static_cast<size_t>(n));
+      if (output.size() > k_max_captured_output)
+      {
+        output.erase(0, output.size() - k_max_captured_output);
+      }
+    };
+
     // Drain pipes while waiting for the child (60s timeout — e.g.
     // `xerj autoindex` on a large repo can take a while, but it
     // should never hang forever).
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     char buf[4096];
+    ssize_t n;
     while (true)
     {
       // Non-blocking drain.
-      while (::read(out_pipe[0], buf, sizeof(buf)) > 0)
+      while ((n = ::read(out_pipe[0], buf, sizeof(buf))) > 0)
       {
+        append_output(buf, n);
       }
-      while (::read(err_pipe[0], buf, sizeof(buf)) > 0)
+      while ((n = ::read(err_pipe[0], buf, sizeof(buf))) > 0)
       {
+        append_output(buf, n);
       }
 
       int status = 0;
       pid_t w = ::waitpid(pid, &status, WNOHANG);
       if (w == pid)
       {
+        // Final drain: the child has exited, so its pipe write ends
+        // are closed — read() returns 0 (EOF) once the buffered data
+        // is consumed. Bounded in case a grandchild still holds the
+        // write end (then there is no EOF).
+        for (int i = 0; i < 100; ++i)
+        {
+          bool any = false;
+          while ((n = ::read(out_pipe[0], buf, sizeof(buf))) > 0)
+          {
+            append_output(buf, n);
+            any = true;
+          }
+          while ((n = ::read(err_pipe[0], buf, sizeof(buf))) > 0)
+          {
+            append_output(buf, n);
+            any = true;
+          }
+          if (!any)
+            break;
+        }
         ::close(out_pipe[0]);
         ::close(err_pipe[0]);
+        if (captured_output)
+        {
+          *captured_output = std::move(output);
+        }
         if (WIFEXITED(status))
           co_return WEXITSTATUS(status);
         co_return -1;
@@ -367,6 +411,10 @@ namespace mistral::mcp
       {
         ::close(out_pipe[0]);
         ::close(err_pipe[0]);
+        if (captured_output)
+        {
+          *captured_output = std::move(output);
+        }
         co_return -1;
       }
       // Timeout: kill the child and bail out.
@@ -377,6 +425,10 @@ namespace mistral::mcp
         ::waitpid(pid, &status, 0);
         ::close(out_pipe[0]);
         ::close(err_pipe[0]);
+        if (captured_output)
+        {
+          *captured_output = std::move(output);
+        }
         co_return -1;
       }
       // Yield to the scheduler.
@@ -384,7 +436,36 @@ namespace mistral::mcp
     }
   }
 
-  dripcore::awaitable<std::string> mcp_manager::run_preflight(const agent::mcp_server_config& cfg)
+  dripcore::awaitable<void> mcp_manager::run_post_start(const agent::mcp_server_config& cfg, std::string* warning)
+  {
+    if (cfg.post_start_command.empty())
+      co_return;
+
+    // A non-zero exit code is NOT fatal — the server is already up,
+    // and tools like `xerj autoindex` use non-zero codes both for
+    // hard failures (exit 1) and warnings (exit 3 = some files
+    // skipped). Capture the output tail so the failure is visible
+    // instead of silent.
+    std::string output;
+    int exit_code = co_await run_command(cfg.post_start_command, &output);
+    if (exit_code == 0 || warning == nullptr || !warning->empty())
+      co_return;
+
+    std::string cmd;
+    for (size_t i = 0; i < cfg.post_start_command.size(); ++i)
+    {
+      if (i > 0)
+        cmd += " ";
+      cmd += cfg.post_start_command[i];
+    }
+    *warning = std::format("post_start_command '{}' exited with {}", cmd, exit_code);
+    if (!output.empty())
+    {
+      *warning += std::format(": {}", output);
+    }
+  }
+
+  dripcore::awaitable<std::string> mcp_manager::run_preflight(const agent::mcp_server_config& cfg, std::string* warning)
   {
     if (cfg.check_url.empty())
       co_return "";
@@ -393,14 +474,8 @@ namespace mistral::mcp
     if (co_await http_check(cfg.check_url))
     {
       // Already running. Run post_start_command if present
-      // (e.g. autoindex to refresh the index). A non-zero exit
-      // code is NOT fatal — the server is already up, and tools
-      // like `xerj autoindex` use non-zero codes for warnings
-      // (e.g. exit 3 = stale-resume-plan, some files skipped).
-      if (!cfg.post_start_command.empty())
-      {
-        co_await run_command(cfg.post_start_command);
-      }
+      // (e.g. autoindex to refresh the index).
+      co_await run_post_start(cfg, warning);
       co_return "";
     }
 
@@ -427,11 +502,8 @@ namespace mistral::mcp
       if (co_await http_check(cfg.check_url))
       {
         // 4. Run post_start_command (e.g. autoindex). Non-fatal
-        //    (see comment above).
-        if (!cfg.post_start_command.empty())
-        {
-          co_await run_command(cfg.post_start_command);
-        }
+        //    (see run_post_start).
+        co_await run_post_start(cfg, warning);
         co_return "";
       }
       co_await dripcore::sleep_awaiter{dripcore::executor::current(), nullptr, std::chrono::milliseconds(500)};
@@ -452,9 +524,12 @@ namespace mistral::mcp
     try
     {
       // Run preflight (if configured).
+      st.warning.clear();
       if (!st.config.check_url.empty())
       {
-        std::string preflight_error = co_await run_preflight(st.config);
+        std::string preflight_warning;
+        std::string preflight_error = co_await run_preflight(st.config, &preflight_warning);
+        st.warning = preflight_warning;
         if (!preflight_error.empty())
         {
           throw std::runtime_error(preflight_error);
@@ -508,16 +583,26 @@ namespace mistral::mcp
       rebuild_instructions();
       ++registry_version_;
 
-      co_return json{
+      json result = json{
         {"server", name}, {"connected", true}, {"tools", registered}, {"instructions_chars", st.instructions.size()}
       };
+      if (!st.warning.empty())
+      {
+        result["warning"] = st.warning;
+      }
+      co_return result;
     }
     catch (const std::exception& e)
     {
       st.connected = false;
       st.error = e.what();
       st.client.reset();
-      co_return json{{"server", name}, {"connected", false}, {"error", st.error}};
+      json result = json{{"server", name}, {"connected", false}, {"error", st.error}};
+      if (!st.warning.empty())
+      {
+        result["warning"] = st.warning;
+      }
+      co_return result;
     }
   }
 
@@ -541,7 +626,31 @@ namespace mistral::mcp
         results.push_back(co_await connect(name));
       }
     }
+    auto_connect_finished_ = true;
     co_return results;
+  }
+
+  json mcp_manager::auto_connect_report() const
+  {
+    // Per-server outcome of the last connect_auto() run, for the TUI
+    // content area: failures and preflight/post_start warnings.
+    json out = json::array();
+    for (const auto& [name, st] : servers_)
+    {
+      if (!st.config.auto_connect)
+        continue;
+      json r = {{"server", name}, {"connected", st.connected}};
+      if (!st.error.empty())
+      {
+        r["error"] = st.error;
+      }
+      if (!st.warning.empty())
+      {
+        r["warning"] = st.warning;
+      }
+      out.push_back(std::move(r));
+    }
+    return out;
   }
 
   std::vector<std::string> mcp_manager::auto_connect_servers() const
@@ -609,6 +718,10 @@ namespace mistral::mcp
       if (!st.error.empty())
       {
         s["error"] = st.error;
+      }
+      if (!st.warning.empty())
+      {
+        s["warning"] = st.warning;
       }
       if (st.connected)
       {

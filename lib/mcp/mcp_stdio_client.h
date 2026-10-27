@@ -1,6 +1,7 @@
 #ifndef MISTRAL_MCP_STDIO_CLIENT_H
 #define MISTRAL_MCP_STDIO_CLIENT_H
 
+#include "common/subprocess.h"
 #include "mcp/mcp_client_interface.h"
 
 #include <dripcore/awaitable.h>
@@ -11,8 +12,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <sys/types.h>
 
 namespace mistral::mcp
 {
@@ -25,8 +24,8 @@ namespace mistral::mcp
   // Same MCP protocol surface as mcp_client (HTTP transport):
   // initialize, tools/list, tools/call.
   //
-  // The child process is spawned with fork/exec and pipes, following
-  // the pattern in lib/tools/exec_tools.cpp. I/O uses dripcore's
+  // The child process is spawned via common::subprocess (fork/exec +
+  // pipes, shared with lib/tools/exec_tools.cpp). I/O uses dripcore's
   // io_awaiter (POLLIN/POLLOUT) on the pipe file descriptors.
   class mcp_stdio_client : public mcp_client_interface
   {
@@ -88,7 +87,7 @@ namespace mistral::mcp
 
     bool connected() const
     {
-      return pid_ > 0;
+      return process_.running();
     }
 
   private:
@@ -112,10 +111,7 @@ namespace mistral::mcp
     std::map<std::string, std::string> env_;
     std::chrono::seconds timeout_;
 
-    pid_t pid_ = -1;
-    int stdin_fd_ = -1;  // parent writes -> child stdin
-    int stdout_fd_ = -1; // parent reads  <- child stdout
-    int stderr_fd_ = -1; // parent reads  <- child stderr (drained)
+    common::subprocess process_;
 
     std::string read_buffer_; // partial line buffer for stdout
     bool initialized_ = false;

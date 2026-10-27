@@ -44,6 +44,18 @@ namespace mistral::mcp
                   << std::flush;
         std::cerr << "[mcp] run /mcp connect to retry\n" << std::flush;
       }
+
+      // Non-fatal preflight/post_start_command problem (e.g. the
+      // server connected but `xerj autoindex` exited non-zero).
+      if (r.contains("warning"))
+      {
+        std::cerr << std::format(
+                       "[mcp] warning '{}': {}\n",
+                       r["server"].get<std::string>(),
+                       r["warning"].get<std::string>()
+                     )
+                  << std::flush;
+      }
     }
 
     co_return;

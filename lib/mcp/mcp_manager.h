@@ -69,6 +69,18 @@ namespace mistral::mcp
     // Names of servers with auto_connect=true (for display).
     std::vector<std::string> auto_connect_servers() const;
 
+    // True once connect_auto() has completed at least once. The TUI
+    // polls this to know the auto-connect outcome is available.
+    bool auto_connect_finished() const
+    {
+      return auto_connect_finished_;
+    }
+
+    // Per-server outcome of the last connect_auto() run: server,
+    // connected, and any error/warning. Covers only servers with
+    // auto_connect=true.
+    json auto_connect_report() const;
+
     // True if all auto-connect servers are connected.
     bool auto_connect_all_connected() const;
 
@@ -109,11 +121,20 @@ namespace mistral::mcp
       std::vector<std::string> tool_names;
       std::string instructions;
       std::string error;
+      // Non-fatal preflight problem (e.g. post_start_command exited
+      // non-zero). The server may still be connected.
+      std::string warning;
     };
 
     // Run the preflight for one server: check_url, start_command,
     // post_start_command. Returns an error string or empty on success.
-    dripcore::awaitable<std::string> run_preflight(const agent::mcp_server_config& cfg);
+    // A non-fatal post_start_command failure is written to *warning
+    // (when non-null) instead of failing the connect.
+    dripcore::awaitable<std::string> run_preflight(const agent::mcp_server_config& cfg, std::string* warning = nullptr);
+
+    // Run post_start_command (if configured) and record a non-fatal
+    // warning (exit code + captured output tail) on failure.
+    dripcore::awaitable<void> run_post_start(const agent::mcp_server_config& cfg, std::string* warning);
 
     // HTTP GET to check if a URL is reachable. Returns true on 2xx.
     dripcore::awaitable<bool> http_check(const std::string& url);
@@ -122,13 +143,16 @@ namespace mistral::mcp
     pid_t spawn_detached(const std::vector<std::string>& command);
 
     // Run a command and wait for it to complete (post_start_command).
-    dripcore::awaitable<int> run_command(const std::vector<std::string>& command);
+    // When captured_output is non-null it receives the tail of the
+    // child's stdout+stderr (capped — the error message is at the end).
+    dripcore::awaitable<int> run_command(const std::vector<std::string>& command, std::string* captured_output = nullptr);
 
     void rebuild_instructions();
 
     std::map<std::string, server_state> servers_;
     std::string instructions_;
     uint64_t registry_version_ = 0;
+    bool auto_connect_finished_ = false;
   };
 
 } // namespace mistral::mcp
