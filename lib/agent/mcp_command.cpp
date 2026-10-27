@@ -23,10 +23,7 @@ namespace mistral::agent
     return "/mcp [connect [server]|tools]";
   }
 
-  dripcore::awaitable<std::string> mcp_command::execute(
-    dripcore::task&,
-    const std::string& args,
-    agent::agent_system&)
+  dripcore::awaitable<std::string> mcp_command::execute(dripcore::task&, const std::string& args, agent::agent_system&)
   {
     auto& mgr = mistral::mcp::mcp_manager::instance();
 
@@ -35,34 +32,46 @@ namespace mistral::agent
     arg.erase(arg.find_last_not_of(" \t") + 1);
 
     // /mcp connect [server]
-    if (arg == "connect" || arg.starts_with("connect ")) {
+    if (arg == "connect" || arg.starts_with("connect "))
+    {
       std::string server;
-      if (arg.size() > 8) {
+      if (arg.size() > 8)
+      {
         server = arg.substr(8);
         server.erase(0, server.find_first_not_of(" \t"));
       }
 
       json results;
-      if (server.empty()) {
+      if (server.empty())
+      {
         results = co_await mgr.connect_all();
-      } else {
+      }
+      else
+      {
         results = json::array();
         results.push_back(co_await mgr.connect(server));
       }
 
       std::string out;
-      for (const auto& r : results) {
-        if (r.value("connected", false)) {
-          out += std::format("connected '{}': {} tools registered\n",
+      for (const auto& r : results)
+      {
+        if (r.value("connected", false))
+        {
+          out += std::format(
+            "connected '{}': {} tools registered\n", r["server"].get<std::string>(), r["tools"].get<size_t>()
+          );
+        }
+        else
+        {
+          out += std::format(
+            "failed to connect '{}': {}\n",
             r["server"].get<std::string>(),
-            r["tools"].get<size_t>());
-        } else {
-          out += std::format("failed to connect '{}': {}\n",
-            r["server"].get<std::string>(),
-            r.value("error", std::string("unknown error")));
+            r.value("error", std::string("unknown error"))
+          );
         }
       }
-      if (out.empty()) {
+      if (out.empty())
+      {
         out = "no mcp servers configured "
               "(add \"mcpServers\" to mistral-cli.json)\n";
       }
@@ -71,49 +80,62 @@ namespace mistral::agent
     }
 
     // /mcp tools
-    if (arg == "tools") {
+    if (arg == "tools")
+    {
       auto names = mgr.tool_names("*");
-      if (names.empty()) {
+      if (names.empty())
+      {
         co_return "no MCP tools registered (connect first: /mcp connect)";
       }
       std::string out = "registered MCP tools:\n";
-      for (const auto& n : names) {
+      for (const auto& n : names)
+      {
         out += "  - " + n + "\n";
       }
       co_return out;
     }
 
     // /mcp (status)
-    if (!arg.empty()) {
+    if (!arg.empty())
+    {
       co_return "unknown argument '" + arg + "'. usage: " + usage();
     }
 
     json servers = mgr.status();
-    if (servers.empty()) {
-      co_return std::string("no mcp servers configured\n") +
-        "add to mistral-cli.json:\n" +
+    if (servers.empty())
+    {
+      co_return std::string("no mcp servers configured\n") + "add to mistral-cli.json:\n" +
         "  \"mcpServers\": { \"storybook\": "
         "{ \"url\": \"http://127.0.0.1:6006/mcp\" } }\n" +
         "and \"mcp:*\" to the agent's available_tools";
     }
 
     std::string out = "mcp servers:\n";
-    for (const auto& s : servers) {
+    for (const auto& s : servers)
+    {
       std::string endpoint;
-      if (s.contains("url")) {
+      if (s.contains("url"))
+      {
         endpoint = s["url"].get<std::string>();
-      } else if (s.contains("command")) {
+      }
+      else if (s.contains("command"))
+      {
         endpoint = s["command"].get<std::string>() + " (stdio)";
       }
-      out += std::format("  {} ({}) - {}\n",
+      out += std::format(
+        "  {} ({}) - {}\n",
         s["name"].get<std::string>(),
         endpoint,
-        s["connected"].get<bool>() ? "connected" : "disconnected");
-      if (s.contains("error")) {
+        s["connected"].get<bool>() ? "connected" : "disconnected"
+      );
+      if (s.contains("error"))
+      {
         out += std::format("    error: {}\n", s["error"].get<std::string>());
       }
-      if (s.contains("tools")) {
-        for (const auto& t : s["tools"]) {
+      if (s.contains("tools"))
+      {
+        for (const auto& t : s["tools"])
+        {
           out += std::format("    - {}\n", t.get<std::string>());
         }
       }

@@ -1,11 +1,11 @@
 #ifndef MISTRAL_TLS_CONNECTION_H
 #define MISTRAL_TLS_CONNECTION_H
 
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 
-#include <netdb.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <unistd.h>
 
 #include <optional>
@@ -26,7 +26,9 @@ namespace mistral::net
 
     ~address_info();
 
-    address_info(address_info&& o) noexcept : info_(std::exchange(o.info_, nullptr)) {}
+    address_info(address_info&& o) noexcept : info_(std::exchange(o.info_, nullptr))
+    {
+    }
     address_info& operator=(address_info&& o) noexcept;
 
     address_info(const address_info&) = delete;
@@ -35,16 +37,35 @@ namespace mistral::net
     struct iterator
     {
       addrinfo* current;
-      addrinfo* operator*() const { return current; }
-      iterator& operator++() { if (current) current = current->ai_next; return *this; }
-      bool operator!=(const iterator& o) const { return current != o.current; }
+      addrinfo* operator*() const
+      {
+        return current;
+      }
+      iterator& operator++()
+      {
+        if (current)
+          current = current->ai_next;
+        return *this;
+      }
+      bool operator!=(const iterator& o) const
+      {
+        return current != o.current;
+      }
     };
 
-    iterator begin() const { return iterator{info_}; }
-    iterator end() const { return iterator{nullptr}; }
+    iterator begin() const
+    {
+      return iterator{info_};
+    }
+    iterator end() const
+    {
+      return iterator{nullptr};
+    }
 
   private:
-    explicit address_info(addrinfo* i) : info_(i) {}
+    explicit address_info(addrinfo* i) : info_(i)
+    {
+    }
     addrinfo* info_ = nullptr;
   };
 
@@ -55,14 +76,19 @@ namespace mistral::net
     ssl_context();
     ~ssl_context();
 
-    ssl_context(ssl_context&& o) noexcept : ctx_(std::exchange(o.ctx_, nullptr)) {}
+    ssl_context(ssl_context&& o) noexcept : ctx_(std::exchange(o.ctx_, nullptr))
+    {
+    }
     ssl_context& operator=(ssl_context&& o) noexcept;
 
     ssl_context(const ssl_context&) = delete;
     ssl_context& operator=(const ssl_context&) = delete;
 
     void enable_h2();
-    SSL_CTX* get() const { return ctx_; }
+    SSL_CTX* get() const
+    {
+      return ctx_;
+    }
 
   private:
     SSL_CTX* ctx_ = nullptr;
@@ -76,13 +102,18 @@ namespace mistral::net
     explicit ssl_handle(SSL_CTX* ctx);
     ~ssl_handle();
 
-    ssl_handle(ssl_handle&& o) noexcept : ssl_(std::exchange(o.ssl_, nullptr)) {}
+    ssl_handle(ssl_handle&& o) noexcept : ssl_(std::exchange(o.ssl_, nullptr))
+    {
+    }
     ssl_handle& operator=(ssl_handle&& o) noexcept;
 
     ssl_handle(const ssl_handle&) = delete;
     ssl_handle& operator=(const ssl_handle&) = delete;
 
-    SSL* get() const { return ssl_; }
+    SSL* get() const
+    {
+      return ssl_;
+    }
     void set_hostname(const std::string& host);
     void set_fd(int fd);
     int connect();
@@ -116,36 +147,57 @@ namespace mistral::net
     // Connect to host:port with TLS + HTTP/2 ALPN.
     void connect(std::string_view host, std::string_view port);
 
-    int fd() const { return sock_; }
-    SSL* ssl() const { return ssl_.get(); }
-    bool connected() const { return sock_ >= 0; }
+    int fd() const
+    {
+      return sock_;
+    }
+    SSL* ssl() const
+    {
+      return ssl_.get();
+    }
+    bool connected() const
+    {
+      return sock_ >= 0;
+    }
 
-    void set_non_blocking(bool enable) { ssl_.set_non_blocking(enable); }
+    void set_non_blocking(bool enable)
+    {
+      ssl_.set_non_blocking(enable);
+    }
 
-    int read(std::span<std::byte> in) {
+    int read(std::span<std::byte> in)
+    {
       return SSL_read(ssl_.get(), in.data(), static_cast<int>(in.size()));
     }
-    int write(std::span<const std::byte> out) {
+    int write(std::span<const std::byte> out)
+    {
       return SSL_write(ssl_.get(), out.data(), static_cast<int>(out.size()));
     }
-    bool no_data_pending() const {
+    bool no_data_pending() const
+    {
       return SSL_pending(ssl_.get()) == 0;
     }
 
-    bool is_shutting_down() const { return shutting_down_; }
+    bool is_shutting_down() const
+    {
+      return shutting_down_;
+    }
 
-    int shutdown() {
+    int shutdown()
+    {
       // NOTE - Not sure about this. Thing is that dripcore has no really good way to stop
       // tasks that are waiting on IO. When using CTRL-C to stop, the http_read_task is very
       // likely to suspended on 'co_await readable(client)' and apparently closing the socket
       // won't notify it. Doing a shutdown does seem to wake it up though. I would have expected
       // SSL_shutdown to also do a shutdown on the fd, but that doesn't seem to work.
-      //return SSL_shutdown(ssl_.get());
+      // return SSL_shutdown(ssl_.get());
       shutting_down_ = true;
-      if (sock_ >= 0) {
+      if (sock_ >= 0)
+      {
         return ::shutdown(sock_, SHUT_RDWR);
       }
-      else {
+      else
+      {
         return 0;
       }
     }

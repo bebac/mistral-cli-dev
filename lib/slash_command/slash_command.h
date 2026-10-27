@@ -1,9 +1,9 @@
 #ifndef MISTRAL_SLASH_COMMAND_H
 #define MISTRAL_SLASH_COMMAND_H
 
-#include <string>
-#include <dripcore/task.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/task.h>
+#include <string>
 
 namespace mistral::agent
 {
@@ -65,8 +65,8 @@ namespace mistral::slash_command
      */
     virtual dripcore::awaitable<std::string> execute(
       dripcore::task& task,
-      const std::string &args,
-      agent::agent_system &agent_sys
+      const std::string& args,
+      agent::agent_system& agent_sys
     ) = 0;
   };
 

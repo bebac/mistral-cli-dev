@@ -22,32 +22,29 @@ namespace mistral::agent
     class dummy_tool
     {
     public:
-      json noop(std::string input) { return {{"echo", input}}; }
+      json noop(std::string input)
+      {
+        return {{"echo", input}};
+      }
     };
 
     void register_dummy_tools(tool_registry& registry, dummy_tool& tool_inst)
     {
       registry.register_tool(
-        "patchset_apply", "Apply a patchset", &tool_inst, &dummy_tool::noop,
-        arg("patchset_id", "The patchset ID")
+        "patchset_apply", "Apply a patchset", &tool_inst, &dummy_tool::noop, arg("patchset_id", "The patchset ID")
       );
-      registry.register_tool(
-        "exec", "Execute a command", &tool_inst, &dummy_tool::noop,
-        arg("command", "The command")
-      );
+      registry.register_tool("exec", "Execute a command", &tool_inst, &dummy_tool::noop, arg("command", "The command"));
     }
 
     mistral::tools::file_edit_t make_edit(
       std::string file_path,
       std::string search_text,
       std::string replace_text,
-      size_t patch_number)
+      size_t patch_number
+    )
     {
       return mistral::tools::file_edit_t{
-        std::move(file_path),
-        std::move(search_text),
-        std::move(replace_text),
-        patch_number
+        std::move(file_path), std::move(search_text), std::move(replace_text), patch_number
       };
     }
 
@@ -62,8 +59,7 @@ namespace mistral::agent
 
       ApprovalRenderersTestFixture()
       {
-        temp_dir = std::filesystem::temp_directory_path()
-          / "mistral_cli_approval_renderers_test";
+        temp_dir = std::filesystem::temp_directory_path() / "mistral_cli_approval_renderers_test";
         std::filesystem::create_directories(temp_dir);
         config_file = (std::filesystem::path(temp_dir) / "mistral-cli.json").string();
         base_dir = temp_dir;
@@ -73,7 +69,13 @@ namespace mistral::agent
 
       ~ApprovalRenderersTestFixture()
       {
-        try { std::filesystem::remove_all(temp_dir); } catch (...) {}
+        try
+        {
+          std::filesystem::remove_all(temp_dir);
+        }
+        catch (...)
+        {
+        }
       }
 
       void initialize_agent_system_empty()
@@ -111,10 +113,9 @@ namespace mistral::agent
   TEST_CASE("register_approval_renderer on unknown tool is a no-op")
   {
     tool_registry registry;
-    registry.register_approval_renderer(
-      "nonexistent",
-      [](const json&, std::string_view) { return std::string("custom"); }
-    );
+    registry.register_approval_renderer("nonexistent", [](const json&, std::string_view) {
+      return std::string("custom");
+    });
     CHECK(!registry.render_approval("nonexistent", json::object(), "r").has_value());
   }
 
@@ -123,16 +124,11 @@ namespace mistral::agent
     dummy_tool tool_inst;
     tool_registry registry;
     register_dummy_tools(registry, tool_inst);
-    registry.register_approval_renderer(
-      "exec",
-      [](const json& args, std::string_view reason) {
-        return "custom:" + std::string(args["command"].get<std::string>())
-          + ":" + std::string(reason);
-      }
-    );
+    registry.register_approval_renderer("exec", [](const json& args, std::string_view reason) {
+      return "custom:" + std::string(args["command"].get<std::string>()) + ":" + std::string(reason);
+    });
 
-    auto result = registry.render_approval(
-      "exec", json{{"command", "ls"}}, "why not");
+    auto result = registry.render_approval("exec", json{{"command", "ls"}}, "why not");
     REQUIRE(result.has_value());
     CHECK(*result == "custom:ls:why not");
   }
@@ -142,10 +138,7 @@ namespace mistral::agent
     dummy_tool tool_inst;
     tool_registry registry;
     register_dummy_tools(registry, tool_inst);
-    registry.register_approval_renderer(
-      "exec",
-      [](const json&, std::string_view) { return std::string("custom"); }
-    );
+    registry.register_approval_renderer("exec", [](const json&, std::string_view) { return std::string("custom"); });
 
     tool_registry copy_ctor = registry;
     auto result = copy_ctor.render_approval("exec", json::object(), "r");
@@ -166,10 +159,10 @@ namespace mistral::agent
     auto& agent_sys = agent_system::instance();
 
     std::vector<mistral::tools::file_edit_t> edits;
-    edits.push_back(make_edit("src/main.cpp", "old", "new", 1));       // M
-    edits.push_back(make_edit("lib/utils.h", "", "a\nb\nc", 2));       // A, 3 lines
-    edits.push_back(make_edit("CMakeLists.txt", ".", "x\ny\n", 3));    // O, 2 lines
-    edits.push_back(make_edit("old.cpp", "gone", "", 4));              // D
+    edits.push_back(make_edit("src/main.cpp", "old", "new", 1));    // M
+    edits.push_back(make_edit("lib/utils.h", "", "a\nb\nc", 2));    // A, 3 lines
+    edits.push_back(make_edit("CMakeLists.txt", ".", "x\ny\n", 3)); // O, 2 lines
+    edits.push_back(make_edit("old.cpp", "gone", "", 4));           // D
     agent_sys.store_patchset("renderer-test-ps", edits);
 
     dummy_tool tool_inst;
@@ -177,11 +170,8 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "renderer-test-ps"}},
-      "Policy requires approval"
-    );
+    auto result =
+      registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-ps"}}, "Policy requires approval");
 
     // Clean up before any CHECK so a failure cannot leak state
     agent_sys.remove_patchset("renderer-test-ps");
@@ -211,11 +201,7 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "renderer-test-single"}},
-      "r"
-    );
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-single"}}, "r");
     agent_sys.remove_patchset("renderer-test-single");
 
     REQUIRE(result.has_value());
@@ -232,11 +218,7 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "renderer-test-missing"}},
-      "r"
-    );
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-missing"}}, "r");
 
     REQUIRE(result.has_value());
     CHECK(result->find("  patchset: renderer-test-missing (not found)\n") != std::string::npos);
@@ -254,11 +236,7 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "renderer-test-empty"}},
-      "r"
-    );
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-empty"}}, "r");
     agent_sys.remove_patchset("renderer-test-empty");
 
     REQUIRE(result.has_value());
@@ -272,8 +250,7 @@ namespace mistral::agent
     std::vector<mistral::tools::file_edit_t> edits;
     for (size_t i = 1; i <= 12; ++i)
     {
-      edits.push_back(make_edit(
-        "file" + std::to_string(i) + ".cpp", "x", "y", i));
+      edits.push_back(make_edit("file" + std::to_string(i) + ".cpp", "x", "y", i));
     }
     agent_sys.store_patchset("renderer-test-long", edits);
 
@@ -282,11 +259,7 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "renderer-test-long"}},
-      "r"
-    );
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-long"}}, "r");
     agent_sys.remove_patchset("renderer-test-long");
 
     REQUIRE(result.has_value());
@@ -312,11 +285,7 @@ namespace mistral::agent
 
     auto result = registry.render_approval(
       "exec",
-      json{
-        {"command", "git"},
-        {"args", json::array({"status", "-s"})},
-        {"cwd", "/tmp/work"}
-      },
+      json{{"command", "git"}, {"args", json::array({"status", "-s"})}, {"cwd", "/tmp/work"}},
       "Policy requires approval"
     );
 
@@ -336,20 +305,13 @@ namespace mistral::agent
     register_dummy_tools(registry, tool_inst);
     register_approval_renderers(registry);
 
-    auto result = registry.render_approval(
-      "exec",
-      json{{"command", "make"}, {"args", json::array()}, {"cwd", ""}},
-      "r"
-    );
+    auto result =
+      registry.render_approval("exec", json{{"command", "make"}, {"args", json::array()}, {"cwd", ""}}, "r");
     REQUIRE(result.has_value());
     CHECK(result->find("  Command: make\n") != std::string::npos);
     CHECK(result->find("Working directory") == std::string::npos);
 
-    result = registry.render_approval(
-      "exec",
-      json{{"command", "make"}},
-      "r"
-    );
+    result = registry.render_approval("exec", json{{"command", "make"}}, "r");
     REQUIRE(result.has_value());
     CHECK(result->find("  Command: make\n") != std::string::npos);
     CHECK(result->find("Working directory") == std::string::npos);
@@ -363,11 +325,7 @@ namespace mistral::agent
     register_approval_renderers(registry);
 
     std::string long_arg(100, 'x');
-    auto result = registry.render_approval(
-      "exec",
-      json{{"command", "echo"}, {"args", json::array({long_arg})}},
-      "r"
-    );
+    auto result = registry.render_approval("exec", json{{"command", "echo"}, {"args", json::array({long_arg})}}, "r");
 
     REQUIRE(result.has_value());
     // The generic prompt truncates values to 60 characters; the custom
@@ -377,53 +335,42 @@ namespace mistral::agent
 
   // ---- create_tool_registry integration ----
 
-  TEST_CASE_FIXTURE(ApprovalRenderersTestFixture,
-    "create_tool_registry: wildcard copy preserves renderers")
+  TEST_CASE_FIXTURE(ApprovalRenderersTestFixture, "create_tool_registry: wildcard copy preserves renderers")
   {
     initialize_agent_system_empty();
     auto& system = agent_system::instance();
 
     auto registry = system.create_tool_registry({"*"});
 
-    auto exec_prompt = registry.render_approval(
-      "exec",
-      json{{"command", "git"}, {"args", json::array({"status"})}},
-      "r"
-    );
+    auto exec_prompt =
+      registry.render_approval("exec", json{{"command", "git"}, {"args", json::array({"status"})}}, "r");
     REQUIRE(exec_prompt.has_value());
     CHECK(exec_prompt->find("[APPROVAL REQUIRED] exec") != std::string::npos);
     CHECK(exec_prompt->find("Command: git status") != std::string::npos);
 
-    auto ps_prompt = registry.render_approval(
-      "patchset_apply",
-      json{{"patchset_id", "no-such-patchset"}},
-      "r"
-    );
+    auto ps_prompt = registry.render_approval("patchset_apply", json{{"patchset_id", "no-such-patchset"}}, "r");
     REQUIRE(ps_prompt.has_value());
     CHECK(ps_prompt->find("[APPROVAL REQUIRED] patchset_apply") != std::string::npos);
     CHECK(ps_prompt->find("(not found)") != std::string::npos);
   }
 
-  TEST_CASE_FIXTURE(ApprovalRenderersTestFixture,
-    "create_tool_registry: filtered registry preserves renderer for included tool")
+  TEST_CASE_FIXTURE(
+    ApprovalRenderersTestFixture,
+    "create_tool_registry: filtered registry preserves renderer for included tool"
+  )
   {
     initialize_agent_system_empty();
     auto& system = agent_system::instance();
 
     auto registry = system.create_tool_registry({"exec"});
 
-    auto exec_prompt = registry.render_approval(
-      "exec",
-      json{{"command", "ls"}},
-      "r"
-    );
+    auto exec_prompt = registry.render_approval("exec", json{{"command", "ls"}}, "r");
     REQUIRE(exec_prompt.has_value());
     CHECK(exec_prompt->find("Command: ls") != std::string::npos);
 
     // patchset_apply is filtered out: no tool, no renderer
     CHECK(!registry.has_tool("patchset_apply"));
-    CHECK(!registry.render_approval(
-      "patchset_apply", json::object(), "r").has_value());
+    CHECK(!registry.render_approval("patchset_apply", json::object(), "r").has_value());
   }
 
   TEST_SUITE_END();

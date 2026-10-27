@@ -3,30 +3,30 @@
 #include "agent/approval_renderers.h"
 #include "agent/compact_command.h"
 #include "agent/mcp_command.h"
-#include "agent/subagent_task.h"
 #include "agent/server_agent_task.h"
+#include "agent/subagent_task.h"
 #include "agent/workspace_bootstrap.h"
 #include "mcp/mcp_manager.h"
-#include "tools/patchset_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
+#include "tools/patchset_tools.h"
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_tools.h"
 #endif
-#include "tools/exec_tools.h"
-#include "tools/task_tools.h"
-#include "tools/research_tools.h"
-#include "tools/ask_tools.h"
 #include "template/template_engine.h"
+#include "tools/ask_tools.h"
+#include "tools/exec_tools.h"
+#include "tools/research_tools.h"
+#include "tools/task_tools.h"
 
 #include <api/chat_types.h>
 
-#include <dripcore/task.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/task.h>
 
 #include <algorithm>
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
@@ -39,7 +39,7 @@ namespace mistral::agent
 
   // ---- Singleton Instance ----
 
-  agent_system &agent_system::instance()
+  agent_system& agent_system::instance()
   {
     static agent_system instance;
     return instance;
@@ -48,9 +48,9 @@ namespace mistral::agent
   // ---- Initialization ----
 
   void agent_system::initialize(
-    const std::string &config_file,
+    const std::string& config_file,
     const std::string& base_dir,
-    const std::string &notes_dir,
+    const std::string& notes_dir,
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch
   )
   {
@@ -87,8 +87,7 @@ namespace mistral::agent
 
   // ---- Tool Policy Resolution ----
 
-  json agent_system::resolve_tool_policy(
-      const agent_config& agent_cfg) const
+  json agent_system::resolve_tool_policy(const agent_config& agent_cfg) const
   {
     std::string tool_policy = agent_cfg.tool_policy;
 
@@ -153,7 +152,7 @@ namespace mistral::agent
 
   // ---- Configuration Loading ----
 
-  full_config agent_system::load_config_from_file(const std::string &config_file) const
+  full_config agent_system::load_config_from_file(const std::string& config_file) const
   {
     full_config config;
 
@@ -175,7 +174,7 @@ namespace mistral::agent
     {
       j = json::parse(in, nullptr, true, true);
     }
-    catch (const std::exception &e)
+    catch (const std::exception& e)
     {
       throw std::runtime_error(std::string("Failed to parse configuration file: ") + e.what());
     }
@@ -183,7 +182,7 @@ namespace mistral::agent
     // Parse models
     if (j.contains("models") && j["models"].is_object())
     {
-      for (auto &[name, model_json] : j["models"].items())
+      for (auto& [name, model_json] : j["models"].items())
       {
         model_config model_cfg;
         model_cfg.provider = model_json.value("provider", "mistral");
@@ -193,37 +192,48 @@ namespace mistral::agent
         model_cfg.api_version = model_json.value("api_version", "v1");
 
         // Parse sampling parameters
-        if (model_json.contains("reasoning_effort") && !model_json["reasoning_effort"].is_null()) {
+        if (model_json.contains("reasoning_effort") && !model_json["reasoning_effort"].is_null())
+        {
           model_cfg.reasoning_effort = model_json["reasoning_effort"].get<std::string>();
         }
-        if (model_json.contains("temperature") && !model_json["temperature"].is_null()) {
+        if (model_json.contains("temperature") && !model_json["temperature"].is_null())
+        {
           model_cfg.temperature = model_json["temperature"].get<float>();
         }
-        if (model_json.contains("top_p") && !model_json["top_p"].is_null()) {
+        if (model_json.contains("top_p") && !model_json["top_p"].is_null())
+        {
           model_cfg.top_p = model_json["top_p"].get<float>();
         }
-        if (model_json.contains("top_k") && !model_json["top_k"].is_null()) {
+        if (model_json.contains("top_k") && !model_json["top_k"].is_null())
+        {
           model_cfg.top_k = model_json["top_k"].get<int>();
         }
-        if (model_json.contains("max_tokens") && !model_json["max_tokens"].is_null()) {
+        if (model_json.contains("max_tokens") && !model_json["max_tokens"].is_null())
+        {
           model_cfg.max_tokens = model_json["max_tokens"].get<int>();
         }
-        if (model_json.contains("frequency_penalty") && !model_json["frequency_penalty"].is_null()) {
+        if (model_json.contains("frequency_penalty") && !model_json["frequency_penalty"].is_null())
+        {
           model_cfg.frequency_penalty = model_json["frequency_penalty"].get<float>();
         }
-        if (model_json.contains("presence_penalty") && !model_json["presence_penalty"].is_null()) {
+        if (model_json.contains("presence_penalty") && !model_json["presence_penalty"].is_null())
+        {
           model_cfg.presence_penalty = model_json["presence_penalty"].get<float>();
         }
-        if (model_json.contains("seed") && !model_json["seed"].is_null()) {
+        if (model_json.contains("seed") && !model_json["seed"].is_null())
+        {
           model_cfg.seed = model_json["seed"].get<int>();
         }
-        if (model_json.contains("safe_prompt") && !model_json["safe_prompt"].is_null()) {
+        if (model_json.contains("safe_prompt") && !model_json["safe_prompt"].is_null())
+        {
           model_cfg.safe_prompt = model_json["safe_prompt"].get<bool>();
         }
-        if (model_json.contains("randomness") && !model_json["randomness"].is_null()) {
+        if (model_json.contains("randomness") && !model_json["randomness"].is_null())
+        {
           model_cfg.randomness = model_json["randomness"].get<float>();
         }
-        if (model_json.contains("strict_mode") && !model_json["strict_mode"].is_null()) {
+        if (model_json.contains("strict_mode") && !model_json["strict_mode"].is_null())
+        {
           model_cfg.strict_mode = model_json["strict_mode"].get<bool>();
         }
 
@@ -234,7 +244,7 @@ namespace mistral::agent
     // Parse agents
     if (j.contains("agents") && j["agents"].is_object())
     {
-      for (auto &[name, agent_json] : j["agents"].items())
+      for (auto& [name, agent_json] : j["agents"].items())
       {
         agent_config agent_cfg;
         agent_cfg.model = agent_json.value("model", "mistral-medium");
@@ -265,44 +275,55 @@ namespace mistral::agent
         // Handle available_tools
         if (agent_json.contains("available_tools") && agent_json["available_tools"].is_array())
         {
-          for (auto &tool : agent_json["available_tools"])
+          for (auto& tool : agent_json["available_tools"])
           {
             agent_cfg.available_tools.push_back(tool.get<std::string>());
           }
         }
 
         // Parse sampling parameters (agent-level overrides)
-        if (agent_json.contains("reasoning_effort") && !agent_json["reasoning_effort"].is_null()) {
+        if (agent_json.contains("reasoning_effort") && !agent_json["reasoning_effort"].is_null())
+        {
           agent_cfg.reasoning_effort = agent_json["reasoning_effort"].get<std::string>();
         }
-        if (agent_json.contains("temperature") && !agent_json["temperature"].is_null()) {
+        if (agent_json.contains("temperature") && !agent_json["temperature"].is_null())
+        {
           agent_cfg.temperature = agent_json["temperature"].get<float>();
         }
-        if (agent_json.contains("top_p") && !agent_json["top_p"].is_null()) {
+        if (agent_json.contains("top_p") && !agent_json["top_p"].is_null())
+        {
           agent_cfg.top_p = agent_json["top_p"].get<float>();
         }
-        if (agent_json.contains("top_k") && !agent_json["top_k"].is_null()) {
+        if (agent_json.contains("top_k") && !agent_json["top_k"].is_null())
+        {
           agent_cfg.top_k = agent_json["top_k"].get<int>();
         }
-        if (agent_json.contains("max_tokens") && !agent_json["max_tokens"].is_null()) {
+        if (agent_json.contains("max_tokens") && !agent_json["max_tokens"].is_null())
+        {
           agent_cfg.max_tokens = agent_json["max_tokens"].get<int>();
         }
-        if (agent_json.contains("frequency_penalty") && !agent_json["frequency_penalty"].is_null()) {
+        if (agent_json.contains("frequency_penalty") && !agent_json["frequency_penalty"].is_null())
+        {
           agent_cfg.frequency_penalty = agent_json["frequency_penalty"].get<float>();
         }
-        if (agent_json.contains("presence_penalty") && !agent_json["presence_penalty"].is_null()) {
+        if (agent_json.contains("presence_penalty") && !agent_json["presence_penalty"].is_null())
+        {
           agent_cfg.presence_penalty = agent_json["presence_penalty"].get<float>();
         }
-        if (agent_json.contains("seed") && !agent_json["seed"].is_null()) {
+        if (agent_json.contains("seed") && !agent_json["seed"].is_null())
+        {
           agent_cfg.seed = agent_json["seed"].get<int>();
         }
-        if (agent_json.contains("safe_prompt") && !agent_json["safe_prompt"].is_null()) {
+        if (agent_json.contains("safe_prompt") && !agent_json["safe_prompt"].is_null())
+        {
           agent_cfg.safe_prompt = agent_json["safe_prompt"].get<bool>();
         }
-        if (agent_json.contains("randomness") && !agent_json["randomness"].is_null()) {
+        if (agent_json.contains("randomness") && !agent_json["randomness"].is_null())
+        {
           agent_cfg.randomness = agent_json["randomness"].get<float>();
         }
-        if (agent_json.contains("strict_mode") && !agent_json["strict_mode"].is_null()) {
+        if (agent_json.contains("strict_mode") && !agent_json["strict_mode"].is_null())
+        {
           agent_cfg.strict_mode = agent_json["strict_mode"].get<bool>();
         }
 
@@ -321,16 +342,14 @@ namespace mistral::agent
             {
               api::builtin_tool tool;
               tool.type = tool_json.value("type", "");
-              if (tool_json.contains("tool_configuration") &&
-                  !tool_json["tool_configuration"].is_null())
+              if (tool_json.contains("tool_configuration") && !tool_json["tool_configuration"].is_null())
               {
                 tool.tool_configuration = tool_json["tool_configuration"];
               }
               server_cfg.tools.push_back(std::move(tool));
             }
           }
-          if (server_json.contains("completion_args") &&
-              server_json["completion_args"].is_object())
+          if (server_json.contains("completion_args") && server_json["completion_args"].is_object())
           {
             server_cfg.completion_args = server_json["completion_args"];
           }
@@ -377,8 +396,7 @@ namespace mistral::agent
           {
             cfg.url = server_json["url"].get<std::string>();
           }
-          if (server_json.contains("command") &&
-              server_json["command"].is_string())
+          if (server_json.contains("command") && server_json["command"].is_string())
           {
             cfg.command = server_json["command"].get<std::string>();
           }
@@ -398,8 +416,7 @@ namespace mistral::agent
                 cfg.env[k] = v.get<std::string>();
             }
           }
-          if (server_json.contains("preflight") &&
-              server_json["preflight"].is_object())
+          if (server_json.contains("preflight") && server_json["preflight"].is_object())
           {
             const auto& pf = server_json["preflight"];
             if (pf.contains("check_url") && pf["check_url"].is_string())
@@ -410,16 +427,14 @@ namespace mistral::agent
                 if (c.is_string())
                   cfg.start_command.push_back(c.get<std::string>());
             }
-            if (pf.contains("post_start_command") &&
-                pf["post_start_command"].is_array())
+            if (pf.contains("post_start_command") && pf["post_start_command"].is_array())
             {
               for (const auto& c : pf["post_start_command"])
                 if (c.is_string())
                   cfg.post_start_command.push_back(c.get<std::string>());
             }
           }
-          if (server_json.contains("auto_connect") &&
-              server_json["auto_connect"].is_boolean())
+          if (server_json.contains("auto_connect") && server_json["auto_connect"].is_boolean())
           {
             cfg.auto_connect = server_json["auto_connect"].get<bool>();
           }
@@ -436,14 +451,11 @@ namespace mistral::agent
     // Parse code index configuration
     if (j.contains("code_index") && j["code_index"].is_object())
     {
-      if (j["code_index"].contains("exclude_dirs") &&
-          j["code_index"]["exclude_dirs"].is_array())
+      if (j["code_index"].contains("exclude_dirs") && j["code_index"]["exclude_dirs"].is_array())
       {
-        config.code_index.exclude_dirs =
-          j["code_index"]["exclude_dirs"].get<std::vector<std::string>>();
+        config.code_index.exclude_dirs = j["code_index"]["exclude_dirs"].get<std::vector<std::string>>();
       }
-      if (j["code_index"].contains("max_results") &&
-          j["code_index"]["max_results"].is_number())
+      if (j["code_index"].contains("max_results") && j["code_index"]["max_results"].is_number())
       {
         config.code_index.max_results = j["code_index"]["max_results"].get<int>();
       }
@@ -461,7 +473,7 @@ namespace mistral::agent
 
   // ---- Tool Initialization ----
 
-  void agent_system::initialize_tools(const std::string &notes_dir)
+  void agent_system::initialize_tools(const std::string& notes_dir)
   {
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
     note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
@@ -483,36 +495,50 @@ namespace mistral::agent
     class help_command : public sc::slash_command
     {
     public:
-      explicit help_command(sc::slash_command_registry& registry)
-        : registry_(registry) {}
+      explicit help_command(sc::slash_command_registry& registry) : registry_(registry)
+      {
+      }
 
-      std::string name() const override { return "help"; }
-      std::string description() const override { return "Show available slash commands"; }
-      std::string usage() const override { return "/help [command]"; }
+      std::string name() const override
+      {
+        return "help";
+      }
+      std::string description() const override
+      {
+        return "Show available slash commands";
+      }
+      std::string usage() const override
+      {
+        return "/help [command]";
+      }
 
-      dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string& args,
-        agent::agent_system&) override
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string& args, agent::agent_system&) override
       {
         auto names = registry_.get_command_names();
 
-        if (args.empty()) {
+        if (args.empty())
+        {
           std::string result = "Available slash commands:\n";
-          for (const auto& name : names) {
+          for (const auto& name : names)
+          {
             const auto* cmd = registry_.get_command(name);
-            if (cmd) {
+            if (cmd)
+            {
               result += "  /" + name;
-              if (!cmd->description().empty()) {
+              if (!cmd->description().empty())
+              {
                 result += " - " + cmd->description();
               }
               result += "\n";
             }
           }
           co_return result;
-        } else {
+        }
+        else
+        {
           const auto* cmd = registry_.get_command(args);
-          if (!cmd) {
+          if (!cmd)
+          {
             co_return "Unknown command: /" + args;
           }
           co_return "Usage: /" + cmd->usage() + "\n" + cmd->description();
@@ -526,13 +552,16 @@ namespace mistral::agent
     class clear_command : public sc::slash_command
     {
     public:
-      std::string name() const override { return "clear"; }
-      std::string description() const override { return "Clear the chat history"; }
+      std::string name() const override
+      {
+        return "clear";
+      }
+      std::string description() const override
+      {
+        return "Clear the chat history";
+      }
 
-      dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string&,
-        agent::agent_system&) override
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent::agent_system&) override
       {
         co_return "Clearing the chat history is not yet implemented";
       }
@@ -541,13 +570,16 @@ namespace mistral::agent
     class model_command : public sc::slash_command
     {
     public:
-      std::string name() const override { return "model"; }
-      std::string description() const override { return "Show current model information"; }
+      std::string name() const override
+      {
+        return "model";
+      }
+      std::string description() const override
+      {
+        return "Show current model information";
+      }
 
-      dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string&,
-        agent_system& sys) override
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent_system& sys) override
       {
         co_return "Current model: " + sys.resolve_model_id(sys.get_agent_config("main").model);
       }
@@ -556,18 +588,23 @@ namespace mistral::agent
     class tools_command : public sc::slash_command
     {
     public:
-      std::string name() const override { return "tools"; }
-      std::string description() const override { return "List available tools"; }
+      std::string name() const override
+      {
+        return "tools";
+      }
+      std::string description() const override
+      {
+        return "List available tools";
+      }
 
-      dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string&,
-        agent_system& sys) override
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent_system& sys) override
       {
         auto schema = sys.global_tools().get_schema();
         std::string result = "Available tools:\n";
-        for (const auto& tool : schema) {
-          if (tool.contains("function") && tool["function"].contains("name")) {
+        for (const auto& tool : schema)
+        {
+          if (tool.contains("function") && tool["function"].contains("name"))
+          {
             result += "  - " + tool["function"]["name"].get<std::string>() + "\n";
           }
         }
@@ -578,13 +615,16 @@ namespace mistral::agent
     class exit_command : public sc::slash_command
     {
     public:
-      std::string name() const override { return "exit"; }
-      std::string description() const override { return "Exit the application"; }
+      std::string name() const override
+      {
+        return "exit";
+      }
+      std::string description() const override
+      {
+        return "Exit the application";
+      }
 
-      dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string&,
-        agent::agent_system&) override
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent::agent_system&) override
       {
         co_return ""; // NOT IMPLEMENTED!
       }
@@ -622,7 +662,8 @@ namespace mistral::agent
       "ls",
       "List files and directories. Returns entries with type indicator (f=file, d=directory, l=symlink), "
       "size for files, and relative path.",
-      &file_tools, &mistral::tools::file_tools::list_files,
+      &file_tools,
+      &mistral::tools::file_tools::list_files,
       arg("path", "Directory path to list"),
       arg("recursive", "Whether to list subdirectories recursively", false),
       arg("max_depth", "Maximum recursion depth (0 for unlimited)", 1)
@@ -632,7 +673,8 @@ namespace mistral::agent
       "read",
       "Read file contents. Use line_from and line_to for specific ranges. "
       "Set both to 0 to read entire file. Lines are 1-indexed.",
-      &file_tools, &mistral::tools::file_tools::read_file,
+      &file_tools,
+      &mistral::tools::file_tools::read_file,
       arg("path", "File path to read"),
       arg("line_from", "First line to read (1-indexed, 0 = from beginning)", 0),
       arg("line_to", "Last line to read (inclusive, 0 = until end)", 0)
@@ -644,7 +686,8 @@ namespace mistral::agent
       "List the symbols (classes, structs, functions, methods, types) defined in a C/C++ "
       "source file with their line ranges. Use this to see a file's structure before "
       "reading specific symbols.",
-      &code_tools, &mistral::tools::code_tools::outline,
+      &code_tools,
+      &mistral::tools::code_tools::outline,
       arg("path", "C/C++ source file to outline")
     );
 
@@ -654,7 +697,8 @@ namespace mistral::agent
       "method, type) from a C/C++ source file. Returns every matching definition, "
       "e.g. overloads. Qualify the name (Class::method) to pick one method among "
       "same-named definitions; each result reports its scope.",
-      &code_tools, &mistral::tools::code_tools::read_symbol,
+      &code_tools,
+      &mistral::tools::code_tools::read_symbol,
       arg("path", "C/C++ source file containing the symbol"),
       arg("name", "Name of the symbol to extract; may be qualified (Class::method)")
     );
@@ -665,7 +709,8 @@ namespace mistral::agent
       "directory tree. Falls back to substring matching when no exact match exists. Returns "
       "file, kind, scope and line range for each definition. Names may be qualified "
       "(Class::method or ns::Class::method) to narrow same-named symbols.",
-      &code_tools, &mistral::tools::code_tools::find_symbol,
+      &code_tools,
+      &mistral::tools::code_tools::find_symbol,
       arg("name", "Symbol name to find; may be qualified (Class::method)"),
       arg("path", "Directory to search (workspace root by default)", std::string("."))
     );
@@ -675,7 +720,8 @@ namespace mistral::agent
       "Find usage sites of a named symbol (calls, type usages, member access) across a "
       "directory tree. Definition sites are excluded. Syntactic match: same-named overloads "
       "all match; a qualified name (Class::method) is searched by its bare name.",
-      &code_tools, &mistral::tools::code_tools::find_references,
+      &code_tools,
+      &mistral::tools::code_tools::find_references,
       arg("name", "Symbol name to find references for"),
       arg("path", "Directory to search (workspace root by default)", std::string("."))
     );
@@ -688,7 +734,8 @@ namespace mistral::agent
       "function_definition, declaration, class_specifier, call_expression, field_expression, "
       "identifier, type_identifier, field_identifier. Predicates: #eq?, #not-eq?, #match?, "
       "#not-match?, #any-eq?, #any-match?, #is?, #is-not?.",
-      &code_tools, &mistral::tools::code_tools::ast_search,
+      &code_tools,
+      &mistral::tools::code_tools::ast_search,
       arg("query", "Tree-sitter query to run"),
       arg("path", "File or directory to search (workspace root by default)", std::string("."))
     );
@@ -698,7 +745,8 @@ namespace mistral::agent
       "note_list",
       "List notes in the notes directory. Shows path, title, and tags for each note. "
       "Pass an empty string to list all notes, or a subfolder name to filter.",
-      &note_tools, &mistral::tools::note_tools::list_notes,
+      &note_tools,
+      &mistral::tools::note_tools::list_notes,
       arg("folder", "Subfolder to list (empty for all)", std::string(""))
     );
 
@@ -706,7 +754,8 @@ namespace mistral::agent
       "note_read",
       "Read a note from the notes directory. Resolves {{> path}} include directives. "
       "Returns title, tags, and rendered content. The .md extension is optional.",
-      &note_tools, &mistral::tools::note_tools::read_note,
+      &note_tools,
+      &mistral::tools::note_tools::read_note,
       arg("path", "Note path relative to notes directory")
     );
 
@@ -715,7 +764,8 @@ namespace mistral::agent
       "Create or update a note. Use YAML frontmatter for title and tags:\n"
       "---\ntitle: My Note\ntags: [tag1, tag2]\n---\n"
       "Use {{> path}} to include other notes (partials). Put reusable snippets in _partials/.",
-      &note_tools, &mistral::tools::note_tools::write_note,
+      &note_tools,
+      &mistral::tools::note_tools::write_note,
       arg("path", "Note path relative to notes directory"),
       arg("content", "Note content (with optional frontmatter)")
     );
@@ -724,7 +774,8 @@ namespace mistral::agent
       "note_search",
       "Search notes by text content and/or tag. At least one must be provided. "
       "Returns matching notes with path, title, tags, and matching line context.",
-      &note_tools, &mistral::tools::note_tools::search_notes,
+      &note_tools,
+      &mistral::tools::note_tools::search_notes,
       arg("query", "Text to search for (case-insensitive)", std::string("")),
       arg("tag", "Filter by tag (case-insensitive)", std::string(""))
     );
@@ -739,7 +790,8 @@ namespace mistral::agent
       "Returns exit code, stdout, stderr, and command info. "
       "stdout and stderr are each capped at 64 KiB; excess output is discarded "
       "and reported via the stdout_truncated/stderr_truncated flags.",
-      &exec_tools, &mistral::tools::exec_tools::exec,
+      &exec_tools,
+      &mistral::tools::exec_tools::exec,
       arg("command", "Executable name (e.g., 'git', 'cmake')"),
       arg("args", "Command arguments as array of strings"),
       arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
@@ -756,7 +808,8 @@ namespace mistral::agent
       "ID while a different non-applied patchset is stored fails - apply it or discard "
       "it with patchset_clear first. After adding all edits, validate with "
       "patchset_validate, then apply with patchset_apply.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_add,
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_add,
       arg("patchset_id", "The unique identifier of the patchset (alphanumeric, hyphens, underscores)"),
       arg("file_path", "The file path for the edit, relative to the workspace root"),
       arg("search_text", "The exact text to find (empty string to create a new file)"),
@@ -765,22 +818,26 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_apply",
-      "Apply a stored patchset of file edits by its ID. If validation fails, the response lists per-edit errors; fix them with patchset_update or patchset_remove, then apply again.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_apply,
+      "Apply a stored patchset of file edits by its ID. If validation fails, the response lists per-edit errors; fix "
+      "them with patchset_update or patchset_remove, then apply again.",
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_apply,
       arg("patchset_id", "The unique identifier of the patchset to apply")
     );
 
     global_tools_.register_tool(
       "patchset_get",
       "Get details of a stored patchset including all numbered edits.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_get,
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_get,
       arg("patchset_id", "The unique identifier of the patchset")
     );
 
     global_tools_.register_tool(
       "patchset_validate",
       "Validate a stored patchset without applying (dry run). Returns detailed validation results.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_validate,
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_validate,
       arg("patchset_id", "The unique identifier of the patchset to validate")
     );
 
@@ -789,7 +846,8 @@ namespace mistral::agent
       "Update a single edit in a stored patchset. file_path keeps the existing value when empty. "
       "search_text and replace_text keep the existing value when omitted or null; "
       "pass an explicit empty string to clear the field.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_update,
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_update,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The 1-indexed number of the patch to update"),
       arg("file_path", "The file path for the edit (keeps existing if empty)"),
@@ -799,8 +857,10 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "patchset_remove",
-      "Remove a single edit block from a stored patchset by its patch number. The remaining edits keep their patch numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_remove,
+      "Remove a single edit block from a stored patchset by its patch number. The remaining edits keep their patch "
+      "numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset.",
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_remove,
       arg("patchset_id", "The unique identifier of the patchset"),
       arg("patch_number", "The number of the edit to remove (as shown by patchset_get or patchset_validate)")
     );
@@ -808,7 +868,8 @@ namespace mistral::agent
     global_tools_.register_tool(
       "patchset_clear",
       "Clear a stored patchset.",
-      &patchset_tools, &mistral::tools::patchset_tools::patchset_clear,
+      &patchset_tools,
+      &mistral::tools::patchset_tools::patchset_clear,
       arg("patchset_id", "The unique identifier of the patchset to clear")
     );
 
@@ -818,7 +879,8 @@ namespace mistral::agent
       "task_create",
       "Create a new task for project tracking. Tasks persist across sessions. "
       "Returns the created task with a generated ID.",
-      &task_tools, &mistral::tools::task_tools::create_task,
+      &task_tools,
+      &mistral::tools::task_tools::create_task,
       arg("title", "Short summary of the task"),
       arg("description", "Detailed explanation (optional)", std::string("")),
       arg("priority", "Priority: low, medium, high, critical (default: medium)", std::string("medium")),
@@ -829,7 +891,8 @@ namespace mistral::agent
       "task_list",
       "List tasks with optional filters. Empty filter values mean no filter. "
       "Returns an array of task summaries (id, title, status, priority, tags).",
-      &task_tools, &mistral::tools::task_tools::list_tasks,
+      &task_tools,
+      &mistral::tools::task_tools::list_tasks,
       arg("status", "Filter by status: todo, in-progress, done, blocked, cancelled (empty for all)", std::string("")),
       arg("tag", "Filter by tag (empty for all)", std::string("")),
       arg("priority", "Filter by priority: low, medium, high, critical (empty for all)", std::string(""))
@@ -838,7 +901,8 @@ namespace mistral::agent
     global_tools_.register_tool(
       "task_get",
       "Get full details of a task by its ID.",
-      &task_tools, &mistral::tools::task_tools::get_task,
+      &task_tools,
+      &mistral::tools::task_tools::get_task,
       arg("task_id", "The task ID (e.g. task-001)")
     );
 
@@ -846,7 +910,8 @@ namespace mistral::agent
       "task_update",
       "Update a task. Pass only the fields you want to change; empty strings are ignored. "
       "Returns the updated task.",
-      &task_tools, &mistral::tools::task_tools::update_task,
+      &task_tools,
+      &mistral::tools::task_tools::update_task,
       arg("task_id", "The task ID to update"),
       arg("status", "New status: todo, in-progress, done, blocked, cancelled (empty = unchanged)", std::string("")),
       arg("priority", "New priority: low, medium, high, critical (empty = unchanged)", std::string("")),
@@ -858,7 +923,8 @@ namespace mistral::agent
       "task_search",
       "Search tasks by text query across title and description (case-insensitive). "
       "Returns matching task summaries with match location.",
-      &task_tools, &mistral::tools::task_tools::search_tasks,
+      &task_tools,
+      &mistral::tools::task_tools::search_tasks,
       arg("query", "Text to search for")
     );
 
@@ -873,7 +939,8 @@ namespace mistral::agent
       "subagent that can search the web and returns a concise summary of "
       "findings with sources. Use this for questions about recent events, "
       "current software versions, or any facts you are unsure about.",
-      &research_tools, &mistral::tools::research_tools::web_search,
+      &research_tools,
+      &mistral::tools::research_tools::web_search,
       arg("query", "The search query or research question")
     );
 
@@ -893,11 +960,20 @@ namespace mistral::agent
       "answer; when the answer is a bare option number, matched_option "
       "holds the resolved option text - prefer matched_option over "
       "interpreting the raw answer.",
-      &ask_tools, &mistral::tools::ask_tools::ask_user,
+      &ask_tools,
+      &mistral::tools::ask_tools::ask_user,
       arg("question", "The decision that needs a human answer, phrased as a clear question"),
       arg("context", "What you discovered that forces this decision (1-3 sentences)", std::string("")),
-      arg("options", "The viable options, one per entry, each with a short label and its trade-off", std::vector<std::string>{}),
-      arg("recommendation", "Your recommended option and why. Lets the human confirm with a one-word reply", std::string(""))
+      arg(
+        "options",
+        "The viable options, one per entry, each with a short label and its trade-off",
+        std::vector<std::string>{}
+      ),
+      arg(
+        "recommendation",
+        "Your recommended option and why. Lets the human confirm with a one-word reply",
+        std::string("")
+      )
     );
 
     // Register custom approval prompt renderers
@@ -906,7 +982,7 @@ namespace mistral::agent
 
   // ---- Configuration Access ----
 
-  const agent_config &agent_system::get_agent_config(const std::string &agent_id) const
+  const agent_config& agent_system::get_agent_config(const std::string& agent_id) const
   {
     auto it = config_.agents.find(agent_id);
     if (it == config_.agents.end())
@@ -916,12 +992,12 @@ namespace mistral::agent
     return it->second;
   }
 
-  bool agent_system::has_agent_config(const std::string &agent_id) const
+  bool agent_system::has_agent_config(const std::string& agent_id) const
   {
     return config_.agents.contains(agent_id);
   }
 
-  const model_config &agent_system::get_model_config(const std::string &model_name) const
+  const model_config& agent_system::get_model_config(const std::string& model_name) const
   {
     auto it = config_.models.find(model_name);
     if (it == config_.models.end())
@@ -931,7 +1007,7 @@ namespace mistral::agent
     return it->second;
   }
 
-  bool agent_system::has_model_config(const std::string &model_name) const
+  bool agent_system::has_model_config(const std::string& model_name) const
   {
     return config_.models.contains(model_name);
   }
@@ -948,14 +1024,22 @@ namespace mistral::agent
       // Apply model defaults
       params.reasoning_effort = model_cfg.reasoning_effort.value_or("high");
       params.temperature = model_cfg.temperature.value_or(0.6f);
-      if (model_cfg.top_p) params.top_p = model_cfg.top_p;
-      if (model_cfg.top_k) params.top_k = model_cfg.top_k;
-      if (model_cfg.max_tokens) params.max_tokens = model_cfg.max_tokens;
-      if (model_cfg.frequency_penalty) params.frequency_penalty = model_cfg.frequency_penalty;
-      if (model_cfg.presence_penalty) params.presence_penalty = model_cfg.presence_penalty;
-      if (model_cfg.seed) params.seed = model_cfg.seed;
-      if (model_cfg.safe_prompt) params.safe_prompt = model_cfg.safe_prompt;
-      if (model_cfg.randomness) params.randomness = model_cfg.randomness;
+      if (model_cfg.top_p)
+        params.top_p = model_cfg.top_p;
+      if (model_cfg.top_k)
+        params.top_k = model_cfg.top_k;
+      if (model_cfg.max_tokens)
+        params.max_tokens = model_cfg.max_tokens;
+      if (model_cfg.frequency_penalty)
+        params.frequency_penalty = model_cfg.frequency_penalty;
+      if (model_cfg.presence_penalty)
+        params.presence_penalty = model_cfg.presence_penalty;
+      if (model_cfg.seed)
+        params.seed = model_cfg.seed;
+      if (model_cfg.safe_prompt)
+        params.safe_prompt = model_cfg.safe_prompt;
+      if (model_cfg.randomness)
+        params.randomness = model_cfg.randomness;
     }
     else
     {
@@ -965,16 +1049,26 @@ namespace mistral::agent
     }
 
     // Apply agent overrides (if specified)
-    if (agent_cfg.reasoning_effort) params.reasoning_effort = *agent_cfg.reasoning_effort;
-    if (agent_cfg.temperature) params.temperature = *agent_cfg.temperature;
-    if (agent_cfg.top_p) params.top_p = *agent_cfg.top_p;
-    if (agent_cfg.top_k) params.top_k = *agent_cfg.top_k;
-    if (agent_cfg.max_tokens) params.max_tokens = *agent_cfg.max_tokens;
-    if (agent_cfg.frequency_penalty) params.frequency_penalty = *agent_cfg.frequency_penalty;
-    if (agent_cfg.presence_penalty) params.presence_penalty = *agent_cfg.presence_penalty;
-    if (agent_cfg.seed) params.seed = *agent_cfg.seed;
-    if (agent_cfg.safe_prompt) params.safe_prompt = *agent_cfg.safe_prompt;
-    if (agent_cfg.randomness) params.randomness = *agent_cfg.randomness;
+    if (agent_cfg.reasoning_effort)
+      params.reasoning_effort = *agent_cfg.reasoning_effort;
+    if (agent_cfg.temperature)
+      params.temperature = *agent_cfg.temperature;
+    if (agent_cfg.top_p)
+      params.top_p = *agent_cfg.top_p;
+    if (agent_cfg.top_k)
+      params.top_k = *agent_cfg.top_k;
+    if (agent_cfg.max_tokens)
+      params.max_tokens = *agent_cfg.max_tokens;
+    if (agent_cfg.frequency_penalty)
+      params.frequency_penalty = *agent_cfg.frequency_penalty;
+    if (agent_cfg.presence_penalty)
+      params.presence_penalty = *agent_cfg.presence_penalty;
+    if (agent_cfg.seed)
+      params.seed = *agent_cfg.seed;
+    if (agent_cfg.safe_prompt)
+      params.safe_prompt = *agent_cfg.safe_prompt;
+    if (agent_cfg.randomness)
+      params.randomness = *agent_cfg.randomness;
 
     return params;
   }
@@ -987,16 +1081,18 @@ namespace mistral::agent
     if (has_model_config(agent_cfg.model))
     {
       const auto& model_cfg = get_model_config(agent_cfg.model);
-      if (model_cfg.strict_mode) opts.strict_mode = *model_cfg.strict_mode;
+      if (model_cfg.strict_mode)
+        opts.strict_mode = *model_cfg.strict_mode;
     }
 
     // Agent overrides (if specified)
-    if (agent_cfg.strict_mode) opts.strict_mode = *agent_cfg.strict_mode;
+    if (agent_cfg.strict_mode)
+      opts.strict_mode = *agent_cfg.strict_mode;
 
     return opts;
   }
 
-  std::string agent_system::resolve_model_id(const std::string &model_name) const
+  std::string agent_system::resolve_model_id(const std::string& model_name) const
   {
     auto it = config_.models.find(model_name);
     if (it != config_.models.end())
@@ -1008,7 +1104,7 @@ namespace mistral::agent
 
   // ---- Tool Registry ----
 
-  tool_registry agent_system::create_tool_registry(const std::vector<std::string> &available_tools) const
+  tool_registry agent_system::create_tool_registry(const std::vector<std::string>& available_tools) const
   {
     // Handle wildcard - return copy of global registry with all tools
     if (std::find(available_tools.begin(), available_tools.end(), "*") != available_tools.end())
@@ -1031,8 +1127,7 @@ namespace mistral::agent
       // be registered via /mcp connect.
       if (tool_name.starts_with("mcp:"))
       {
-        for (const auto& mcp_name :
-             mcp::mcp_manager::instance().tool_names(tool_name.substr(4)))
+        for (const auto& mcp_name : mcp::mcp_manager::instance().tool_names(tool_name.substr(4)))
         {
           if (auto tool = global_tools_.get_tool(mcp_name))
           {
@@ -1067,7 +1162,7 @@ namespace mistral::agent
     return last_response_;
   }
 
-  void agent_system::set_last_response(const std::string &response)
+  void agent_system::set_last_response(const std::string& response)
   {
     std::lock_guard<std::mutex> lock(last_response_mtx_);
     last_response_ = response;
@@ -1098,22 +1193,22 @@ namespace mistral::agent
     usage_stats_ = {};
   }
 
-  std::string agent_system::resolve_prompt_string(
-    const std::string& prompt,
-    const std::string& model_id
-  ) const
+  std::string agent_system::resolve_prompt_string(const std::string& prompt, const std::string& model_id) const
   {
     // Check if prompt is a file:// URL
-    if (prompt.find("file://") != 0) {
+    if (prompt.find("file://") != 0)
+    {
       return prompt;
     }
 
     // Extract path from file:// URL
     std::string file_path = prompt.substr(7); // Remove "file://" prefix
 
-    try {
+    try
+    {
       // Check if file exists
-      if (!fs::exists(file_path)) {
+      if (!fs::exists(file_path))
+      {
         throw std::runtime_error("Prompt file not found: " + file_path);
       }
 
@@ -1125,21 +1220,19 @@ namespace mistral::agent
 
       // Set feature flags for conditional includes ({{> file if=var}}).
       // xerj_enabled: true when the xerj MCP server is configured.
-      tmpl.set_variable("xerj_enabled",
-        config_.mcp_servers.contains("xerj") ? "true" : "false");
+      tmpl.set_variable("xerj_enabled", config_.mcp_servers.contains("xerj") ? "true" : "false");
 
       // Process the file as a template
       return tmpl.process_file(file_path);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "error resolving prompt file: " << e.what() << std::endl;
       throw;
     }
   }
 
-  std::string agent_system::resolve_system_prompt(
-    const agent_config& agent_cfg,
-    const std::string& model_id
-  ) const
+  std::string agent_system::resolve_system_prompt(const agent_config& agent_cfg, const std::string& model_id) const
   {
     std::string prompt = resolve_prompt_string(agent_cfg.system_prompt, model_id);
 
@@ -1149,45 +1242,46 @@ namespace mistral::agent
     // tool being available, so agents without ask_user never see a
     // dangling reference.
     const auto& tools = agent_cfg.available_tools;
-    const bool ask_user_available =
-      std::find(tools.begin(), tools.end(), "*") != tools.end() ||
-      std::find(tools.begin(), tools.end(), "ask_user") != tools.end();
-    if (ask_user_available) {
-      if (!prompt.empty()) prompt += "\n\n";
+    const bool ask_user_available = std::find(tools.begin(), tools.end(), "*") != tools.end() ||
+                                    std::find(tools.begin(), tools.end(), "ask_user") != tools.end();
+    if (ask_user_available)
+    {
+      if (!prompt.empty())
+        prompt += "\n\n";
       prompt += "---\n\n## Asking the human\n\n"
-        "You can ask the human directly with the `ask_user` tool. When "
-        "you reach a decision that changes the direction of the work — "
-        "an unforeseen design choice, conflicting requirements, or a "
-        "trade-off you cannot resolve from the codebase or conversation "
-        "— ask instead of guessing or silently picking a default. The "
-        "tool blocks until the human answers; the answer returns as the "
-        "tool result. See the tool description for when and how to ask.";
+                "You can ask the human directly with the `ask_user` tool. When "
+                "you reach a decision that changes the direction of the work — "
+                "an unforeseen design choice, conflicting requirements, or a "
+                "trade-off you cannot resolve from the codebase or conversation "
+                "— ask instead of guessing or silently picking a default. The "
+                "tool blocks until the human answers; the answer returns as the "
+                "tool result. See the tool description for when and how to ask.";
     }
     return prompt;
   }
 
-  std::string agent_system::resolve_server_agent_instructions(
-    const agent_config& agent_cfg
-  ) const
+  std::string agent_system::resolve_server_agent_instructions(const agent_config& agent_cfg) const
   {
-    if (!agent_cfg.server_agent || agent_cfg.server_agent->instructions.empty()) {
+    if (!agent_cfg.server_agent || agent_cfg.server_agent->instructions.empty())
+    {
       return "";
     }
-    return resolve_prompt_string(
-      agent_cfg.server_agent->instructions, resolve_model_id(agent_cfg.model));
+    return resolve_prompt_string(agent_cfg.server_agent->instructions, resolve_model_id(agent_cfg.model));
   }
 
   std::string server_agent_config_fingerprint(
     const server_agent_config& cfg,
     const std::string& resolved_instructions,
-    const std::string& model)
+    const std::string& model
+  )
   {
     api::json canonical;
     canonical["model"] = model;
     canonical["tools"] = cfg.tools;
     canonical["instructions"] = resolved_instructions;
     canonical["description"] = cfg.description;
-    if (cfg.completion_args) {
+    if (cfg.completion_args)
+    {
       canonical["completion_args"] = *cfg.completion_args;
     }
     return fnv1a_64_hex(canonical.dump());
@@ -1199,7 +1293,8 @@ namespace mistral::agent
     const std::string& message
   )
   {
-    if (!has_agent_config(agent_id)) {
+    if (!has_agent_config(agent_id))
+    {
       co_return "Error: Agent '" + agent_id + "' not found in configuration";
     }
 
@@ -1208,9 +1303,12 @@ namespace mistral::agent
 
     // Agents with a server_agent block run on the Mistral Agents API
     // (POST /v1/conversations); all others use chat completions.
-    if (get_agent_config(agent_id).server_agent) {
+    if (get_agent_config(agent_id).server_agent)
+    {
       task.spawn_local<server_agent_task>(agent_id, input_ch, output_ch);
-    } else {
+    }
+    else
+    {
       task.spawn_local<subagent_task>(agent_id, input_ch, output_ch);
     }
 
@@ -1221,7 +1319,8 @@ namespace mistral::agent
     // checks is_closed() before starting a request, so closing earlier
     // would abort the turn before any API request is made.
     input_ch->close();
-    if (!response) {
+    if (!response)
+    {
       co_return "Error: No response from subagent " + agent_id;
     }
 
@@ -1230,20 +1329,18 @@ namespace mistral::agent
 
   // ---- Server-side Agent Id Cache ----
 
-  std::optional<std::string> agent_system::get_server_agent_id(
-    const std::string& agent_id) const
+  std::optional<std::string> agent_system::get_server_agent_id(const std::string& agent_id) const
   {
     std::lock_guard<std::mutex> lock(server_agent_ids_mtx_);
     auto it = server_agent_ids_.find(agent_id);
-    if (it == server_agent_ids_.end()) {
+    if (it == server_agent_ids_.end())
+    {
       return std::nullopt;
     }
     return it->second;
   }
 
-  void agent_system::set_server_agent_id(
-    const std::string& agent_id,
-    const std::string& server_agent_id)
+  void agent_system::set_server_agent_id(const std::string& agent_id, const std::string& server_agent_id)
   {
     std::lock_guard<std::mutex> lock(server_agent_ids_mtx_);
     server_agent_ids_[agent_id] = server_agent_id;
@@ -1287,7 +1384,8 @@ namespace mistral::agent
   // Retrieve a stored patchset by ID
   std::optional<tools::patchset_t> agent_system::get_patchset(const std::string& patchset_id) const
   {
-    if (current_patchset_ && current_patchset_->patchset_id == patchset_id) {
+    if (current_patchset_ && current_patchset_->patchset_id == patchset_id)
+    {
       return current_patchset_;
     }
     return std::nullopt;
@@ -1296,7 +1394,8 @@ namespace mistral::agent
   // Get the ID of the currently stored patchset
   std::optional<std::string> agent_system::get_current_patchset_id() const
   {
-    if (current_patchset_) {
+    if (current_patchset_)
+    {
       return current_patchset_->patchset_id;
     }
     return std::nullopt;
@@ -1365,7 +1464,8 @@ namespace mistral::agent
 
   void agent_system::signal_shutdown()
   {
-    if (shutdown_pipe_write_fd_ >= 0) {
+    if (shutdown_pipe_write_fd_ >= 0)
+    {
       char buf = '0';
       ::write(shutdown_pipe_write_fd_, &buf, 1);
     }

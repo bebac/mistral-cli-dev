@@ -3,8 +3,8 @@
 
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 
-#include <dripcore/awaitable.h>
 #include "tree_sitter/api.h"
+#include <dripcore/awaitable.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -21,10 +21,8 @@ namespace mistral::tools
   {
     // Directory names excluded from indexing and reference search.
     // Matched against every path component.
-    std::vector<std::string> exclude_dirs = {
-      ".git", ".mistral-cli", ".cache", ".vscode", ".vibe", "build",
-      "node_modules", "__pycache__"
-    };
+    std::vector<std::string> exclude_dirs =
+      {".git", ".mistral-cli", ".cache", ".vscode", ".vibe", "build", "node_modules", "__pycache__"};
 
     // Maximum number of results returned by find_symbol / find_references.
     int max_results = 200;
@@ -33,13 +31,13 @@ namespace mistral::tools
   // ---- Symbol definition ----
   struct symbol_definition
   {
-    std::string kind;    // "class", "function", "method", "type"
+    std::string kind; // "class", "function", "method", "type"
     std::string name;
-    std::string scope;   // enclosing namespaces/classes, outermost first
-                         // ("ns::Class"); includes the qualified scope of
-                         // out-of-line definitions (Class::method)
-    int line_start = 0;  // 1-indexed, inclusive
-    int line_end = 0;    // 1-indexed, inclusive
+    std::string scope;  // enclosing namespaces/classes, outermost first
+                        // ("ns::Class"); includes the qualified scope of
+                        // out-of-line definitions (Class::method)
+    int line_start = 0; // 1-indexed, inclusive
+    int line_end = 0;   // 1-indexed, inclusive
   };
 
   // A possibly qualified symbol name: "method", "Class::method" or
@@ -48,10 +46,13 @@ namespace mistral::tools
   // on_event overrides of many widget classes).
   struct qualified_name
   {
-    std::vector<std::string> scope;  // outermost first; empty for bare names
-    std::string name;                // bare (rightmost) name
+    std::vector<std::string> scope; // outermost first; empty for bare names
+    std::string name;               // bare (rightmost) name
 
-    bool is_qualified() const { return !scope.empty(); }
+    bool is_qualified() const
+    {
+      return !scope.empty();
+    }
 
     // Parse "A::B::name". Whitespace around "::" is tolerated.
     static qualified_name parse(const std::string& qualified);
@@ -81,8 +82,14 @@ namespace mistral::tools
     // (path is only used for error messages).
     bool load(const std::string& path, std::string source_text, std::string& error);
 
-    const std::string& source() const { return source_; }
-    const std::vector<symbol_definition>& definitions() const { return definitions_; }
+    const std::string& source() const
+    {
+      return source_;
+    }
+    const std::vector<symbol_definition>& definitions() const
+    {
+      return definitions_;
+    }
 
     // True if the parse produced ERROR nodes (e.g. macros or generated
     // code the grammar cannot fully understand).
@@ -94,8 +101,8 @@ namespace mistral::tools
 
     struct usage_site
     {
-      int line = 0;             // 1-indexed
-      std::uint32_t start = 0;  // byte offset of the identifier
+      int line = 0;            // 1-indexed
+      std::uint32_t start = 0; // byte offset of the identifier
       bool is_definition = false;
     };
 
@@ -108,7 +115,7 @@ namespace mistral::tools
     {
       std::string name;
       std::string text;
-      int line = 0;  // 1-indexed
+      int line = 0; // 1-indexed
     };
 
     struct query_match
@@ -142,7 +149,10 @@ namespace mistral::tools
     // or with unsupported predicates are rejected.
     bool compile(const std::string& query_source, std::string& error);
 
-    const TSQuery* get() const { return query_.get(); }
+    const TSQuery* get() const
+    {
+      return query_.get();
+    }
 
   private:
     query_ptr query_{nullptr, ts_query_delete};
@@ -175,7 +185,7 @@ namespace mistral::tools
 
     struct hit
     {
-      std::string file;  // absolute path
+      std::string file; // absolute path
       symbol_definition symbol;
     };
 
@@ -194,7 +204,7 @@ namespace mistral::tools
     };
 
     code_index_settings settings_;
-    std::map<std::string, file_entry> files_;  // absolute path -> entry
+    std::map<std::string, file_entry> files_; // absolute path -> entry
   };
 
 } // namespace mistral::tools

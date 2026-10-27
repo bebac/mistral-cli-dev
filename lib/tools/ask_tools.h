@@ -36,8 +36,7 @@ namespace mistral::tools
     // Renders the prompt message to the human and suspends until the
     // answer arrives. Returns the answer, or an empty string when the
     // human skipped (empty answer) or the input channel closed.
-    using prompt_handler_fn =
-      std::function<dripcore::awaitable<std::string>(const std::string& prompt)>;
+    using prompt_handler_fn = std::function<dripcore::awaitable<std::string>(const std::string& prompt)>;
 
     // Register the prompt handler (called by the interactive agent task).
     void set_prompt_handler(prompt_handler_fn handler);
@@ -67,10 +66,7 @@ namespace mistral::tools
     // If the answer is a bare integer in [1, options.size()], return the
     // corresponding option text (options are rendered 1-based). Otherwise
     // return nullopt.
-    static std::optional<std::string> match_option(
-      const std::string& answer,
-      const std::vector<std::string>& options
-    );
+    static std::optional<std::string> match_option(const std::string& answer, const std::vector<std::string>& options);
 
     prompt_handler_fn prompt_handler_;
   };

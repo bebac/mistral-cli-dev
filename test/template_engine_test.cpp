@@ -13,23 +13,26 @@ namespace
   {
     fs::path path;
 
-    temp_dir() {
+    temp_dir()
+    {
       path = fs::temp_directory_path() / "mistral_tmpl_test";
       fs::create_directories(path);
     }
 
-    ~temp_dir() {
+    ~temp_dir()
+    {
       fs::remove_all(path);
     }
 
-    void write(const std::string& name, const std::string& content) {
+    void write(const std::string& name, const std::string& content)
+    {
       auto p = path / name;
       fs::create_directories(p.parent_path());
       std::ofstream f(p);
       f << content;
     }
   };
-}
+} // namespace
 
 TEST_CASE("template_engine: variable substitution")
 {

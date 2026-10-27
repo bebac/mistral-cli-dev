@@ -19,14 +19,15 @@ namespace mistral::api
   // for them.
   struct builtin_tool
   {
-    std::string type;  // "web_search", "web_search_premium", "code_interpreter", ...
+    std::string type; // "web_search", "web_search_premium", "code_interpreter", ...
     std::optional<json> tool_configuration;
   };
 
   inline void to_json(json& j, const builtin_tool& t)
   {
     j = {{"type", t.type}};
-    if (t.tool_configuration) {
+    if (t.tool_configuration)
+    {
       j["tool_configuration"] = *t.tool_configuration;
     }
   }
@@ -56,11 +57,16 @@ namespace mistral::api
       {"model", req.model},
       {"name", req.name},
     };
-    if (req.instructions) j["instructions"] = *req.instructions;
-    if (req.description) j["description"] = *req.description;
-    if (!req.tools.empty()) j["tools"] = req.tools;
-    if (req.completion_args) j["completion_args"] = *req.completion_args;
-    if (req.metadata) j["metadata"] = *req.metadata;
+    if (req.instructions)
+      j["instructions"] = *req.instructions;
+    if (req.description)
+      j["description"] = *req.description;
+    if (!req.tools.empty())
+      j["tools"] = req.tools;
+    if (req.completion_args)
+      j["completion_args"] = *req.completion_args;
+    if (req.metadata)
+      j["metadata"] = *req.metadata;
   }
 
   // ---- Agent entity (response of POST /v1/agents, GET /v1/agents/...) ----
@@ -79,22 +85,28 @@ namespace mistral::api
   inline agent_entity agent_entity_from_json(const json& j)
   {
     agent_entity entity;
-    if (j.contains("id") && j["id"].is_string()) {
+    if (j.contains("id") && j["id"].is_string())
+    {
       entity.id = j["id"].get<std::string>();
     }
-    if (j.contains("name") && j["name"].is_string()) {
+    if (j.contains("name") && j["name"].is_string())
+    {
       entity.name = j["name"].get<std::string>();
     }
-    if (j.contains("description") && j["description"].is_string()) {
+    if (j.contains("description") && j["description"].is_string())
+    {
       entity.description = j["description"].get<std::string>();
     }
-    if (j.contains("instructions") && j["instructions"].is_string()) {
+    if (j.contains("instructions") && j["instructions"].is_string())
+    {
       entity.instructions = j["instructions"].get<std::string>();
     }
-    if (j.contains("metadata") && j["metadata"].is_object()) {
+    if (j.contains("metadata") && j["metadata"].is_object())
+    {
       entity.metadata = j["metadata"];
     }
-    if (j.contains("version") && j["version"].is_number_integer()) {
+    if (j.contains("version") && j["version"].is_number_integer())
+    {
       entity.version = j["version"].get<int>();
     }
     return entity;

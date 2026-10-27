@@ -38,11 +38,7 @@ namespace mistral::tools
 
     // List tasks with optional filters. Empty filter values mean "no filter".
     // Returns an array of task summaries (id, title, status, priority, tags).
-    dripcore::awaitable<json> list_tasks(
-      std::string status,
-      std::string tag,
-      std::string priority
-    );
+    dripcore::awaitable<json> list_tasks(std::string status, std::string tag, std::string priority);
 
     // Get full details of a task by ID.
     dripcore::awaitable<json> get_task(std::string task_id);

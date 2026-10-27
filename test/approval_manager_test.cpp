@@ -54,16 +54,9 @@ namespace mistral::agent
   {
     manager.add_session_approval("write", {{"path", "/tmp/test.txt"}});
 
-    json args1 = {
-      {"path", "/tmp/test.txt"}
-    };
-    json args2 = {
-      {"path", "/tmp/other.txt"}
-    };
-    json args3 = {
-      {"path", "/tmp/test.txt"},
-      {"content", "hello"}
-    };
+    json args1 = {{"path", "/tmp/test.txt"}};
+    json args2 = {{"path", "/tmp/other.txt"}};
+    json args3 = {{"path", "/tmp/test.txt"}, {"content", "hello"}};
 
     CHECK(manager.is_session_approved("write", args1));
     CHECK(!manager.is_session_approved("write", args2));
@@ -75,9 +68,7 @@ namespace mistral::agent
   {
     manager.add_session_approval("write", {{"path", "/tmp/test.txt"}});
 
-    json args = {
-      {"path", "/tmp/test.txt"}
-    };
+    json args = {{"path", "/tmp/test.txt"}};
 
     CHECK(!manager.is_session_approved("read", args));
   }
@@ -87,15 +78,9 @@ namespace mistral::agent
     // Empty pattern should match any arguments for the tool
     manager.add_session_approval("write", json{});
 
-    json args1 = {
-      {"path", "/tmp/test.txt"}
-    };
-    json args2 = {
-      {"path", "/etc/passwd"}
-    };
-    json args3 = {
-      {"content", "hello"}
-    };
+    json args1 = {{"path", "/tmp/test.txt"}};
+    json args2 = {{"path", "/etc/passwd"}};
+    json args3 = {{"content", "hello"}};
 
     CHECK(manager.is_session_approved("write", args1));
     CHECK(manager.is_session_approved("write", args2));
@@ -104,31 +89,12 @@ namespace mistral::agent
 
   TEST_CASE_FIXTURE(approval_manager_fixture, "is_session_approved_multiple_fields")
   {
-    manager.add_session_approval(
-      "write",
-      {
-        {"path", "/tmp/test.txt"},
-        {"content", "hello"}
-      }
-    );
+    manager.add_session_approval("write", {{"path", "/tmp/test.txt"}, {"content", "hello"}});
 
-    json args_match = {
-      {"path", "/tmp/test.txt"},
-      {"content", "hello"}
-    };
-    json args_path_mismatch = {
-      {"path", "/tmp/other.txt"},
-      {"content", "hello"}
-    };
-    json args_content_mismatch = {
-      {"path", "/tmp/test.txt"},
-      {"content", "world"}
-    };
-    json args_extra_field = {
-      {"path", "/tmp/test.txt"},
-      {"content", "hello"},
-      {"mode", "append"}
-    };
+    json args_match = {{"path", "/tmp/test.txt"}, {"content", "hello"}};
+    json args_path_mismatch = {{"path", "/tmp/other.txt"}, {"content", "hello"}};
+    json args_content_mismatch = {{"path", "/tmp/test.txt"}, {"content", "world"}};
+    json args_extra_field = {{"path", "/tmp/test.txt"}, {"content", "hello"}, {"mode", "append"}};
 
     CHECK(manager.is_session_approved("write", args_match));
     CHECK(!manager.is_session_approved("write", args_path_mismatch));
@@ -143,15 +109,9 @@ namespace mistral::agent
     // Add approval for a directory path (ending with /)
     manager.add_session_approval("write", {{"path", "/tmp/"}});
 
-    json args_in_tmp = {
-      {"path", "/tmp/test.txt"}
-    };
-    json args_in_tmp_sub = {
-      {"path", "/tmp/sub/file.txt"}
-    };
-    json args_outside = {
-      {"path", "/var/test.txt"}
-    };
+    json args_in_tmp = {{"path", "/tmp/test.txt"}};
+    json args_in_tmp_sub = {{"path", "/tmp/sub/file.txt"}};
+    json args_outside = {{"path", "/var/test.txt"}};
 
     CHECK(manager.is_session_approved("write", args_in_tmp));
     CHECK(manager.is_session_approved("write", args_in_tmp_sub));
@@ -162,12 +122,8 @@ namespace mistral::agent
   {
     manager.add_session_approval("write", {{"path", "/tmp/test.txt"}});
 
-    json args_exact = {
-      {"path", "/tmp/test.txt"}
-    };
-    json args_other = {
-      {"path", "/tmp/other.txt"}
-    };
+    json args_exact = {{"path", "/tmp/test.txt"}};
+    json args_other = {{"path", "/tmp/other.txt"}};
 
     CHECK(manager.is_session_approved("write", args_exact));
     CHECK(!manager.is_session_approved("write", args_other));
@@ -180,12 +136,8 @@ namespace mistral::agent
     manager.add_session_approval("write", {{"path", "/tmp/"}});
     manager.add_session_approval("read", {{"path", "/home/"}});
 
-    json write_args = {
-      {"path", "/tmp/test.txt"}
-    };
-    json read_args = {
-      {"path", "/home/user/file.txt"}
-    };
+    json write_args = {{"path", "/tmp/test.txt"}};
+    json read_args = {{"path", "/home/user/file.txt"}};
 
     CHECK(manager.is_session_approved("write", write_args));
     CHECK(manager.is_session_approved("read", read_args));
@@ -194,4 +146,4 @@ namespace mistral::agent
   }
 
   TEST_SUITE_END();
-}
+} // namespace mistral::agent

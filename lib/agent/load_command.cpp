@@ -1,9 +1,9 @@
 #include "agent/load_command.h"
 #include "agent/agent_system.h"
 
+#include <dripcore/task.h>
 #include <filesystem>
 #include <fstream>
-#include <dripcore/task.h>
 
 namespace mistral::agent
 {
@@ -24,27 +24,30 @@ namespace mistral::agent
 
   dripcore::awaitable<std::string> load_command::execute(
     dripcore::task&,
-    const std::string &args,
-    agent::agent_system &agent_sys)
+    const std::string& args,
+    agent::agent_system& agent_sys
+  )
   {
     // Determine filename
     std::string filename = args.empty() ? "last_response.txt" : args;
 
     // Check if file exists
-    if (!std::filesystem::exists(filename)) {
+    if (!std::filesystem::exists(filename))
+    {
       co_return "Error: File not found: " + filename;
     }
 
     // Read file
     std::ifstream in(filename, std::ios::binary);
-    if (!in) {
+    if (!in)
+    {
       co_return "Error: Could not open file for reading: " + filename;
     }
 
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    if (content.empty()) {
+    if (content.empty())
+    {
       co_return "Error: File is empty: " + filename;
     }
 

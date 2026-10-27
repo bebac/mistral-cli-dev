@@ -1,8 +1,8 @@
 #ifndef API_PROVIDER_H
 #define API_PROVIDER_H
 
-#include "api/types.h"
 #include "api/chat_types.h"
+#include "api/types.h"
 
 #include <memory>
 #include <optional>
@@ -41,7 +41,8 @@ namespace mistral::api
       const json& tools_schema,
       bool stream,
       const std::optional<std::string>& prompt_cache_key,
-      const sampling_params& params) const = 0;
+      const sampling_params& params
+    ) const = 0;
 
     // Parse a single SSE data JSON chunk into a stream_delta.
     virtual stream_delta parse_stream_delta(const json& j) const = 0;

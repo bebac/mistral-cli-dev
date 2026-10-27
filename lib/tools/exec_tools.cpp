@@ -2,19 +2,19 @@
 
 #include "common/executable_finder.h"
 
-#include <unistd.h>
-#include <sys/wait.h>
-#include <sys/types.h>
-#include <fcntl.h>
 #include <algorithm>
-#include <cstring>
-#include <signal.h>
-#include <filesystem>
-#include <sstream>
-#include <vector>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <dripcore/sleep_awaiter.h>
+#include <fcntl.h>
+#include <filesystem>
+#include <signal.h>
+#include <sstream>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -31,10 +31,25 @@ namespace mistral::tools
     class fd_guard
     {
     public:
-      fd_guard(int fd) : fd_(fd) {}
-      ~fd_guard() { if (fd_ >= 0) close(fd_); }
-      int get() const { return fd_; }
-      int release() { int tmp = fd_; fd_ = -1; return tmp; }
+      fd_guard(int fd) : fd_(fd)
+      {
+      }
+      ~fd_guard()
+      {
+        if (fd_ >= 0)
+          close(fd_);
+      }
+      int get() const
+      {
+        return fd_;
+      }
+      int release()
+      {
+        int tmp = fd_;
+        fd_ = -1;
+        return tmp;
+      }
+
     private:
       int fd_;
     };
@@ -46,19 +61,35 @@ namespace mistral::tools
       pipe_guard()
       {
         int fds[2];
-        if (pipe(fds) == 0) {
+        if (pipe(fds) == 0)
+        {
           read_fd_.reset(new fd_guard(fds[0]));
           write_fd_.reset(new fd_guard(fds[1]));
         }
       }
 
-      int read_fd() const { return read_fd_->get(); }
-      int write_fd() const { return write_fd_->get(); }
-      bool valid() const { return read_fd_->get() >= 0 && write_fd_->get() >= 0; }
+      int read_fd() const
+      {
+        return read_fd_->get();
+      }
+      int write_fd() const
+      {
+        return write_fd_->get();
+      }
+      bool valid() const
+      {
+        return read_fd_->get() >= 0 && write_fd_->get() >= 0;
+      }
 
       // Release ownership of file descriptors
-      int release_read_fd() { return read_fd_ ? read_fd_->release() : -1; }
-      int release_write_fd() { return write_fd_ ? write_fd_->release() : -1; }
+      int release_read_fd()
+      {
+        return read_fd_ ? read_fd_->release() : -1;
+      }
+      int release_write_fd()
+      {
+        return write_fd_ ? write_fd_->release() : -1;
+      }
 
     private:
       std::unique_ptr<fd_guard> read_fd_;
@@ -69,13 +100,18 @@ namespace mistral::tools
     class child_process_guard
     {
     public:
-      child_process_guard(pid_t pid) : pid_(pid) {}
-      ~child_process_guard() {
-        if (pid_ > 0) {
+      child_process_guard(pid_t pid) : pid_(pid)
+      {
+      }
+      ~child_process_guard()
+      {
+        if (pid_ > 0)
+        {
           // Kill the entire process group (the child is made a process
           // group leader in exec()); fall back to the direct child if
           // the group no longer exists (e.g. setpgid failed).
-          if (kill(-pid_, SIGKILL) == -1) {
+          if (kill(-pid_, SIGKILL) == -1)
+          {
             kill(pid_, SIGKILL);
           }
           // Non-blocking reap attempt. If the child doesn't die immediately
@@ -86,8 +122,17 @@ namespace mistral::tools
           waitpid(pid_, &status, WNOHANG);
         }
       }
-      pid_t get() const { return pid_; }
-      pid_t release() { pid_t tmp = pid_; pid_ = -1; return tmp; }
+      pid_t get() const
+      {
+        return pid_;
+      }
+      pid_t release()
+      {
+        pid_t tmp = pid_;
+        pid_ = -1;
+        return tmp;
+      }
+
     private:
       pid_t pid_;
     };
@@ -97,11 +142,9 @@ namespace mistral::tools
     bool is_interpreter(const std::string& command)
     {
       static const std::array<std::string, 14> interpreters = {
-        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
-        "python", "python3", "node", "perl", "ruby", "awk"
+        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "python", "python3", "node", "perl", "ruby", "awk"
       };
-      return std::find(interpreters.begin(), interpreters.end(), command)
-        != interpreters.end();
+      return std::find(interpreters.begin(), interpreters.end(), command) != interpreters.end();
     }
 
     // Shell syntax or whitespace is never valid in the executable name
@@ -113,40 +156,45 @@ namespace mistral::tools
     }
   } // namespace
 
-  std::optional<std::string> exec_tools::validate(
-    const std::string& command,
-    const std::vector<std::string>& args)
+  std::optional<std::string> exec_tools::validate(const std::string& command, const std::vector<std::string>& args)
   {
-    if (command.empty()) {
+    if (command.empty())
+    {
       return std::string("command is empty");
     }
 
-    if (has_shell_syntax(command)) {
+    if (has_shell_syntax(command))
+    {
       return std::format(
         "invalid command '{}': exec uses execvp() directly with no shell - "
         "the command must be a single executable name (e.g. 'git') and each "
         "argument must be a separate element of the args array",
-        command);
+        command
+      );
     }
 
     // Command substitution in arguments is shell syntax; without a shell
     // it would be passed to the command as a literal string. Skip the
     // check for shells and interpreters, which legitimately take program
     // source as arguments.
-    if (!is_interpreter(command)) {
-      for (const auto& arg : args) {
-        if (arg.find('`') != std::string::npos ||
-            arg.find("$(") != std::string::npos) {
+    if (!is_interpreter(command))
+    {
+      for (const auto& arg : args)
+      {
+        if (arg.find('`') != std::string::npos || arg.find("$(") != std::string::npos)
+        {
           return std::format(
             "invalid shell syntax in argument '{}': exec uses execvp() "
             "directly with no shell - command substitution is not available; "
             "pass the literal value instead",
-            arg);
+            arg
+          );
         }
       }
     }
 
-    if (utils::find_executable(command).empty()) {
+    if (utils::find_executable(command).empty())
+    {
       return std::format("command not found: {}", command);
     }
 
@@ -162,24 +210,24 @@ namespace mistral::tools
   {
     // Find the executable path
     std::string exec_path = utils::find_executable(command);
-    if (exec_path.empty()) {
-      co_return {
-        {"error", std::format("command not found: {}", command)},
-        {"exit_code", -1}
-      };
+    if (exec_path.empty())
+    {
+      co_return {{"error", std::format("command not found: {}", command)}, {"exit_code", -1}};
     }
 
     // Build argv for execvp
     std::vector<char*> argv;
     argv.push_back(strdup(exec_path.c_str()));
-    for (const auto& arg : args) {
+    for (const auto& arg : args)
+    {
       argv.push_back(strdup(arg.c_str()));
     }
     argv.push_back(nullptr);
 
     // Cleanup argv memory
     auto argv_cleanup = [&argv]() {
-      for (size_t i = 0; i < argv.size() - 1; ++i) {
+      for (size_t i = 0; i < argv.size() - 1; ++i)
+      {
         free(argv[i]);
       }
     };
@@ -188,21 +236,17 @@ namespace mistral::tools
     pipe_guard stdout_pipe;
     pipe_guard stderr_pipe;
 
-    if (!stdout_pipe.valid() || !stderr_pipe.valid()) {
+    if (!stdout_pipe.valid() || !stderr_pipe.valid())
+    {
       argv_cleanup();
-      co_return {
-        {"error", "failed to create pipes"},
-        {"exit_code", -1}
-      };
+      co_return {{"error", "failed to create pipes"}, {"exit_code", -1}};
     }
 
     pid_t pid = fork();
-    if (pid == -1) {
+    if (pid == -1)
+    {
       argv_cleanup();
-      co_return {
-        {"error", std::format("fork failed: {}", strerror(errno))},
-        {"exit_code", -1}
-      };
+      co_return {{"error", std::format("fork failed: {}", strerror(errno))}, {"exit_code", -1}};
     }
 
     // RAII guard to ensure child process is killed if we exit early
@@ -215,7 +259,8 @@ namespace mistral::tools
     int final_status = 0;
     bool child_exited_normally = false;
 
-    if (pid == 0) {
+    if (pid == 0)
+    {
       // Child process
 
       // Start a new process group so the entire child tree can be
@@ -228,7 +273,8 @@ namespace mistral::tools
 
       // Never let the child steal terminal input from the CLI.
       int devnull_fd = open("/dev/null", O_RDONLY);
-      if (devnull_fd >= 0) {
+      if (devnull_fd >= 0)
+      {
         dup2(devnull_fd, STDIN_FILENO);
         close(devnull_fd);
       }
@@ -252,14 +298,18 @@ namespace mistral::tools
       // write ends during shutdown, the pipes never see EOF and the
       // dripcore event loop hangs forever.
       long max_fd = sysconf(_SC_OPEN_MAX);
-      if (max_fd < 0) max_fd = 1024;
-      for (long fd = 3; fd < max_fd; ++fd) {
+      if (max_fd < 0)
+        max_fd = 1024;
+      for (long fd = 3; fd < max_fd; ++fd)
+      {
         close(static_cast<int>(fd));
       }
 
       // Change working directory if specified
-      if (!cwd.empty()) {
-        if (chdir(cwd.c_str()) != 0) {
+      if (!cwd.empty())
+      {
+        if (chdir(cwd.c_str()) != 0)
+        {
           std::cerr << "chdir failed: " << strerror(errno) << std::endl;
           _exit(127);
         }
@@ -284,18 +334,24 @@ namespace mistral::tools
     int stderr_write_fd = stderr_pipe.release_write_fd();
 
     // Close write ends of pipes in parent (we only need to read)
-    if (stdout_write_fd >= 0) close(stdout_write_fd);
-    if (stderr_write_fd >= 0) close(stderr_write_fd);
+    if (stdout_write_fd >= 0)
+      close(stdout_write_fd);
+    if (stderr_write_fd >= 0)
+      close(stderr_write_fd);
 
     // Set pipes to non-blocking mode for timeout support
-    if (stdout_read_fd >= 0) fcntl(stdout_read_fd, F_SETFL, O_NONBLOCK);
-    if (stderr_read_fd >= 0) fcntl(stderr_read_fd, F_SETFL, O_NONBLOCK);
+    if (stdout_read_fd >= 0)
+      fcntl(stdout_read_fd, F_SETFL, O_NONBLOCK);
+    if (stderr_read_fd >= 0)
+      fcntl(stderr_read_fd, F_SETFL, O_NONBLOCK);
 
     // Set FD_CLOEXEC so future fork/exec children do NOT inherit
     // these pipe read fds (prevents pipe-EOF deadlocks when the
     // parent spawns another child while this exec is in flight).
-    if (stdout_read_fd >= 0) fcntl(stdout_read_fd, F_SETFD, FD_CLOEXEC);
-    if (stderr_read_fd >= 0) fcntl(stderr_read_fd, F_SETFD, FD_CLOEXEC);
+    if (stdout_read_fd >= 0)
+      fcntl(stdout_read_fd, F_SETFD, FD_CLOEXEC);
+    if (stderr_read_fd >= 0)
+      fcntl(stderr_read_fd, F_SETFD, FD_CLOEXEC);
 
     // Read stdout and stderr from child with timeout
     std::string stdout_content;
@@ -306,30 +362,39 @@ namespace mistral::tools
 
     auto start_time = std::chrono::steady_clock::now();
 
-    while (true) {
+    while (true)
+    {
       // Read available data from stdout first (before checking exit status)
-      if (stdout_read_fd >= 0) {
+      if (stdout_read_fd >= 0)
+      {
         std::array<char, 4096> buffer;
         ssize_t n;
-        while ((n = read(stdout_read_fd, buffer.data(), buffer.size())) > 0) {
+        while ((n = read(stdout_read_fd, buffer.data(), buffer.size())) > 0)
+        {
           // Cap how much we keep; keep draining the pipe so the child
           // never blocks on a full pipe buffer.
-          if (stdout_content.size() < k_max_output_bytes) {
+          if (stdout_content.size() < k_max_output_bytes)
+          {
             size_t remaining = k_max_output_bytes - stdout_content.size();
             size_t to_append = std::min(remaining, static_cast<size_t>(n));
             stdout_content.append(buffer.data(), to_append);
-            if (stdout_content.size() >= k_max_output_bytes) {
+            if (stdout_content.size() >= k_max_output_bytes)
+            {
               stdout_truncated = true;
             }
           }
         }
         // Ignore EAGAIN (no data available)
-        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK)
+        {
           // Real error - but only if we haven't timed out
-          if (!timed_out) {
+          if (!timed_out)
+          {
             child_guard.release();
-            if (stdout_read_fd >= 0) close(stdout_read_fd);
-            if (stderr_read_fd >= 0) close(stderr_read_fd);
+            if (stdout_read_fd >= 0)
+              close(stdout_read_fd);
+            if (stderr_read_fd >= 0)
+              close(stderr_read_fd);
             co_return {
               {"error", std::format("stdout read failed: {}", strerror(errno))},
               {"exit_code", -1},
@@ -343,28 +408,36 @@ namespace mistral::tools
       }
 
       // Read available data from stderr
-      if (stderr_read_fd >= 0) {
+      if (stderr_read_fd >= 0)
+      {
         std::array<char, 4096> buffer;
         ssize_t n;
-        while ((n = read(stderr_read_fd, buffer.data(), buffer.size())) > 0) {
+        while ((n = read(stderr_read_fd, buffer.data(), buffer.size())) > 0)
+        {
           // Cap how much we keep; keep draining the pipe so the child
           // never blocks on a full pipe buffer.
-          if (stderr_content.size() < k_max_output_bytes) {
+          if (stderr_content.size() < k_max_output_bytes)
+          {
             size_t remaining = k_max_output_bytes - stderr_content.size();
             size_t to_append = std::min(remaining, static_cast<size_t>(n));
             stderr_content.append(buffer.data(), to_append);
-            if (stderr_content.size() >= k_max_output_bytes) {
+            if (stderr_content.size() >= k_max_output_bytes)
+            {
               stderr_truncated = true;
             }
           }
         }
         // Ignore EAGAIN (no data available)
-        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK)
+        {
           // Real error - but only if we haven't timed out
-          if (!timed_out) {
+          if (!timed_out)
+          {
             child_guard.release();
-            if (stdout_read_fd >= 0) close(stdout_read_fd);
-            if (stderr_read_fd >= 0) close(stderr_read_fd);
+            if (stdout_read_fd >= 0)
+              close(stdout_read_fd);
+            if (stderr_read_fd >= 0)
+              close(stderr_read_fd);
             co_return {
               {"error", std::format("stderr read failed: {}", strerror(errno))},
               {"exit_code", -1},
@@ -380,7 +453,8 @@ namespace mistral::tools
       // Check if child has exited
       int status;
       pid_t waited = waitpid(pid, &status, WNOHANG);
-      if (waited == pid) {
+      if (waited == pid)
+      {
         // Child exited normally
         final_status = status;
         child_exited_normally = true;
@@ -388,11 +462,15 @@ namespace mistral::tools
         // doesn't send SIGKILL to a potentially recycled pid.
         child_guard.release();
         break;
-      } else if (waited == -1) {
+      }
+      else if (waited == -1)
+      {
         // Error
         child_guard.release();
-        if (stdout_read_fd >= 0) close(stdout_read_fd);
-        if (stderr_read_fd >= 0) close(stderr_read_fd);
+        if (stdout_read_fd >= 0)
+          close(stdout_read_fd);
+        if (stderr_read_fd >= 0)
+          close(stderr_read_fd);
         co_return {
           {"error", std::format("waitpid failed: {}", strerror(errno))},
           {"exit_code", -1},
@@ -405,30 +483,31 @@ namespace mistral::tools
 
       // Check for timeout
       auto elapsed = std::chrono::steady_clock::now() - start_time;
-      if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_seconds) {
+      if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_seconds)
+      {
         timed_out = true;
         break;
       }
 
       // Yield to the event loop for 10ms to prevent busy-waiting
       // without blocking other dripcore tasks.
-      co_await dripcore::sleep_awaiter{
-        dripcore::executor::current(),
-        nullptr,
-        std::chrono::milliseconds(10)
-      };
+      co_await dripcore::sleep_awaiter{dripcore::executor::current(), nullptr, std::chrono::milliseconds(10)};
     }
 
     // Clean up read ends of pipes
-    if (stdout_read_fd >= 0) close(stdout_read_fd);
-    if (stderr_read_fd >= 0) close(stderr_read_fd);
+    if (stdout_read_fd >= 0)
+      close(stdout_read_fd);
+    if (stderr_read_fd >= 0)
+      close(stderr_read_fd);
 
-    if (timed_out) {
+    if (timed_out)
+    {
       // Kill the child's entire process group so grandchildren do not
       // survive the timeout. Fall back to the direct child if the
       // group kill fails.
       child_guard.release();
-      if (kill(-pid, SIGKILL) == -1) {
+      if (kill(-pid, SIGKILL) == -1)
+      {
         kill(pid, SIGKILL);
       }
       int status;
@@ -448,7 +527,8 @@ namespace mistral::tools
     }
 
     // Child exited normally - use the status we captured earlier
-    if (!child_exited_normally) {
+    if (!child_exited_normally)
+    {
       // This shouldn't happen, but handle it
       child_guard.release();
       co_return {
@@ -465,11 +545,16 @@ namespace mistral::tools
     }
 
     int exit_code = 0;
-    if (WIFEXITED(final_status)) {
+    if (WIFEXITED(final_status))
+    {
       exit_code = WEXITSTATUS(final_status);
-    } else if (WIFSIGNALED(final_status)) {
+    }
+    else if (WIFSIGNALED(final_status))
+    {
       exit_code = 128 + WTERMSIG(final_status);
-    } else {
+    }
+    else
+    {
       exit_code = -1;
     }
 

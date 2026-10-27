@@ -11,7 +11,8 @@ namespace mistral::agent
     while (true)
     {
       auto input = co_await input_ch_->recv(this);
-      if (!input) break;
+      if (!input)
+        break;
 
       chat_.add_user_message(*input);
       co_await agent_loop();
@@ -50,18 +51,16 @@ namespace mistral::agent
         tool_args = api::json::parse(tc.function.arguments);
       }
     }
-    catch (const std::exception &e)
+    catch (const std::exception& e)
     {
       std::string error_msg = std::string("Failed to parse tool arguments: ") + e.what();
-      chat_.add_tool_result(tc.function.name, tc.id,
-        build_tool_rejection("error", error_msg).dump());
+      chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("error", error_msg).dump());
       co_return;
     }
 
     if (auto precheck_error = precheck_tool_call(tc, tool_args))
     {
-      chat_.add_tool_result(tc.function.name, tc.id,
-        build_tool_rejection("error", *precheck_error).dump());
+      chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("error", *precheck_error).dump());
       co_return;
     }
 
@@ -69,26 +68,21 @@ namespace mistral::agent
 
     if (policy_result.decision == policy_decision::DENY)
     {
-      std::string rejection_msg = policy_result.rejection_message
-          ? *policy_result.rejection_message
-          : "Tool call denied by policy";
-      chat_.add_tool_result(tc.function.name, tc.id,
-        build_tool_rejection("denied", rejection_msg).dump());
+      std::string rejection_msg =
+        policy_result.rejection_message ? *policy_result.rejection_message : "Tool call denied by policy";
+      chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("denied", rejection_msg).dump());
       co_return;
     }
 
     if (policy_result.decision == policy_decision::REQUIRE_APPROVAL)
     {
       // Subagents don't have approval workflow - deny with message
-      std::string rejection_msg = policy_result.rejection_message
-          ? *policy_result.rejection_message
-          : "Tool call requires approval";
-      std::string reason = policy_result.reason
-          ? *policy_result.reason
-          : "Policy requires approval";
-      chat_.add_tool_result(tc.function.name, tc.id,
-        build_tool_rejection("rejected",
-          rejection_msg + " (" + reason + ")").dump());
+      std::string rejection_msg =
+        policy_result.rejection_message ? *policy_result.rejection_message : "Tool call requires approval";
+      std::string reason = policy_result.reason ? *policy_result.reason : "Policy requires approval";
+      chat_.add_tool_result(
+        tc.function.name, tc.id, build_tool_rejection("rejected", rejection_msg + " (" + reason + ")").dump()
+      );
       co_return;
     }
 
@@ -104,8 +98,7 @@ namespace mistral::agent
     last_error_ = error;
   }
 
-  void subagent_task::agent_loop_on_completed(
-    std::vector<api::message_content>& accumulated_content)
+  void subagent_task::agent_loop_on_completed(std::vector<api::message_content>& accumulated_content)
   {
     // A failed turn must not look like an empty answer: surface the
     // recorded error as the subagent's response.

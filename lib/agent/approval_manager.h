@@ -3,8 +3,8 @@
 
 #include "approval_types.h"
 
-#include <vector>
 #include <map>
+#include <vector>
 
 namespace mistral::agent
 {

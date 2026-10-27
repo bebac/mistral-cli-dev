@@ -23,8 +23,9 @@ namespace mistral::agent
 
   dripcore::awaitable<std::string> usage_command::execute(
     dripcore::task&,
-    const std::string &args,
-    agent::agent_system &agent_sys)
+    const std::string& args,
+    agent::agent_system& agent_sys
+  )
   {
     if (args == "reset")
     {

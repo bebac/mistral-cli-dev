@@ -11,18 +11,13 @@
 namespace mistral::agent
 {
   agent_task_base::agent_task_base(
-    const std::string &agent_id,
+    const std::string& agent_id,
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<std::string>> output_ch,
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch)
-  :
-    agent_id_(agent_id),
-    input_ch_(std::move(input_ch)),
-    output_ch_(std::move(output_ch)),
-    prompt_ch_(std::move(prompt_ch)),
-    chat_(500),
-    session_id_(mistral::utils::generate_session_id()
+    std::shared_ptr<dripcore::channel<std::string>> prompt_ch
   )
+    : agent_id_(agent_id), input_ch_(std::move(input_ch)), output_ch_(std::move(output_ch)),
+      prompt_ch_(std::move(prompt_ch)), chat_(500), session_id_(mistral::utils::generate_session_id())
   {
     // Load configuration from agent_system
     const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
@@ -75,8 +70,7 @@ namespace mistral::agent
 
   std::string agent_task_base::build_request_body(const api::json& tools_schema) const
   {
-    return provider_->build_chat_request(
-      model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
+    return provider_->build_chat_request(model_, chat_.messages(), tools_schema, true, session_id_, sampling_params_);
   }
 
   bool agent_task_base::request_stream() const
@@ -92,25 +86,22 @@ namespace mistral::agent
   void agent_task_base::refresh_mcp_tools()
   {
     auto& mgr = mcp::mcp_manager::instance();
-    if (mgr.registry_version() == mcp_registry_version_) {
+    if (mgr.registry_version() == mcp_registry_version_)
+    {
       return;
     }
     mcp_registry_version_ = mgr.registry_version();
 
     // Rebuild the filtered registry from the global one.
-    const auto& agent_cfg =
-      agent_system::instance().get_agent_config(agent_id_);
-    tools_ =
-      agent_system::instance().create_tool_registry(agent_cfg.available_tools);
-    auto schema_opts =
-      agent_system::instance().resolve_tool_schema_options(agent_cfg);
+    const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
+    tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
+    auto schema_opts = agent_system::instance().resolve_tool_schema_options(agent_cfg);
     tools_.set_strict_mode(schema_opts.strict_mode);
 
     // Surface the MCP servers' agent instructions to the model.
-    if (!mgr.instructions().empty()) {
-      chat_.set_system_message(
-        system_prompt_ + "\n\n# MCP server instructions\n\n" +
-        mgr.instructions());
+    if (!mgr.instructions().empty())
+    {
+      chat_.set_system_message(system_prompt_ + "\n\n# MCP server instructions\n\n" + mgr.instructions());
     }
   }
 
@@ -129,7 +120,8 @@ namespace mistral::agent
     {
       // If the input channel has been closed (shutdown), don't start
       // a new API request — exit the loop so teardown can proceed.
-      if (input_ch_ && input_ch_->is_closed()) {
+      if (input_ch_ && input_ch_->is_closed())
+      {
         break;
       }
 
@@ -163,16 +155,20 @@ namespace mistral::agent
       {
         auto evt = co_await response_ch_->recv(this);
 
-        if (!evt) {
+        if (!evt)
+        {
           cancelled = true;
           final_answer = true;
           break;
         }
-        if (evt->type == api::event_type::done) {
+        if (evt->type == api::event_type::done)
+        {
           break;
         }
-        if (evt->type == api::event_type::error) {
-          if (retry_count < max_retries && is_retryable_error(*evt)) {
+        if (evt->type == api::event_type::error)
+        {
+          if (retry_count < max_retries && is_retryable_error(*evt))
+          {
             retry_error = evt->payload;
             retry = true;
             break;
@@ -183,11 +179,14 @@ namespace mistral::agent
         }
 
         // Parse SSE data JSON.
-        try {
+        try
+        {
           auto j = api::json::parse(evt->payload);
 
-          if (j.contains("usage")) {
-            if (stats_ch_) {
+          if (j.contains("usage"))
+          {
+            if (stats_ch_)
+            {
               stats_ch_->try_send({stat_id::api_usage, j.at("usage")});
             }
           }
@@ -195,25 +194,26 @@ namespace mistral::agent
           auto delta = parse_response_delta(j);
 
           // Handle content
-          for (const auto& mc : delta.content) {
+          for (const auto& mc : delta.content)
+          {
             agent_loop_on_message_content(mc);
             accumulate_message_content(accumulated_content, mc);
           }
 
           // Accumulate tool calls from deltas.
-          if (delta.tool_calls) {
-            for (auto &tc : *delta.tool_calls) {
+          if (delta.tool_calls)
+          {
+            for (auto& tc : *delta.tool_calls)
+            {
               auto orphaned = accumulate_tool_call(accumulated_tool_calls, std::move(tc));
-              if (orphaned) {
+              if (orphaned)
+              {
                 // The server sent text as function.name on a subsequent
                 // chunk — recover it as content so it isn't lost.
                 std::cerr << std::format(
-                  "[agent] warning: recovered orphaned function.name text ({} chars)\n",
-                  orphaned->size());
-                api::message_content mc{
-                  .type = "text",
-                  .content = std::move(*orphaned)
-                };
+                  "[agent] warning: recovered orphaned function.name text ({} chars)\n", orphaned->size()
+                );
+                api::message_content mc{.type = "text", .content = std::move(*orphaned)};
                 agent_loop_on_message_content(mc);
                 accumulate_message_content(accumulated_content, std::move(mc));
               }
@@ -221,18 +221,22 @@ namespace mistral::agent
           }
 
           // Check finish reason.
-          if (delta.finish_reason == "tool_calls" || delta.finish_reason == "stop") {
+          if (delta.finish_reason == "tool_calls" || delta.finish_reason == "stop")
+          {
             // Will be handled after breaking out of the event loop.
           }
-          else if (delta.finish_reason == "error") {
+          else if (delta.finish_reason == "error")
+          {
             agent_loop_on_error("got finish_reason 'error'");
             // TODO - Should this end the loop?
           }
-          else if (!delta.finish_reason.empty()) {
+          else if (!delta.finish_reason.empty())
+          {
             std::cerr << "[agent] unexpected finish reason '" << delta.finish_reason << "'" << std::endl;
           }
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& e)
+        {
           agent_loop_on_error(std::format("malformed SSE data '{}' {}", evt->payload, e.what()));
         }
       }
@@ -243,11 +247,12 @@ namespace mistral::agent
       if (retry)
       {
         retry_count++;
-        if (in_thinking_) thinking_end();
+        if (in_thinking_)
+          thinking_end();
         auto delay = std::chrono::seconds(1 << (retry_count - 1));
-        agent_loop_on_error(std::format(
-          "Retrying ({}/{}) after {}s: {}",
-          retry_count, max_retries, delay.count(), retry_error));
+        agent_loop_on_error(
+          std::format("Retrying ({}/{}) after {}s: {}", retry_count, max_retries, delay.count(), retry_error)
+        );
         co_await sleep_for(delay);
         continue;
       }
@@ -270,7 +275,8 @@ namespace mistral::agent
         // If the model goes directly from thinking to tool calls (no text
         // in between), thinking_end() would never be called, leaving
         // in_thinking_ true and missing the newline separator.
-        if (in_thinking_) thinking_end();
+        if (in_thinking_)
+          thinking_end();
 
         // Sanitize tool call arguments for storage. The assistant message
         // is sent back in the conversation history on subsequent API requests.
@@ -279,41 +285,48 @@ namespace mistral::agent
         // agent to silently fail on all future messages. Replace invalid
         // JSON with an empty object so the stored message is always valid.
         auto stored_tool_calls = accumulated_tool_calls;
-        for (auto& tc : stored_tool_calls) {
-          try {
+        for (auto& tc : stored_tool_calls)
+        {
+          try
+          {
             (void)api::json::parse(tc.function.arguments);
-          } catch (...) {
+          }
+          catch (...)
+          {
             tc.function.arguments = "{}";
           }
         }
 
-        for (auto& tc : stored_tool_calls) {
-          if (!tc.function.name.empty() && !tools_.has_tool(tc.function.name)) {
+        for (auto& tc : stored_tool_calls)
+        {
+          if (!tc.function.name.empty() && !tools_.has_tool(tc.function.name))
+          {
             std::cerr << std::format(
               "[agent] warning: unknown tool '{}' (length {})\n",
               tc.function.name.substr(0, 80),
-              tc.function.name.size());
-            if (tc.function.name.size() > 80) {
+              tc.function.name.size()
+            );
+            if (tc.function.name.size() > 80)
+            {
               tc.function.name = tc.function.name.substr(0, 77) + "...";
             }
           }
         }
 
         // Add assistant message with accumulated content and tool calls.
-        chat_.add_assistant_message(
-          std::move(accumulated_content),
-          std::move(stored_tool_calls)
-        );
+        chat_.add_assistant_message(std::move(accumulated_content), std::move(stored_tool_calls));
 
         // Execute each tool call.
-        for (const auto& tc : accumulated_tool_calls) {
+        for (const auto& tc : accumulated_tool_calls)
+        {
           co_await agent_loop_do_tool_call(tc);
         }
       }
       else
       {
         // Final text response.
-        if (!accumulated_content.empty()) {
+        if (!accumulated_content.empty())
+        {
           // PARSE AND STORE PATCHSET FROM accumulated_content
           if (!try_parse_and_store_patchset(accumulated_content))
           {
@@ -340,7 +353,8 @@ namespace mistral::agent
       std::string final_answer;
       for (const auto& mc : accumulated_content)
       {
-        if (mc.type == "text") {
+        if (mc.type == "text")
+        {
           final_answer += mc.content;
         }
       }
@@ -349,12 +363,14 @@ namespace mistral::agent
   }
 
   // Helper methods
-  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
-  agent_task_base::try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content)
+  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>> agent_task_base::try_parse_and_store_patchset(
+    const std::vector<api::message_content>& accumulated_content
+  )
   {
     auto accumulated_text = accumulate_text(accumulated_content);
     auto parse_result = tools::parse_edits_with_patchset(accumulated_text);
-    if (parse_result) {
+    if (parse_result)
+    {
       auto& sys = agent_system::instance();
       // If a non-applied patchset with the same ID already exists, append
       // to it instead of overwriting. This supports interleaved tool calls
@@ -365,7 +381,8 @@ namespace mistral::agent
         sys.append_edits(parse_result->first, parse_result->second);
         // Return the full merged edit list
         auto merged = sys.get_patchset(parse_result->first);
-        if (merged) {
+        if (merged)
+        {
           return std::make_pair(merged->patchset_id, merged->edits);
         }
       }
@@ -377,26 +394,30 @@ namespace mistral::agent
     return parse_result;
   }
 
-  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
-  agent_task_base::try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content)
+  std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>> agent_task_base::try_parse_and_append_edits(
+    const std::vector<api::message_content>& accumulated_content
+  )
   {
     auto accumulated_text = accumulate_text(accumulated_content);
 
     // Try to parse edit blocks without requiring a patchset ID marker
     auto edits = tools::parse_edit_blocks(accumulated_text);
-    if (!edits) {
+    if (!edits)
+    {
       return std::nullopt;
     }
 
     // Only append if there's an ongoing non-applied patchset
     auto& sys = agent_system::instance();
     auto current_id = sys.get_current_patchset_id();
-    if (!current_id) {
+    if (!current_id)
+    {
       return std::nullopt;
     }
 
     auto existing = sys.get_patchset(*current_id);
-    if (!existing || existing->applied) {
+    if (!existing || existing->applied)
+    {
       return std::nullopt;
     }
 
@@ -404,15 +425,19 @@ namespace mistral::agent
 
     // Return the full merged edit list
     auto merged = sys.get_patchset(*current_id);
-    if (merged) {
+    if (merged)
+    {
       return std::make_pair(merged->patchset_id, merged->edits);
     }
     return std::nullopt;
   }
 
-  void agent_task_base::accumulate_message_content(std::vector<api::message_content> &accumulated, api::message_content mc)
+  void agent_task_base::accumulate_message_content(
+    std::vector<api::message_content>& accumulated,
+    api::message_content mc
+  )
   {
-    for (auto &acc_mc : accumulated)
+    for (auto& acc_mc : accumulated)
     {
       if (acc_mc.type == mc.type)
       {
@@ -428,7 +453,9 @@ namespace mistral::agent
   }
 
   std::optional<std::string> agent_task_base::accumulate_tool_call(
-    std::vector<api::tool_call>& accumulated, api::tool_call tc)
+    std::vector<api::tool_call>& accumulated,
+    api::tool_call tc
+  )
   {
     if (!tc.id.empty())
     {
@@ -443,8 +470,9 @@ namespace mistral::agent
     {
       // OpenAI-compatible streaming: use index to find the matching
       // tool call, even if chunks from different calls are interleaved.
-      auto it = std::find_if(accumulated.begin(), accumulated.end(),
-        [&](const api::tool_call& c) { return c.index == tc.index; });
+      auto it = std::find_if(accumulated.begin(), accumulated.end(), [&](const api::tool_call& c) {
+        return c.index == tc.index;
+      });
       if (it != accumulated.end())
       {
         // Per the OpenAI streaming spec, function.name is sent only in
@@ -488,18 +516,21 @@ namespace mistral::agent
     // schema is registered locally (so the model can call it), but
     // execution is delegated to another agent's subagent task.
     const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
-    if (auto it = agent_cfg.subagent_tools.find(tc.function.name);
-        it != agent_cfg.subagent_tools.end())
+    if (auto it = agent_cfg.subagent_tools.find(tc.function.name); it != agent_cfg.subagent_tools.end())
     {
       // The subagent prompt is the tool's "query" argument when present,
       // otherwise the raw JSON arguments.
       std::string prompt = tc.function.arguments;
-      try {
+      try
+      {
         auto args = api::json::parse(tc.function.arguments);
-        if (args.contains("query") && args["query"].is_string()) {
+        if (args.contains("query") && args["query"].is_string())
+        {
           prompt = args["query"].get<std::string>();
         }
-      } catch (...) {
+      }
+      catch (...)
+      {
         // Malformed arguments are passed through as-is.
       }
       co_return co_await agent_system::instance().run_subagent(*this, it->second, prompt);
@@ -508,59 +539,55 @@ namespace mistral::agent
     // Build the request before the co_await expression: constructing a
     // nested braced temporary inside the co_await triggers a GCC 13
     // internal compiler error (build_special_member_call ICE).
-    api::json request{
-      {
-        "function", {
-          {"name", tc.function.name},
-          {"arguments", tc.function.arguments}
-        }
-      }
-    };
+    api::json request{{"function", {{"name", tc.function.name}, {"arguments", tc.function.arguments}}}};
     auto result = co_await tools_.dispatch(std::move(request));
-    if (result.is_string()) {
+    if (result.is_string())
+    {
       co_return result.get<std::string>();
     }
     co_return result.dump();
   }
 
-  std::string agent_task_base::accumulate_text(
-    const std::vector<api::message_content>& accumulated_content)
+  std::string agent_task_base::accumulate_text(const std::vector<api::message_content>& accumulated_content)
   {
     size_t total_size = 0;
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
+    for (const auto& mc : accumulated_content)
+    {
+      if (mc.type == "text")
+      {
         total_size += mc.content.size();
       }
     }
     std::string text;
     text.reserve(total_size);
-    for (const auto& mc : accumulated_content) {
-      if (mc.type == "text") {
+    for (const auto& mc : accumulated_content)
+    {
+      if (mc.type == "text")
+      {
         text += mc.content;
       }
     }
     return text;
   }
 
-  policy_result agent_task_base::evaluate_tool_policy(
-    const api::tool_call& tc, const api::json& tool_args) const
+  policy_result agent_task_base::evaluate_tool_policy(const api::tool_call& tc, const api::json& tool_args) const
   {
-    policy_context ctx{
-      .tool_name = tc.function.name,
-      .tool_arguments = tool_args,
-      .working_directory = ""
-    };
+    policy_context ctx{.tool_name = tc.function.name, .tool_arguments = tool_args, .working_directory = ""};
     return policy_engine_.evaluate(ctx);
   }
 
   std::optional<std::string> agent_task_base::precheck_tool_call(
-    const api::tool_call& tc, const api::json& tool_args) const
+    const api::tool_call& tc,
+    const api::json& tool_args
+  ) const
   {
-    if (tc.function.name != "exec") {
+    if (tc.function.name != "exec")
+    {
       return std::nullopt;
     }
 
-    if (!tool_args.contains("command") || !tool_args["command"].is_string()) {
+    if (!tool_args.contains("command") || !tool_args["command"].is_string())
+    {
       // Malformed arguments are reported by the tool dispatcher.
       return std::nullopt;
     }
@@ -568,9 +595,12 @@ namespace mistral::agent
     std::string command = tool_args["command"].get<std::string>();
 
     std::vector<std::string> args;
-    if (tool_args.contains("args") && tool_args["args"].is_array()) {
-      for (const auto& arg : tool_args["args"]) {
-        if (!arg.is_string()) {
+    if (tool_args.contains("args") && tool_args["args"].is_array())
+    {
+      for (const auto& arg : tool_args["args"])
+      {
+        if (!arg.is_string())
+        {
           // Malformed arguments are reported by the tool dispatcher.
           return std::nullopt;
         }
@@ -581,17 +611,12 @@ namespace mistral::agent
     return mistral::tools::exec_tools::validate(command, args);
   }
 
-  api::json agent_task_base::build_tool_rejection(
-    const std::string& status, const std::string& message)
+  api::json agent_task_base::build_tool_rejection(const std::string& status, const std::string& message)
   {
-    return api::json{
-      {"status", status},
-      {"message", message}
-    };
+    return api::json{{"status", status}, {"message", message}};
   }
 
-  auto agent_task_base::execute_and_record_tool(
-    const api::tool_call& tc) -> dripcore::awaitable<std::string>
+  auto agent_task_base::execute_and_record_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>
   {
     auto res = co_await execute_tool(tc);
     chat_.add_tool_result(tc.function.name, tc.id, res);
@@ -603,7 +628,8 @@ namespace mistral::agent
     // HTTP status code errors: use the structured http_status field when
     // available (set by the HTTP coordinator in stream_response_state::finalize).
     // Retry on 503 (service unavailable), 502 (bad gateway), 429 (rate limited).
-    if (evt.http_status) {
+    if (evt.http_status)
+    {
       int status = *evt.http_status;
       return status == 503 || status == 502 || status == 429;
     }
@@ -613,10 +639,11 @@ namespace mistral::agent
     // the connected() check and the actual send). These don't have an HTTP
     // status code, so we match on the error message string.
     const auto& error = evt.payload;
-    if (error.find("connection closed") != std::string::npos ||
-        error.find("connection error") != std::string::npos ||
-        error.find("stream reset") != std::string::npos ||
-        error.find("send error") != std::string::npos) {
+    if (
+      error.find("connection closed") != std::string::npos || error.find("connection error") != std::string::npos ||
+      error.find("stream reset") != std::string::npos || error.find("send error") != std::string::npos
+    )
+    {
       return true;
     }
     return false;

@@ -1,23 +1,23 @@
 #ifndef MISTRAL_HTTP_WRITE_TASK_H
 #define MISTRAL_HTTP_WRITE_TASK_H
 
-#include "http/http_client.h"
 #include "api/types.h"
+#include "http/http_client.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
 #include <dripcore/awaitable.h>
 #include <dripcore/cancelled.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
 
 #include <openssl/err.h>
 
+#include <cerrno>
+#include <cstddef>
+#include <cstring>
+#include <functional>
+#include <iostream>
 #include <memory>
 #include <string>
-#include <iostream>
-#include <functional>
-#include <cerrno>
-#include <cstring>
-#include <cstddef>
 
 namespace mistral::net
 {
@@ -30,9 +30,7 @@ namespace mistral::net
       std::shared_ptr<dripcore::channel<coordinator_event>> event_ch,
       std::shared_ptr<dripcore::channel<bool>> output_ready_ch
     )
-      : client_(client)
-      , event_ch_(std::move(event_ch))
-      , output_ready_ch_(std::move(output_ready_ch))
+      : client_(client), event_ch_(std::move(event_ch)), output_ready_ch_(std::move(output_ready_ch))
     {
     }
 
@@ -51,86 +49,94 @@ namespace mistral::net
       // avoiding a buffer copy.
       size_t retry_len = 0;
 
-      while (client.connected()) {
+      while (client.connected())
+      {
         auto out = client.output_begin();
 
-        if (retry_len > 0 && retry_len < out.size()) {
+        if (retry_len > 0 && retry_len < out.size())
+        {
           out = out.first(retry_len);
         }
 
         // Empty output buffer means nothing to send
-        if (out.empty()) {
+        if (out.empty())
+        {
           retry_len = 0;
-          if (auto res = co_await output_ready_ch_->recv(this)) {
+          if (auto res = co_await output_ready_ch_->recv(this))
+          {
             continue;
           }
-          else {
+          else
+          {
             break;
           }
         }
 
-        if (!client.connected()) {
+        if (!client.connected())
+        {
           std::cerr << "[http_write] connection closed" << std::endl;
           break;
         }
 
         int n = client.write(out);
 
-        if (n > 0) {
+        if (n > 0)
+        {
           retry_len = 0;
           client.output_end(n);
         }
-        else {
+        else
+        {
           int err = client.get_error(n);
 
-          if (err == SSL_ERROR_WANT_WRITE) {
+          if (err == SSL_ERROR_WANT_WRITE)
+          {
             retry_len = out.size();
             co_await writable(client);
           }
-          else if (err == SSL_ERROR_WANT_READ) {
+          else if (err == SSL_ERROR_WANT_READ)
+          {
             retry_len = out.size();
             co_await readable(client);
           }
-          else if (err == SSL_ERROR_SYSCALL) {
+          else if (err == SSL_ERROR_SYSCALL)
+          {
             // Connection closed or reset - not a fatal error, allows retry
-            if (errno == 0 || errno == EPIPE || errno == ECONNRESET) {
-              std::cerr << "[http_write_task] SSL_write: connection closed error: " << errno
-                        << "(" << strerror(errno) << ")" << std::endl;
+            if (errno == 0 || errno == EPIPE || errno == ECONNRESET)
+            {
+              std::cerr << "[http_write_task] SSL_write: connection closed error: " << errno << "(" << strerror(errno)
+                        << ")" << std::endl;
               event_ch_->try_send({coordinator_event_type::connection_closed});
               break;
             }
-            else {
+            else
+            {
               std::cerr << "[http_write] send connection error(1)" << std::endl;
-              event_ch_->try_send({
-                coordinator_event_type::connection_error,
-                {},
-                std::make_error_code(static_cast<std::errc>(errno))
-              });
+              event_ch_->try_send(
+                {coordinator_event_type::connection_error, {}, std::make_error_code(static_cast<std::errc>(errno))}
+              );
               break;
             }
           }
-          else if (err == SSL_ERROR_SSL) {
-            if (client.is_shutting_down()) {
+          else if (err == SSL_ERROR_SSL)
+          {
+            if (client.is_shutting_down())
+            {
               event_ch_->try_send({coordinator_event_type::connection_closed});
               break;
             }
             auto [msg, ec] = tls_connection::get_ssl_error_details();
             std::cerr << "[http_write] " << msg << std::endl;
-            event_ch_->try_send({
-              coordinator_event_type::connection_error,
-              {},
-              ec
-            });
+            event_ch_->try_send({coordinator_event_type::connection_error, {}, ec});
             break;
           }
-          else {
+          else
+          {
             std::cerr << "[http_write] send connection error(2)" << std::endl;
             // For any other SSL error, use errno as fallback
-            event_ch_->try_send({
-              coordinator_event_type::connection_error,
-              {},
-              std::make_error_code(static_cast<std::errc>(errno))
-            });
+            event_ch_->try_send(
+              {coordinator_event_type::connection_error, {}, std::make_error_code(static_cast<std::errc>(errno))}
+            );
             break;
           }
         }

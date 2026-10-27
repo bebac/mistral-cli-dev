@@ -4,8 +4,8 @@
 //
 // Usage: ./mcp-connect-sim
 
-#include "mcp/mcp_manager.h"
 #include "agent/agent_config.h"
+#include "mcp/mcp_manager.h"
 
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
@@ -57,8 +57,7 @@ namespace
       debug("calling connect_all()...");
       auto start = std::chrono::steady_clock::now();
       auto results = co_await mgr.connect_all();
-      auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::steady_clock::now() - start).count();
+      auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
 
       debug("connect_all() returned after " + std::to_string(elapsed) + "s");
       debug("results: " + results.dump(2));

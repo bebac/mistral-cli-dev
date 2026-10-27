@@ -3,8 +3,7 @@
 
 namespace mistral::agent
 {
-  agent_system_stats_task::agent_system_stats_task(
-    std::shared_ptr<dripcore::channel<stat_message>> stats_ch)
+  agent_system_stats_task::agent_system_stats_task(std::shared_ptr<dripcore::channel<stat_message>> stats_ch)
     : stats_ch_(std::move(stats_ch))
   {
   }
@@ -21,12 +20,12 @@ namespace mistral::agent
 
       switch (msg->id)
       {
-        case stat_id::api_usage:
-        {
-          auto& data = msg->data;
-          agent_system::instance().update_usage_stats(data);
-        }
-        break;
+      case stat_id::api_usage:
+      {
+        auto& data = msg->data;
+        agent_system::instance().update_usage_stats(data);
+      }
+      break;
       }
     }
     co_return;

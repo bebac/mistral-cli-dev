@@ -1,19 +1,19 @@
 // DOCTEST unit tests for slash_command_executor_task
 #include <doctest/doctest.h>
 
+#include "agent/agent_system.h"
 #include "slash_command/slash_command_executor_task.h"
 #include "slash_command/slash_command_registry.h"
-#include "agent/agent_system.h"
 
+#include <dripcore/awaitable.h>
 #include <dripcore/channel.h>
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 #include <dripcore/task_handle.h>
-#include <dripcore/awaitable.h>
 
+#include <memory>
 #include <string>
 #include <thread>
-#include <memory>
 
 namespace
 {
@@ -22,13 +22,20 @@ namespace
   class executor_test_agent_command : public mistral::slash_command::slash_command
   {
   public:
-    std::string name() const override { return "test_cmd"; }
-    std::string description() const override { return "Test command"; }
+    std::string name() const override
+    {
+      return "test_cmd";
+    }
+    std::string description() const override
+    {
+      return "Test command";
+    }
 
     dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string &args,
-        mistral::agent::agent_system &) override
+      dripcore::task&,
+      const std::string& args,
+      mistral::agent::agent_system&
+    ) override
     {
       co_return "Response: " + args;
     }
@@ -42,11 +49,13 @@ namespace
     {
     public:
       response_collector_task(
-          std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> request_ch,
-          std::shared_ptr<dripcore::channel<std::string>> response_ch,
-          mistral::slash_command::slash_command_request req,
-          std::string &out_response)
-          : request_ch_(std::move(request_ch)), response_ch_(std::move(response_ch)), req_(std::move(req)), out_response_(out_response)
+        std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> request_ch,
+        std::shared_ptr<dripcore::channel<std::string>> response_ch,
+        mistral::slash_command::slash_command_request req,
+        std::string& out_response
+      )
+        : request_ch_(std::move(request_ch)), response_ch_(std::move(response_ch)), req_(std::move(req)),
+          out_response_(out_response)
       {
       }
 
@@ -74,22 +83,21 @@ namespace
       std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> request_ch_;
       std::shared_ptr<dripcore::channel<std::string>> response_ch_;
       mistral::slash_command::slash_command_request req_;
-      std::string &out_response_;
+      std::string& out_response_;
     };
 
     std::string execute_and_collect_response(
-        std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> request_ch,
-        std::shared_ptr<dripcore::channel<std::string>> response_ch,
-        std::shared_ptr<mistral::slash_command::slash_command_registry> registry,
-        mistral::slash_command::slash_command_request req)
+      std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> request_ch,
+      std::shared_ptr<dripcore::channel<std::string>> response_ch,
+      std::shared_ptr<mistral::slash_command::slash_command_registry> registry,
+      mistral::slash_command::slash_command_request req
+    )
     {
       std::string response;
       dripcore::scheduler scheduler;
 
-      scheduler.spawn<mistral::slash_command::slash_command_executor_task>(
-          request_ch, response_ch, registry);
-      scheduler.spawn<response_collector_task>(
-          request_ch, response_ch, std::move(req), response);
+      scheduler.spawn<mistral::slash_command::slash_command_executor_task>(request_ch, response_ch, registry);
+      scheduler.spawn<response_collector_task>(request_ch, response_ch, std::move(req), response);
 
       scheduler.run();
       return response;
@@ -111,8 +119,7 @@ TEST_CASE("slash_command_executor_task: execute command")
   req.command_name = "test_cmd";
   req.args = "hello";
 
-  std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, registry, std::move(req));
+  std::string response = fixture.execute_and_collect_response(request_ch, response_ch, registry, std::move(req));
 
   CHECK(response == "Response: hello");
 }
@@ -129,8 +136,7 @@ TEST_CASE("slash_command_executor_task: unknown command")
   req.command_name = "unknown_cmd";
   req.args = "";
 
-  std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, registry, std::move(req));
+  std::string response = fixture.execute_and_collect_response(request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.find("Unknown command: /unknown_cmd") != std::string::npos);
 }
@@ -143,13 +149,20 @@ TEST_CASE("slash_command_executor_task: exception handling")
   class throwing_command : public mistral::slash_command::slash_command
   {
   public:
-    std::string name() const override { return "throw_cmd"; }
-    std::string description() const override { return "Throws"; }
+    std::string name() const override
+    {
+      return "throw_cmd";
+    }
+    std::string description() const override
+    {
+      return "Throws";
+    }
 
     dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string &,
-        mistral::agent::agent_system &) override
+      dripcore::task&,
+      const std::string&,
+      mistral::agent::agent_system&
+    ) override
     {
       throw std::runtime_error("Test error");
     }
@@ -163,8 +176,7 @@ TEST_CASE("slash_command_executor_task: exception handling")
   req.command_name = "throw_cmd";
   req.args = "";
 
-  std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, registry, std::move(req));
+  std::string response = fixture.execute_and_collect_response(request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.find("Error executing /throw_cmd: Test error") != std::string::npos);
 }
@@ -177,13 +189,20 @@ TEST_CASE("slash_command_executor_task: empty response")
   class empty_command : public mistral::slash_command::slash_command
   {
   public:
-    std::string name() const override { return "empty_cmd"; }
-    std::string description() const override { return "Empty"; }
+    std::string name() const override
+    {
+      return "empty_cmd";
+    }
+    std::string description() const override
+    {
+      return "Empty";
+    }
 
     dripcore::awaitable<std::string> execute(
-        dripcore::task&,
-        const std::string &,
-        mistral::agent::agent_system &) override
+      dripcore::task&,
+      const std::string&,
+      mistral::agent::agent_system&
+    ) override
     {
       co_return "";
     }
@@ -197,8 +216,7 @@ TEST_CASE("slash_command_executor_task: empty response")
   req.command_name = "empty_cmd";
   req.args = "";
 
-  std::string response = fixture.execute_and_collect_response(
-      request_ch, response_ch, registry, std::move(req));
+  std::string response = fixture.execute_and_collect_response(request_ch, response_ch, registry, std::move(req));
 
   CHECK(response.empty());
 }

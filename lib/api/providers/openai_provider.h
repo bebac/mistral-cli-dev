@@ -18,7 +18,10 @@ namespace mistral::api
   public:
     json serialize_message(const message& m, bool include_thinking) const override;
 
-    std::string_view id() const override { return "openai"; }
+    std::string_view id() const override
+    {
+      return "openai";
+    }
 
   protected:
     // Add stream_options to request usage reporting in streaming
@@ -27,7 +30,8 @@ namespace mistral::api
       json& body,
       bool stream,
       const std::optional<std::string>& prompt_cache_key,
-      const sampling_params& params) const override;
+      const sampling_params& params
+    ) const override;
 
     // Parse the OpenAI-compatible "reasoning_content" delta field.
     void parse_delta_fields(const json& delta, stream_delta& result) const override;

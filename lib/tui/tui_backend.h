@@ -1,24 +1,24 @@
 #ifndef MISTRAL_TUI_BACKEND_H
 #define MISTRAL_TUI_BACKEND_H
 
-#include "tui/tui_bridge_tasks.h"
-#include "tui/tui_thread_safe_queue.h"
-#include "tui/tui_render_sink.h"
-#include "tui/tui_approval_state.h"
 #include "agent/agent_system.h"
-#include "agent/agent_system_task.h"
 #include "agent/agent_system_stats_task.h"
+#include "agent/agent_system_task.h"
 #include "agent/interactive_agent_task.h"
-#include "slash_command/slash_command_executor_task.h"
+#include "api/types.h"
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
 #include "http/http_coordinator_task.h"
-#include "mcp/mcp_manager.h"
 #include "mcp/mcp_auto_connect_task.h"
-#include "api/types.h"
+#include "mcp/mcp_manager.h"
+#include "slash_command/slash_command_executor_task.h"
+#include "tui/tui_approval_state.h"
+#include "tui/tui_bridge_tasks.h"
+#include "tui/tui_render_sink.h"
+#include "tui/tui_thread_safe_queue.h"
 
-#include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
+#include <dripcore/scheduler.h>
 
 #include <atomic>
 #include <functional>
@@ -101,13 +101,10 @@ namespace mistral::tui
       approval_state_fn on_approval_state;
     };
 
-    tui_backend(tui_config cfg, ui_callbacks callbacks)
-      : cfg_(std::move(cfg))
-      , callbacks_(std::move(callbacks))
+    tui_backend(tui_config cfg, ui_callbacks callbacks) : cfg_(std::move(cfg)), callbacks_(std::move(callbacks))
     {
       g_sigint_pipe_write_fd = sigint_pipe_.write_fd();
-      mistral::agent::agent_system::instance().set_shutdown_pipe_fd(
-        sigint_pipe_.write_fd());
+      mistral::agent::agent_system::instance().set_shutdown_pipe_fd(sigint_pipe_.write_fd());
 
       struct sigaction sa{};
       sa.sa_handler = sigint_handler;
@@ -136,39 +133,38 @@ namespace mistral::tui
         dripcore::scheduler sched;
         auto& agent_system = mistral::agent::agent_system::instance();
 
-        sched.spawn<mistral::agent::agent_system_task>(
-          cfg_.agent_response_ch);
-        sched.spawn<mistral::agent::agent_system_stats_task>(
-          agent_system.stats_ch());
-        sched.spawn<mistral::net::http_coordinator_task>(
-          cfg_.host, cfg_.port, cfg_.api_key, cfg_.request_ch);
-        sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(
-          input_pipe_.read_fd(), cfg_.input_ch, std::ref(inq_));
+        sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
+        sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
+        sched.spawn<mistral::net::http_coordinator_task>(cfg_.host, cfg_.port, cfg_.api_key, cfg_.request_ch);
+        sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(input_pipe_.read_fd(), cfg_.input_ch, std::ref(inq_));
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
-          cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch,
-          agent_system.slash_commands());
+          cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch, agent_system.slash_commands()
+        );
         sched.spawn<mistral::tui::slash_command_response_receiver>(
-          cfg_.slash_cmd_response_ch, callbacks_.post,
-          callbacks_.append_content);
-        sched.spawn<mistral::tui::pipe_bridge_task<
-          mistral::slash_command::slash_command_request>>(
-          slash_cmd_pipe_.read_fd(), cfg_.cmd_request_ch,
+          cfg_.slash_cmd_response_ch, callbacks_.post, callbacks_.append_content
+        );
+        sched.spawn<mistral::tui::pipe_bridge_task<mistral::slash_command::slash_command_request>>(
+          slash_cmd_pipe_.read_fd(),
+          cfg_.cmd_request_ch,
           std::ref(slash_cmd_queue_),
-          [ch = cfg_.slash_cmd_response_ch]() { ch->close(); });
+          [ch = cfg_.slash_cmd_response_ch]() { ch->close(); }
+        );
         sched.spawn<mistral::tui::prompt_bridge_task>(
-          cfg_.prompt_ch, std::ref(agent_ready_),
-          callbacks_.post, callbacks_.append_content,
-          callbacks_.on_approval_state);
+          cfg_.prompt_ch,
+          std::ref(agent_ready_),
+          callbacks_.post,
+          callbacks_.append_content,
+          callbacks_.on_approval_state
+        );
 
         auto sink = std::make_shared<mistral::tui::tui_render_sink>(
-          callbacks_.post, callbacks_.append_fragment,
-          callbacks_.flush, callbacks_.completed);
+          callbacks_.post, callbacks_.append_fragment, callbacks_.flush, callbacks_.completed
+        );
         sched.spawn<mistral::agent::interactive_agent_task>(
-          cfg_.agent_id, cfg_.input_ch, cfg_.agent_response_ch,
-          cfg_.prompt_ch, sink, cfg_.resume);
+          cfg_.agent_id, cfg_.input_ch, cfg_.agent_response_ch, cfg_.prompt_ch, sink, cfg_.resume
+        );
 
-        sched.spawn<mistral::common::signal_watcher_task>(
-          sigint_pipe_.read_fd());
+        sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_.read_fd());
 
         // Spawn MCP auto-connect task (connects servers with
         // auto_connect=true). Runs on the dripcore thread; status
@@ -183,7 +179,8 @@ namespace mistral::tui
     // pipes.
     void shutdown()
     {
-      if (!dripcore_thread_.joinable()) return;
+      if (!dripcore_thread_.joinable())
+        return;
 
       sigint_pipe_.notify('1');
 
@@ -215,26 +212,30 @@ namespace mistral::tui
     }
 
     // Push a slash command request to the slash command executor.
-    void send_slash_command(
-      mistral::slash_command::slash_command_request req)
+    void send_slash_command(mistral::slash_command::slash_command_request req)
     {
       slash_cmd_queue_.push(std::move(req));
       slash_cmd_pipe_.notify();
     }
 
     // Write fd for the SIGINT pipe — used by the UI's ESC key handler.
-    int sigint_write_fd() const { return sigint_pipe_.write_fd(); }
+    int sigint_write_fd() const
+    {
+      return sigint_pipe_.write_fd();
+    }
 
     // Atomics shared between dripcore thread and UI thread.
-    std::atomic<bool>& agent_ready() { return agent_ready_; }
+    std::atomic<bool>& agent_ready()
+    {
+      return agent_ready_;
+    }
 
   private:
     tui_config cfg_;
     ui_callbacks callbacks_;
 
     thread_safe_queue<std::string> inq_;
-    thread_safe_queue<mistral::slash_command::slash_command_request>
-      slash_cmd_queue_;
+    thread_safe_queue<mistral::slash_command::slash_command_request> slash_cmd_queue_;
 
     std::atomic<bool> agent_ready_{true};
 

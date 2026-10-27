@@ -1,25 +1,25 @@
-#include <doctest/doctest.h>
-#include "agent/agent_system.h"
 #include "agent/agent_config.h"
+#include "agent/agent_system.h"
 #include "agent/tool_registry.h"
+#include "tools/exec_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
-#include "tools/exec_tools.h"
+#include <doctest/doctest.h>
 
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
 namespace mistral::agent
 {
   namespace fs = std::filesystem;
   using json = nlohmann::ordered_json;
-}
+} // namespace mistral::agent
 
 // ============================================================================
 // Test Fixture for agent_system tests
@@ -56,13 +56,13 @@ struct AgentSystemTestFixture
     }
   }
 
-  void create_config_file(const std::string &content)
+  void create_config_file(const std::string& content)
   {
     std::ofstream out(config_file);
     out << content;
   }
 
-  void create_config_file(const nlohmann::json &content)
+  void create_config_file(const nlohmann::json& content)
   {
     std::ofstream out(config_file);
     out << content.dump(2);
@@ -70,39 +70,32 @@ struct AgentSystemTestFixture
 
   // Helper to create a standard config with a main agent
   nlohmann::json create_standard_config(
-      const std::string& model_name = "mistral-medium",
-      const std::string& model_id = "mistral-medium-latest")
+    const std::string& model_name = "mistral-medium",
+    const std::string& model_id = "mistral-medium-latest"
+  )
   {
     return {
-      {"models", {
-        {model_name, {
-          {"provider", "mistral"},
+      {"models",
+       {{model_name,
+         {{"provider", "mistral"},
           {"model_id", model_id},
           {"api_key_env", "MISTRAL_API_KEY"},
           {"base_url", "https://api.mistral.ai"},
-          {"api_version", "v1"}
-        }}
-      }},
-      {"agents", {
-        {"main", {
-          {"model", model_name},
-          {"system_prompt", "You are a helpful assistant."},
-          {"tool_policy", "deny"}
-        }}
-      }},
-      {"policy", {
-        {"default", "deny"}
-      }}
+          {"api_version", "v1"}}}}},
+      {"agents",
+       {{"main", {{"model", model_name}, {"system_prompt", "You are a helpful assistant."}, {"tool_policy", "deny"}}}}},
+      {"policy", {{"default", "deny"}}}
     };
   }
 
   // Helper to initialize agent_system with standard config
   void initialize_agent_system_with_main_agent(
-      const std::string& model_name = "mistral-medium",
-      const std::string& model_id = "mistral-medium-latest")
+    const std::string& model_name = "mistral-medium",
+    const std::string& model_id = "mistral-medium-latest"
+  )
   {
     create_config_file(create_standard_config(model_name, model_id));
-    auto &system = mistral::agent::agent_system::instance();
+    auto& system = mistral::agent::agent_system::instance();
     system.initialize(config_file, base_dir, notes_dir, nullptr);
   }
 
@@ -110,7 +103,7 @@ struct AgentSystemTestFixture
   void initialize_agent_system_empty()
   {
     create_config_file(nlohmann::json({}));
-    auto &system = mistral::agent::agent_system::instance();
+    auto& system = mistral::agent::agent_system::instance();
     system.initialize(config_file, base_dir, notes_dir, nullptr);
   }
 };
@@ -154,36 +147,30 @@ TEST_SUITE_BEGIN("agent_system::configuration_loading");
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
 {
   nlohmann::json config = {
-    {"models", {
-      {"mistral-medium", {
-        {"provider", "mistral"},
+    {"models",
+     {{"mistral-medium",
+       {{"provider", "mistral"},
         {"model_id", "mistral-medium-latest"},
         {"api_key_env", "MISTRAL_API_KEY"},
         {"base_url", "https://api.mistral.ai"},
-        {"api_version", "v1"}
-      }}
-    }},
-    {"agents", {
-      {"main", {
-        {"model", "mistral-medium"},
+        {"api_version", "v1"}}}}},
+    {"agents",
+     {{"main",
+       {{"model", "mistral-medium"},
         {"system_prompt", "You are a helpful assistant."},
         {"tool_policy", "deny"},
-        {"available_tools", {"ls", "read"}}
-      }}
-    }},
-    {"policy", {
-      {"default", "deny"}
-    }}
+        {"available_tools", {"ls", "read"}}}}}},
+    {"policy", {{"default", "deny"}}}
   };
 
   create_config_file(config);
 
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   // Check models
   CHECK(system.has_model_config("mistral-medium"));
-  const auto &model = system.get_model_config("mistral-medium");
+  const auto& model = system.get_model_config("mistral-medium");
   CHECK(model.provider == "mistral");
   CHECK(model.model_id == "mistral-medium-latest");
   CHECK(model.api_key_env == "MISTRAL_API_KEY");
@@ -192,7 +179,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
 
   // Check agents
   CHECK(system.has_agent_config("main"));
-  const auto &agent = system.get_agent_config("main");
+  const auto& agent = system.get_agent_config("main");
   CHECK(agent.model == "mistral-medium");
   CHECK(agent.system_prompt == "You are a helpful assistant.");
   CHECK(agent.tool_policy == "deny");
@@ -207,24 +194,25 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: missing file throws")
 {
   CHECK_THROWS_AS(
-      mistral::agent::agent_system::instance().initialize(
-          "/nonexistent/path/mistral-cli.json", base_dir, notes_dir, nullptr),
-      std::runtime_error);
+    mistral::agent::agent_system::instance().initialize(
+      "/nonexistent/path/mistral-cli.json", base_dir, notes_dir, nullptr
+    ),
+    std::runtime_error
+  );
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: invalid JSON throws")
 {
   create_config_file(std::string("this is not valid json {"));
   CHECK_THROWS_AS(
-      mistral::agent::agent_system::instance().initialize(
-          config_file, base_dir, notes_dir, nullptr),
-      std::runtime_error);
+    mistral::agent::agent_system::instance().initialize(config_file, base_dir, notes_dir, nullptr), std::runtime_error
+  );
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
 {
   create_config_file(nlohmann::json({}));
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   CHECK(system.get_config().models.empty());
@@ -237,7 +225,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered
   using namespace mistral::agent;
 
   create_config_file(nlohmann::json({}));
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   auto& global_registry = system.global_tools();
@@ -253,37 +241,25 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple models and agents")
 {
   nlohmann::json config = {
-    {"models", {
-      {"mistral-small", {
-        {"provider", "mistral"},
-        {"model_id", "mistral-small-latest"}
-      }},
-      {"gpt-4o-mini", {
-        {"provider", "openai"},
+    {"models",
+     {{"mistral-small", {{"provider", "mistral"}, {"model_id", "mistral-small-latest"}}},
+      {"gpt-4o-mini",
+       {{"provider", "openai"},
         {"model_id", "gpt-4o-mini"},
         {"api_key_env", "OPENAI_API_KEY"},
-        {"base_url", "https://api.openai.com"}
-      }}
-    }},
-    {"agents", {
-      {"main", {
-        {"model", "mistral-small"},
-        {"tool_policy", "allow"}
-      }},
-      {"read_only", {
-        {"model", "gpt-4o-mini"},
+        {"base_url", "https://api.openai.com"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-small"}, {"tool_policy", "allow"}}},
+      {"read_only",
+       {{"model", "gpt-4o-mini"},
         {"system_prompt", "Read-only assistant"},
         {"tool_policy", "require_approval"},
-        {"available_tools", {"read", "note_read"}}
-      }}
-    }},
-    {"policy", {
-      {"default", "allow"}
-    }}
+        {"available_tools", {"read", "note_read"}}}}}},
+    {"policy", {{"default", "allow"}}}
   };
 
   create_config_file(config);
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   // Check multiple models
@@ -302,11 +278,11 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple model
   CHECK_FALSE(system.has_agent_config("nonexistent"));
 
   // Check agent configs
-  const auto &main_agent = system.get_agent_config("main");
+  const auto& main_agent = system.get_agent_config("main");
   CHECK(main_agent.model == "mistral-small");
   CHECK(main_agent.tool_policy == "allow");
 
-  const auto &ro_agent = system.get_agent_config("read_only");
+  const auto& ro_agent = system.get_agent_config("read_only");
   CHECK(ro_agent.model == "gpt-4o-mini");
   CHECK(ro_agent.system_prompt == "Read-only assistant");
   CHECK(ro_agent.tool_policy == "require_approval");
@@ -316,38 +292,19 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple model
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_schema_options: model default, agent override, explicit false")
 {
   nlohmann::json config = {
-    {"models", {
-      {"strict-model", {
-        {"provider", "mistral"},
-        {"model_id", "mistral-medium-latest"},
-        {"strict_mode", true}
-      }},
-      {"plain-model", {
-        {"provider", "mistral"},
-        {"model_id", "mistral-small-latest"}
-      }}
-    }},
-    {"agents", {
-      {"inherits", {
-        {"model", "strict-model"}
-      }},
-      {"explicit_on", {
-        {"model", "plain-model"},
-        {"strict_mode", true}
-      }},
-      {"explicit_off", {
-        {"model", "strict-model"},
-        {"strict_mode", false}
-      }},
-      {"plain", {
-        {"model", "plain-model"}
-      }}
-    }},
+    {"models",
+     {{"strict-model", {{"provider", "mistral"}, {"model_id", "mistral-medium-latest"}, {"strict_mode", true}}},
+      {"plain-model", {{"provider", "mistral"}, {"model_id", "mistral-small-latest"}}}}},
+    {"agents",
+     {{"inherits", {{"model", "strict-model"}}},
+      {"explicit_on", {{"model", "plain-model"}, {"strict_mode", true}}},
+      {"explicit_off", {{"model", "strict-model"}, {"strict_mode", false}}},
+      {"plain", {{"model", "plain-model"}}}}},
     {"policy", {{"default", "deny"}}}
   };
 
   create_config_file(config);
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   // Model default inherited
@@ -370,7 +327,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_schema_options: model de
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_agent_config: throws for missing agent")
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   CHECK_THROWS_AS(system.get_agent_config("nonexistent"), std::runtime_error);
@@ -379,7 +336,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_agent_config: throws for missing 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_model_config: throws for missing model")
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir, nullptr);
 
   CHECK_THROWS_AS(system.get_model_config("nonexistent"), std::runtime_error);
@@ -388,15 +345,14 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_model_config: throws for missing 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_policy: malformed policy file throws")
 {
   // Policy file with invalid JSON (missing comma after an entry).
-  const std::string policy_file =
-      (std::filesystem::path(temp_dir) / "policy.json").string();
+  const std::string policy_file = (std::filesystem::path(temp_dir) / "policy.json").string();
   {
     std::ofstream out(policy_file);
     out << "{\n  \"default\": \"deny\"\n  \"exec\": \"require_approval\"\n}\n";
   }
 
   initialize_agent_system_with_main_agent();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   mistral::agent::agent_config agent_cfg = system.get_agent_config("main");
   agent_cfg.tool_policy = "file://" + policy_file;
@@ -406,15 +362,14 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_policy: malformed policy
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_policy: valid policy file resolves")
 {
-  const std::string policy_file =
-      (std::filesystem::path(temp_dir) / "policy.json").string();
+  const std::string policy_file = (std::filesystem::path(temp_dir) / "policy.json").string();
   {
     std::ofstream out(policy_file);
     out << "{\"default\": \"deny\", \"exec\": \"require_approval\"}\n";
   }
 
   initialize_agent_system_with_main_agent();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   mistral::agent::agent_config agent_cfg = system.get_agent_config("main");
   agent_cfg.tool_policy = "file://" + policy_file;
@@ -435,20 +390,30 @@ TEST_SUITE_BEGIN("agent_system::tool_registry");
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected tools")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  const auto &tools = system.global_tools();
+  const auto& tools = system.global_tools();
   auto schema = tools.get_schema();
 
   // Check that all expected tools are registered
   std::vector<std::string> expected_tools = {
-      "ls", "read",
+    "ls",
+    "read",
 #ifdef MISTRAL_ENABLE_TREE_SITTER
-      "outline", "read_symbol", "find_symbol", "find_references", "ast_search",
+    "outline",
+    "read_symbol",
+    "find_symbol",
+    "find_references",
+    "ast_search",
 #endif
-      "note_list", "note_read", "note_write", "note_search", "ask_user"};
+    "note_list",
+    "note_read",
+    "note_write",
+    "note_search",
+    "ask_user"
+  };
 
-  for (const auto &tool_name : expected_tools)
+  for (const auto& tool_name : expected_tools)
   {
     CHECK(tools.has_tool(tool_name));
   }
@@ -460,9 +425,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: schema is valid JSON")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  const auto &tools = system.global_tools();
+  const auto& tools = system.global_tools();
   auto schema = tools.get_schema();
 
   // Should be a JSON array
@@ -470,12 +435,12 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: schema is valid JSON")
   CHECK(schema.size() > 0);
 
   // Each element should have the expected structure
-  for (const auto &tool_schema : schema)
+  for (const auto& tool_schema : schema)
   {
     CHECK(tool_schema.contains("type"));
     CHECK(tool_schema["type"] == "function");
     CHECK(tool_schema.contains("function"));
-    const auto &func = tool_schema["function"];
+    const auto& func = tool_schema["function"];
     CHECK(func.contains("name"));
     CHECK(func.contains("description"));
     CHECK(func.contains("parameters"));
@@ -485,7 +450,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: schema is valid JSON")
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: filters to allowed tools only")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   // Get a filtered registry
   std::vector<std::string> available_tools = {"ls", "read"};
@@ -508,7 +473,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: filters to allo
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: empty available_tools")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   std::vector<std::string> available_tools;
   auto filtered_registry = system.create_tool_registry(available_tools);
@@ -523,7 +488,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: empty available
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildcard")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   std::vector<std::string> available_tools = {"*"};
   auto filtered_registry = system.create_tool_registry(available_tools);
@@ -542,9 +507,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildc
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  const auto &global = system.global_tools();
+  const auto& global = system.global_tools();
 
   // Create a copy
   mistral::agent::tool_registry copy(global);
@@ -554,12 +519,21 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
 
   // Check that all tools are present
   std::vector<std::string> all_tools = {
-    "ls", "read",
+    "ls",
+    "read",
 #ifdef MISTRAL_ENABLE_TREE_SITTER
-    "outline", "read_symbol", "find_symbol", "find_references", "ast_search",
+    "outline",
+    "read_symbol",
+    "find_symbol",
+    "find_references",
+    "ast_search",
 #endif
-    "note_list", "note_read", "note_write", "note_search"};
-  for (const auto &tool_name : all_tools)
+    "note_list",
+    "note_read",
+    "note_write",
+    "note_search"
+  };
+  for (const auto& tool_name : all_tools)
   {
     CHECK(copy.has_tool(tool_name));
   }
@@ -568,9 +542,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy assignment works")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  const auto &global = system.global_tools();
+  const auto& global = system.global_tools();
 
   // Create a new registry and assign
   mistral::agent::tool_registry copy;
@@ -583,9 +557,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy assignment works"
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy contains all tools")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  const auto &global = system.global_tools();
+  const auto& global = system.global_tools();
 
   // Create a copy
   mistral::agent::tool_registry copy = global;
@@ -647,7 +621,10 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: no ask_user in
   CHECK(prompt == "You are a helpful assistant.");
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_system_prompt: ask_user intro on empty prompt has no leading blank lines")
+TEST_CASE_FIXTURE(
+  AgentSystemTestFixture,
+  "resolve_system_prompt: ask_user intro on empty prompt has no leading blank lines"
+)
 {
   initialize_agent_system_empty();
 
@@ -670,9 +647,9 @@ TEST_SUITE_BEGIN("agent_system::tool_instances");
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_system")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  auto &file_tools = system.file_tools();
+  auto& file_tools = system.file_tools();
   // Just check that we can access it without crashing
   CHECK(&file_tools != nullptr);
 }
@@ -680,9 +657,9 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_syst
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_system")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
-  auto &note_tools = system.note_tools();
+  auto& note_tools = system.note_tools();
   CHECK(&note_tools != nullptr);
 }
 
@@ -693,7 +670,7 @@ TEST_SUITE_BEGIN("agent_system::channels");
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch: returns null if not set")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   CHECK(system.request_ch() == nullptr);
 }
@@ -701,7 +678,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch: returns null if not set")
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "response_ch: returns null if not set")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   CHECK(system.response_ch() == nullptr);
 }
@@ -711,15 +688,20 @@ TEST_SUITE_END;
 TEST_SUITE_BEGIN("agent_system::slash_commands");
 
 // Helper struct for testing slash commands
-struct slash_command_executor : public dripcore::task {
+struct slash_command_executor : public dripcore::task
+{
   slash_command_executor(
-      mistral::slash_command::slash_command* cmd,
-      std::string args,
-      mistral::agent::agent_system& sys,
-      std::string& out_result)
-    : cmd_(cmd), args_(std::move(args)), sys_(sys), out_result_(out_result) {}
+    mistral::slash_command::slash_command* cmd,
+    std::string args,
+    mistral::agent::agent_system& sys,
+    std::string& out_result
+  )
+    : cmd_(cmd), args_(std::move(args)), sys_(sys), out_result_(out_result)
+  {
+  }
 
-  dripcore::awaitable<> body() override {
+  dripcore::awaitable<> body() override
+  {
     auto result = co_await cmd_->execute(*this, args_, sys_);
     out_result_ = result;
     co_return;
@@ -734,7 +716,7 @@ struct slash_command_executor : public dripcore::task {
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after initialization")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   auto registry = system.slash_commands();
   REQUIRE(registry != nullptr);
@@ -750,7 +732,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: registered after init
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   auto registry = system.slash_commands();
   const auto* help_cmd = registry->get_command("help");
@@ -759,11 +741,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
   std::string result;
 
   dripcore::scheduler sched;
-  sched.spawn<slash_command_executor>(
-      const_cast<mistral::slash_command::slash_command*>(help_cmd),
-      "",
-      system,
-      result);
+  sched.spawn<slash_command_executor>(const_cast<mistral::slash_command::slash_command*>(help_cmd), "", system, result);
   sched.run();
 
   CHECK(!result.empty());
@@ -774,7 +752,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: help command works")
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   auto registry = system.slash_commands();
   const auto* clear_cmd = registry->get_command("clear");
@@ -784,10 +762,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::slash_command::slash_command*>(clear_cmd),
-      "",
-      system,
-      result);
+    const_cast<mistral::slash_command::slash_command*>(clear_cmd), "", system, result
+  );
   sched.run();
 
   CHECK(!result.empty());
@@ -796,7 +772,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: clear command works")
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
 {
   initialize_agent_system_empty();
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
 
   auto registry = system.slash_commands();
   const auto* exit_cmd = registry->get_command("exit");
@@ -805,11 +781,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: exit command works")
   std::string result;
 
   dripcore::scheduler sched;
-  sched.spawn<slash_command_executor>(
-      const_cast<mistral::slash_command::slash_command*>(exit_cmd),
-      "",
-      system,
-      result);
+  sched.spawn<slash_command_executor>(const_cast<mistral::slash_command::slash_command*>(exit_cmd), "", system, result);
   sched.run();
 
   CHECK(result.empty());
@@ -819,7 +791,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
 {
   initialize_agent_system_with_main_agent();
 
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   auto registry = system.slash_commands();
   const auto* model_cmd = registry->get_command("model");
   REQUIRE(model_cmd != nullptr);
@@ -828,10 +800,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::slash_command::slash_command*>(model_cmd),
-      "",
-      system,
-      result);
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "", system, result
+  );
   sched.run();
 
   CHECK(!result.empty());
@@ -842,7 +812,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
 {
   initialize_agent_system_with_main_agent();
 
-  auto &system = mistral::agent::agent_system::instance();
+  auto& system = mistral::agent::agent_system::instance();
   auto registry = system.slash_commands();
   const auto* tools_cmd = registry->get_command("tools");
   REQUIRE(tools_cmd != nullptr);
@@ -851,10 +821,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
 
   dripcore::scheduler sched;
   sched.spawn<slash_command_executor>(
-      const_cast<mistral::slash_command::slash_command*>(tools_cmd),
-      "",
-      system,
-      result);
+    const_cast<mistral::slash_command::slash_command*>(tools_cmd), "", system, result
+  );
   sched.run();
 
   CHECK(!result.empty());
@@ -868,8 +836,8 @@ TEST_SUITE_BEGIN("agent_system::singleton");
 
 TEST_CASE("instance: returns same instance")
 {
-  auto &instance1 = mistral::agent::agent_system::instance();
-  auto &instance2 = mistral::agent::agent_system::instance();
+  auto& instance1 = mistral::agent::agent_system::instance();
+  auto& instance2 = mistral::agent::agent_system::instance();
 
   CHECK(&instance1 == &instance2);
 }
@@ -880,128 +848,128 @@ TEST_SUITE_BEGIN("agent_system_patchset_storage");
 
 TEST_CASE("patchset storage - store and retrieve single patchset")
 {
-    auto& agent_sys = mistral::agent::agent_system::instance();
+  auto& agent_sys = mistral::agent::agent_system::instance();
 
-    // Clear any existing patchset
-    agent_sys.remove_patchset("test-patchset");
-    CHECK(!agent_sys.has_patchset());
+  // Clear any existing patchset
+  agent_sys.remove_patchset("test-patchset");
+  CHECK(!agent_sys.has_patchset());
 
-    // Create test edits
-    std::vector<mistral::tools::file_edit_t> edits;
-    edits.push_back({.file_path = "src/main.cpp", .search_text = "old", .replace_text = "new", .patch_number = 1});
+  // Create test edits
+  std::vector<mistral::tools::file_edit_t> edits;
+  edits.push_back({.file_path = "src/main.cpp", .search_text = "old", .replace_text = "new", .patch_number = 1});
 
-    // Store patchset
-    agent_sys.store_patchset("test-patchset", edits);
+  // Store patchset
+  agent_sys.store_patchset("test-patchset", edits);
 
-    // Verify storage
-    CHECK(agent_sys.has_patchset());
-    auto current_id = agent_sys.get_current_patchset_id();
-    CHECK(current_id.has_value());
-    CHECK(*current_id == "test-patchset");
+  // Verify storage
+  CHECK(agent_sys.has_patchset());
+  auto current_id = agent_sys.get_current_patchset_id();
+  CHECK(current_id.has_value());
+  CHECK(*current_id == "test-patchset");
 
-    // Retrieve patchset
-    auto retrieved = agent_sys.get_patchset("test-patchset");
-    REQUIRE(retrieved.has_value());
-    CHECK(retrieved->patchset_id == "test-patchset");
-    CHECK(retrieved->edits.size() == 1);
-    CHECK(retrieved->edits[0].file_path == "src/main.cpp");
-    CHECK(retrieved->edits[0].patch_number == 1);
+  // Retrieve patchset
+  auto retrieved = agent_sys.get_patchset("test-patchset");
+  REQUIRE(retrieved.has_value());
+  CHECK(retrieved->patchset_id == "test-patchset");
+  CHECK(retrieved->edits.size() == 1);
+  CHECK(retrieved->edits[0].file_path == "src/main.cpp");
+  CHECK(retrieved->edits[0].patch_number == 1);
 
-    // Clean up
-    agent_sys.remove_patchset("test-patchset");
-    CHECK(!agent_sys.has_patchset());
+  // Clean up
+  agent_sys.remove_patchset("test-patchset");
+  CHECK(!agent_sys.has_patchset());
 }
 
 TEST_CASE("patchset storage - overwrite previous patchset")
 {
-    auto& agent_sys = mistral::agent::agent_system::instance();
+  auto& agent_sys = mistral::agent::agent_system::instance();
 
-    // Store first patchset
-    std::vector<mistral::tools::file_edit_t> edits1;
-    edits1.push_back({.file_path = "file1.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
-    agent_sys.store_patchset("patchset-1", edits1);
+  // Store first patchset
+  std::vector<mistral::tools::file_edit_t> edits1;
+  edits1.push_back({.file_path = "file1.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
+  agent_sys.store_patchset("patchset-1", edits1);
 
-    CHECK(agent_sys.get_current_patchset_id() == "patchset-1");
+  CHECK(agent_sys.get_current_patchset_id() == "patchset-1");
 
-    // Store second patchset - should overwrite
-    std::vector<mistral::tools::file_edit_t> edits2;
-    edits2.push_back({.file_path = "file2.cpp", .search_text = "x", .replace_text = "y", .patch_number = 1});
-    agent_sys.store_patchset("patchset-2", edits2);
+  // Store second patchset - should overwrite
+  std::vector<mistral::tools::file_edit_t> edits2;
+  edits2.push_back({.file_path = "file2.cpp", .search_text = "x", .replace_text = "y", .patch_number = 1});
+  agent_sys.store_patchset("patchset-2", edits2);
 
-    CHECK(agent_sys.get_current_patchset_id() == "patchset-2");
+  CHECK(agent_sys.get_current_patchset_id() == "patchset-2");
 
-    // First patchset should no longer be retrievable
-    auto old_patchset = agent_sys.get_patchset("patchset-1");
-    CHECK(!old_patchset.has_value());
+  // First patchset should no longer be retrievable
+  auto old_patchset = agent_sys.get_patchset("patchset-1");
+  CHECK(!old_patchset.has_value());
 
-    // Second patchset should be retrievable
-    auto new_patchset = agent_sys.get_patchset("patchset-2");
-    REQUIRE(new_patchset.has_value());
-    CHECK(new_patchset->edits[0].file_path == "file2.cpp");
+  // Second patchset should be retrievable
+  auto new_patchset = agent_sys.get_patchset("patchset-2");
+  REQUIRE(new_patchset.has_value());
+  CHECK(new_patchset->edits[0].file_path == "file2.cpp");
 
-    // Clean up
-    agent_sys.remove_patchset("patchset-2");
+  // Clean up
+  agent_sys.remove_patchset("patchset-2");
 }
 
 TEST_CASE("patchset storage - get_patchset returns nullopt for non-existent ID")
 {
-    auto& agent_sys = mistral::agent::agent_system::instance();
+  auto& agent_sys = mistral::agent::agent_system::instance();
 
-    // Clear any existing patchset
-    agent_sys.remove_patchset("existing-patchset");
+  // Clear any existing patchset
+  agent_sys.remove_patchset("existing-patchset");
 
-    // Try to get non-existent patchset
-    auto result = agent_sys.get_patchset("does-not-exist");
-    CHECK(!result.has_value());
+  // Try to get non-existent patchset
+  auto result = agent_sys.get_patchset("does-not-exist");
+  CHECK(!result.has_value());
 
-    // Store a patchset
-    std::vector<mistral::tools::file_edit_t> edits;
-    edits.push_back({.file_path = "test.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
-    agent_sys.store_patchset("existing-patchset", edits);
+  // Store a patchset
+  std::vector<mistral::tools::file_edit_t> edits;
+  edits.push_back({.file_path = "test.cpp", .search_text = "a", .replace_text = "b", .patch_number = 1});
+  agent_sys.store_patchset("existing-patchset", edits);
 
-    // Try to get different non-existent patchset
-    result = agent_sys.get_patchset("still-does-not-exist");
-    CHECK(!result.has_value());
+  // Try to get different non-existent patchset
+  result = agent_sys.get_patchset("still-does-not-exist");
+  CHECK(!result.has_value());
 
-    // Clean up
-    agent_sys.remove_patchset("existing-patchset");
+  // Clean up
+  agent_sys.remove_patchset("existing-patchset");
 }
 
 TEST_CASE("patchset storage - get_current_patchset_id returns nullopt when empty")
 {
-    auto& agent_sys = mistral::agent::agent_system::instance();
+  auto& agent_sys = mistral::agent::agent_system::instance();
 
-    // Clear any existing patchset
-    agent_sys.remove_patchset("clear-empty");
+  // Clear any existing patchset
+  agent_sys.remove_patchset("clear-empty");
 
-    auto id = agent_sys.get_current_patchset_id();
-    CHECK(!id.has_value());
+  auto id = agent_sys.get_current_patchset_id();
+  CHECK(!id.has_value());
 }
 
 TEST_CASE("patchset storage - multiple edits in patchset")
 {
-    auto& agent_sys = mistral::agent::agent_system::instance();
+  auto& agent_sys = mistral::agent::agent_system::instance();
 
-    // Clear any existing patchset
-    agent_sys.remove_patchset("multi-edit");
+  // Clear any existing patchset
+  agent_sys.remove_patchset("multi-edit");
 
-    // Create patchset with multiple edits
-    std::vector<mistral::tools::file_edit_t> edits;
-    edits.push_back({.file_path = "src/main.cpp", .search_text = "old1", .replace_text = "new1", .patch_number = 1});
-    edits.push_back({.file_path = "src/utils.cpp", .search_text = "old2", .replace_text = "new2", .patch_number = 2});
-    edits.push_back({.file_path = "lib/helper.hpp", .search_text = "old3", .replace_text = "new3", .patch_number = 3});
+  // Create patchset with multiple edits
+  std::vector<mistral::tools::file_edit_t> edits;
+  edits.push_back({.file_path = "src/main.cpp", .search_text = "old1", .replace_text = "new1", .patch_number = 1});
+  edits.push_back({.file_path = "src/utils.cpp", .search_text = "old2", .replace_text = "new2", .patch_number = 2});
+  edits.push_back({.file_path = "lib/helper.hpp", .search_text = "old3", .replace_text = "new3", .patch_number = 3});
 
-    agent_sys.store_patchset("multi-edit", edits);
+  agent_sys.store_patchset("multi-edit", edits);
 
-    auto retrieved = agent_sys.get_patchset("multi-edit");
-    REQUIRE(retrieved.has_value());
-    CHECK(retrieved->edits.size() == 3);
-    CHECK(retrieved->edits[0].patch_number == 1);
-    CHECK(retrieved->edits[1].patch_number == 2);
-    CHECK(retrieved->edits[2].patch_number == 3);
+  auto retrieved = agent_sys.get_patchset("multi-edit");
+  REQUIRE(retrieved.has_value());
+  CHECK(retrieved->edits.size() == 3);
+  CHECK(retrieved->edits[0].patch_number == 1);
+  CHECK(retrieved->edits[1].patch_number == 2);
+  CHECK(retrieved->edits[2].patch_number == 3);
 
-    // Clean up
-    agent_sys.remove_patchset("multi-edit");
+  // Clean up
+  agent_sys.remove_patchset("multi-edit");
 }
 
 TEST_SUITE_END();

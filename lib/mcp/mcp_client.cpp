@@ -31,7 +31,7 @@ namespace mistral::mcp
   } // namespace
 
   mcp_client::mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout)
-      : endpoint_url_(std::move(endpoint_url)), timeout_(request_timeout)
+    : endpoint_url_(std::move(endpoint_url)), timeout_(request_timeout)
   {
   }
 
@@ -245,21 +245,22 @@ namespace mistral::mcp
     {
       http::sse_parser parser;
       std::vector<json> messages;
-      parser.parse(
-        std::span<const std::byte>(response_body.data(), response_body.size()),
-        [&](http::sse_event evt) {
-          if (evt.data.empty()) {
-            return;
-          }
-          try {
-            messages.push_back(json::parse(evt.data));
-          }
-          catch (...) {
-            // Ignore malformed keep-alive events.
-          }
+      parser.parse(std::span<const std::byte>(response_body.data(), response_body.size()), [&](http::sse_event evt) {
+        if (evt.data.empty())
+        {
+          return;
         }
-      );
-      for (auto& m : messages) {
+        try
+        {
+          messages.push_back(json::parse(evt.data));
+        }
+        catch (...)
+        {
+          // Ignore malformed keep-alive events.
+        }
+      });
+      for (auto& m : messages)
+      {
         if (m.contains("id") && m["id"] == expect_id) {
           co_return m;
         }

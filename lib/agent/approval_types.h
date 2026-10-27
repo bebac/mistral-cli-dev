@@ -3,8 +3,8 @@
 
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <string>
 #include <regex>
+#include <string>
 
 namespace mistral::agent
 {
@@ -12,7 +12,13 @@ namespace mistral::agent
 
   // ---- Approval Action Types ----
 
-  enum class approval_action { APPROVE, REJECT, REJECT_WITH_MESSAGE, APPROVE_ALL };
+  enum class approval_action
+  {
+    APPROVE,
+    REJECT,
+    REJECT_WITH_MESSAGE,
+    APPROVE_ALL
+  };
 
   // ---- Approval Request ----
 
@@ -37,8 +43,8 @@ namespace mistral::agent
   struct session_approval
   {
     std::string tool_name;
-    json argument_pattern;  // JSON object describing the pattern that was approved
-    std::regex path_regex;   // Compiled regex for path matching (if applicable)
+    json argument_pattern; // JSON object describing the pattern that was approved
+    std::regex path_regex; // Compiled regex for path matching (if applicable)
   };
 
 } // namespace mistral::agent

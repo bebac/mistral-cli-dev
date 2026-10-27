@@ -28,18 +28,29 @@ namespace mistral::tmpl
     template_engine() = default;
 
     // Set the base directory for {{> path}} includes.
-    void set_include_base(const std::filesystem::path& base_dir) { include_base_ = base_dir; }
+    void set_include_base(const std::filesystem::path& base_dir)
+    {
+      include_base_ = base_dir;
+    }
 
     // Set a single variable.
-    void set_variable(const std::string& name, const std::string& value) { variables_[name] = value; }
+    void set_variable(const std::string& name, const std::string& value)
+    {
+      variables_[name] = value;
+    }
 
     // Set multiple variables at once.
-    void set_variables(const std::map<std::string, std::string>& vars) {
-      for (const auto& [k, v] : vars) variables_[k] = v;
+    void set_variables(const std::map<std::string, std::string>& vars)
+    {
+      for (const auto& [k, v] : vars)
+        variables_[k] = v;
     }
 
     // Enable/disable shell command expansion (enabled by default).
-    void enable_command_expansion(bool enable) { command_expansion_ = enable; }
+    void enable_command_expansion(bool enable)
+    {
+      command_expansion_ = enable;
+    }
 
     // Process a template string. Returns the expanded result.
     std::string process(const std::string& input) const;
@@ -53,8 +64,11 @@ namespace mistral::tmpl
 
     std::string expand_variable(const std::string& name) const;
     std::string expand_command(const std::string& command) const;
-    std::string expand_include(const std::string& path, std::set<std::string>& include_stack,
-                               bool optional = false) const;
+    std::string expand_include(
+      const std::string& path,
+      std::set<std::string>& include_stack,
+      bool optional = false
+    ) const;
 
     // Check if a variable is set to a truthy value.
     bool is_truthy(const std::string& name) const;

@@ -1,6 +1,6 @@
-#include "doctest/doctest.h"
 #include "agent/workspace_bootstrap.h"
 #include "common/embedded_resources.h"
+#include "doctest/doctest.h"
 
 #include <nlohmann/json.hpp>
 
@@ -20,50 +20,59 @@ namespace
   {
     fs::path path;
 
-    temp_workspace() {
+    temp_workspace()
+    {
       path = fs::temp_directory_path() / "mistral_bootstrap_test";
       fs::remove_all(path);
       fs::create_directories(path);
     }
 
-    ~temp_workspace() {
+    ~temp_workspace()
+    {
       fs::remove_all(path);
     }
 
-    void write(const std::string& name, const std::string& content) {
+    void write(const std::string& name, const std::string& content)
+    {
       std::ofstream f(path / name, std::ios::binary | std::ios::trunc);
       f << content;
     }
 
-    std::string read(const std::string& name) {
+    std::string read(const std::string& name)
+    {
       std::ifstream f(path / name, std::ios::binary);
-      return std::string(std::istreambuf_iterator<char>(f),
-                         std::istreambuf_iterator<char>());
+      return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
     }
 
-    json manifest() {
+    json manifest()
+    {
       std::ifstream f(path / "bootstrap.json");
       json m;
       f >> m;
       return m;
     }
 
-    void set_manifest(const json& m) {
+    void set_manifest(const json& m)
+    {
       write("bootstrap.json", m.dump(2));
     }
   };
 
-  bool contains(const std::vector<std::string>& v, const std::string& needle) {
-    for (const auto& s : v) {
-      if (s.find(needle) != std::string::npos) return true;
+  bool contains(const std::vector<std::string>& v, const std::string& needle)
+  {
+    for (const auto& s : v)
+    {
+      if (s.find(needle) != std::string::npos)
+        return true;
     }
     return false;
   }
 
-  std::string str(std::string_view sv) {
+  std::string str(std::string_view sv)
+  {
     return std::string(sv);
   }
-}
+} // namespace
 
 TEST_CASE("fnv1a_64_hex: known vectors")
 {
@@ -90,22 +99,18 @@ TEST_CASE("bootstrap: seeds all files into an empty workspace")
   CHECK(ws.read("mistral-cli.json") == str(mistral::embedded::config_json()));
   CHECK(ws.read("policy.json") == str(mistral::embedded::policy_json()));
   CHECK(ws.read("sys_prompt.md") == str(mistral::embedded::sys_prompt()));
-  CHECK(ws.read("sys_prompt_researcher.md") ==
-        str(mistral::embedded::sys_prompt_researcher()));
-  CHECK(ws.read("sys_prompt_xerj.md") ==
-        str(mistral::embedded::sys_prompt_xerj()));
-  CHECK(ws.read("sys_storybook_notes.md") ==
-        str(mistral::embedded::sys_storybook_notes()));
-  CHECK(ws.read("sys_patchset_instructions.md") ==
-        str(mistral::embedded::sys_patchset_instructions()));
+  CHECK(ws.read("sys_prompt_researcher.md") == str(mistral::embedded::sys_prompt_researcher()));
+  CHECK(ws.read("sys_prompt_xerj.md") == str(mistral::embedded::sys_prompt_xerj()));
+  CHECK(ws.read("sys_storybook_notes.md") == str(mistral::embedded::sys_storybook_notes()));
+  CHECK(ws.read("sys_patchset_instructions.md") == str(mistral::embedded::sys_patchset_instructions()));
 
   // Manifest records the managed file.
   const json m = ws.manifest();
   REQUIRE(m.contains("patchset_instructions"));
-  CHECK(m["patchset_instructions"]["version"] ==
-        mistral::embedded::patchset_instructions_version);
-  CHECK(m["patchset_instructions"]["hash"] ==
-        mistral::agent::fnv1a_64_hex(mistral::embedded::sys_patchset_instructions()));
+  CHECK(m["patchset_instructions"]["version"] == mistral::embedded::patchset_instructions_version);
+  CHECK(
+    m["patchset_instructions"]["hash"] == mistral::agent::fnv1a_64_hex(mistral::embedded::sys_patchset_instructions())
+  );
 }
 
 TEST_CASE("bootstrap: never overwrites seeded files")
@@ -139,12 +144,9 @@ TEST_CASE("bootstrap: updates unmodified stock managed file on version bump")
 
   auto res = mistral::agent::bootstrap_workspace(ws.path);
   REQUIRE(res.updated.size() == 1);
-  CHECK(contains(res.updated, "v0 -> v" +
-              std::to_string(mistral::embedded::patchset_instructions_version)));
-  CHECK(ws.manifest()["patchset_instructions"]["version"] ==
-        mistral::embedded::patchset_instructions_version);
-  CHECK(ws.read("sys_patchset_instructions.md") ==
-        str(mistral::embedded::sys_patchset_instructions()));
+  CHECK(contains(res.updated, "v0 -> v" + std::to_string(mistral::embedded::patchset_instructions_version)));
+  CHECK(ws.manifest()["patchset_instructions"]["version"] == mistral::embedded::patchset_instructions_version);
+  CHECK(ws.read("sys_patchset_instructions.md") == str(mistral::embedded::sys_patchset_instructions()));
 }
 
 TEST_CASE("bootstrap: no-op when managed file is current")
@@ -187,10 +189,11 @@ TEST_CASE("bootstrap: force_update overwrites a locally modified file")
 
   REQUIRE(res.updated.size() == 1);
   CHECK(contains(res.updated, "forced update"));
-  CHECK(ws.read("sys_patchset_instructions.md") ==
-        str(mistral::embedded::sys_patchset_instructions()));
-  CHECK(ws.manifest()["patchset_instructions"]["hash"] ==
-        mistral::agent::fnv1a_64_hex(mistral::embedded::sys_patchset_instructions()));
+  CHECK(ws.read("sys_patchset_instructions.md") == str(mistral::embedded::sys_patchset_instructions()));
+  CHECK(
+    ws.manifest()["patchset_instructions"]["hash"] ==
+    mistral::agent::fnv1a_64_hex(mistral::embedded::sys_patchset_instructions())
+  );
 }
 
 TEST_CASE("bootstrap: warns about untracked managed file")

@@ -1,5 +1,5 @@
-#include <doctest/doctest.h>
 #include "common/string_utils.h"
+#include <doctest/doctest.h>
 
 #include <string>
 #include <vector>
@@ -73,7 +73,6 @@ TEST_CASE("to_lower handles empty and special characters")
   CHECK(to_lower("!@#$%") == "!@#$%");
   CHECK(to_lower("Hello!@#") == "hello!@#");
 }
-
 
 // ---- split tests ----
 

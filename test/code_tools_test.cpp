@@ -20,8 +20,9 @@ namespace mistral::tools
     class outline_task : public dripcore::task
     {
     public:
-      outline_task(code_tools& tools, std::string path, json& out)
-        : tools_(tools), path_(std::move(path)), out_(out) {}
+      outline_task(code_tools& tools, std::string path, json& out) : tools_(tools), path_(std::move(path)), out_(out)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -39,7 +40,9 @@ namespace mistral::tools
     {
     public:
       read_symbol_task(code_tools& tools, std::string path, std::string name, json& out)
-        : tools_(tools), path_(std::move(path)), name_(std::move(name)), out_(out) {}
+        : tools_(tools), path_(std::move(path)), name_(std::move(name)), out_(out)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -74,11 +77,14 @@ namespace mistral::tools
 
     const json* find_symbol(const json& result, const std::string& name)
     {
-      if (!result.contains("symbols")) {
+      if (!result.contains("symbols"))
+      {
         return nullptr;
       }
-      for (const auto& symbol : result["symbols"]) {
-        if (symbol["name"] == name) {
+      for (const auto& symbol : result["symbols"])
+      {
+        if (symbol["name"] == name)
+        {
           return &symbol;
         }
       }
@@ -90,18 +96,16 @@ namespace mistral::tools
     {
       fs::path path;
 
-      sample_file()
-        : path(fs::temp_directory_path() / "mistral_code_tools_test.cpp")
+      sample_file() : path(fs::temp_directory_path() / "mistral_code_tools_test.cpp")
       {
         std::ofstream out(path);
-        out <<
-          "class tool_registry {\n"                     // line 1
-          "public:\n"                                   // line 2
-          "  void register_tool(const char* name);\n"   // line 3
-          "};\n"                                        // line 4
-          "typedef int handle;\n"                       // line 5
-          "enum class color { red };\n"                 // line 6
-          "int main() { return 0; }\n";                 // line 7
+        out << "class tool_registry {\n"                   // line 1
+               "public:\n"                                 // line 2
+               "  void register_tool(const char* name);\n" // line 3
+               "};\n"                                      // line 4
+               "typedef int handle;\n"                     // line 5
+               "enum class color { red };\n"               // line 6
+               "int main() { return 0; }\n";               // line 7
       }
 
       ~sample_file()
@@ -116,8 +120,7 @@ namespace mistral::tools
     {
       fs::path root;
 
-      sample_project()
-        : root(fs::temp_directory_path() / "mistral_code_index_test")
+      sample_project() : root(fs::temp_directory_path() / "mistral_code_index_test")
       {
         std::error_code ec;
         fs::remove_all(root, ec);
@@ -153,32 +156,30 @@ namespace mistral::tools
     {
       fs::path root;
 
-      qualified_sample()
-        : root(fs::temp_directory_path() / "mistral_code_qualified_test")
+      qualified_sample() : root(fs::temp_directory_path() / "mistral_code_qualified_test")
       {
         std::error_code ec;
         fs::remove_all(root, ec);
         fs::create_directories(root);
         {
           std::ofstream out(root / "q.cpp");
-          out <<
-            "namespace demo {\n"                    // line 1
-            "class widget {\n"                      // line 2
-            "public:\n"                             // line 3
-            "  void draw();\n"                      // line 4
-            "  int area() { return 4; }\n"           // line 5
-            "};\n"                                  // line 6
-            "class gadget {\n"                       // line 7
-            "public:\n"                             // line 8
-            "  void draw() { }\n"                   // line 9
-            "};\n"                                  // line 10
-            "void widget::draw() { }\n"             // line 11
-            "}\n"                                   // line 12
-            "int use() {\n"                         // line 13
-            "  demo::widget w;\n"                   // line 14
-            "  w.draw();\n"                         // line 15
-            "  return 0;\n"                          // line 16
-            "}\n";                                   // line 17
+          out << "namespace demo {\n"           // line 1
+                 "class widget {\n"             // line 2
+                 "public:\n"                    // line 3
+                 "  void draw();\n"             // line 4
+                 "  int area() { return 4; }\n" // line 5
+                 "};\n"                         // line 6
+                 "class gadget {\n"             // line 7
+                 "public:\n"                    // line 8
+                 "  void draw() { }\n"          // line 9
+                 "};\n"                         // line 10
+                 "void widget::draw() { }\n"    // line 11
+                 "}\n"                          // line 12
+                 "int use() {\n"                // line 13
+                 "  demo::widget w;\n"          // line 14
+                 "  w.draw();\n"                // line 15
+                 "  return 0;\n"                // line 16
+                 "}\n";                         // line 17
         }
       }
 
@@ -193,7 +194,9 @@ namespace mistral::tools
     {
     public:
       find_symbol_task(code_tools& tools, std::string name, std::string path, json& out)
-        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out) {}
+        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -212,7 +215,9 @@ namespace mistral::tools
     {
     public:
       find_references_task(code_tools& tools, std::string name, std::string path, json& out)
-        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out) {}
+        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -249,7 +254,9 @@ namespace mistral::tools
     {
     public:
       ast_search_task(code_tools& tools, std::string query, std::string path, json& out)
-        : tools_(tools), query_(std::move(query)), path_(std::move(path)), out_(out) {}
+        : tools_(tools), query_(std::move(query)), path_(std::move(path)), out_(out)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -272,8 +279,8 @@ namespace mistral::tools
       scheduler.run();
       return result;
     }
-  }
-}
+  } // namespace
+} // namespace mistral::tools
 
 TEST_CASE("code_tools: outline lists symbols with kind and line ranges")
 {
@@ -315,27 +322,25 @@ TEST_CASE("code_tools: read_symbol extracts exact definition source")
   mistral::tools::code_tools tools;
   mistral::tools::sample_file sample;
 
-  auto result = mistral::tools::run_read_symbol(
-    tools, sample.path.string(), "main");
+  auto result = mistral::tools::run_read_symbol(tools, sample.path.string(), "main");
   REQUIRE(result.contains("definitions"));
   CHECK(result["count"].get<int>() == 1);
   CHECK(result["definitions"][0]["kind"] == "function");
   CHECK(result["definitions"][0]["content"] == "int main() { return 0; }");
 
-  result = mistral::tools::run_read_symbol(
-    tools, sample.path.string(), "register_tool");
+  result = mistral::tools::run_read_symbol(tools, sample.path.string(), "register_tool");
   REQUIRE(result.contains("definitions"));
   CHECK(result["definitions"][0]["content"] == "void register_tool(const char* name);");
 
-  result = mistral::tools::run_read_symbol(
-    tools, sample.path.string(), "tool_registry");
+  result = mistral::tools::run_read_symbol(tools, sample.path.string(), "tool_registry");
   REQUIRE(result.contains("definitions"));
   // The class_specifier extent excludes the trailing semicolon.
-  CHECK(result["definitions"][0]["content"] ==
-    "class tool_registry {\n"
-    "public:\n"
-    "  void register_tool(const char* name);\n"
-    "}");
+  CHECK(
+    result["definitions"][0]["content"] == "class tool_registry {\n"
+                                           "public:\n"
+                                           "  void register_tool(const char* name);\n"
+                                           "}"
+  );
   CHECK(result["definitions"][0]["line_start"].get<int>() == 1);
   CHECK(result["definitions"][0]["line_end"].get<int>() == 4);
 }
@@ -348,8 +353,7 @@ TEST_CASE("code_tools: error handling")
   CHECK(result.contains("error"));
 
   mistral::tools::sample_file sample;
-  result = mistral::tools::run_read_symbol(
-    tools, sample.path.string(), "no_such_symbol");
+  result = mistral::tools::run_read_symbol(tools, sample.path.string(), "no_such_symbol");
   CHECK(result.contains("error"));
 
   const fs::path not_code = fs::temp_directory_path() / "mistral_code_tools_test.txt";
@@ -375,8 +379,7 @@ TEST_CASE("code_tools: find_symbol locates definitions across files")
   CHECK(result["matches"][0]["name"] == "alpha");
   CHECK(result["matches"][0]["kind"] == "function");
   CHECK(result["matches"][0]["line_start"].get<int>() == 1);
-  const auto expected_a =
-    fs::relative(project.root / "a.cpp", fs::current_path()).string();
+  const auto expected_a = fs::relative(project.root / "a.cpp", fs::current_path()).string();
   CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
 
   // Substring fallback when no exact match exists.
@@ -437,10 +440,8 @@ TEST_CASE("code_tools: find_references finds usage sites, not definitions")
   REQUIRE(result.contains("matches"));
   REQUIRE(result["count"].get<int>() == 1);
   CHECK(result["matches"][0]["line"].get<int>() == 2);
-  CHECK(result["matches"][0]["text"].get<std::string>() ==
-    "int caller() { return alpha(); }");
-  const auto expected_a =
-    fs::relative(project.root / "a.cpp", fs::current_path()).string();
+  CHECK(result["matches"][0]["text"].get<std::string>() == "int caller() { return alpha(); }");
+  const auto expected_a = fs::relative(project.root / "a.cpp", fs::current_path()).string();
   CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
 }
 
@@ -460,7 +461,8 @@ TEST_CASE("code_tools: qualified names select a specific method")
   result = mistral::tools::run_read_symbol(tools, file, "widget::draw");
   REQUIRE(result.contains("definitions"));
   CHECK(result["count"].get<int>() == 2);
-  for (const auto& definition : result["definitions"]) {
+  for (const auto& definition : result["definitions"])
+  {
     CHECK(definition["scope"] == "demo::widget");
     CHECK(definition["kind"] == "method");
   }
@@ -493,26 +495,23 @@ TEST_CASE("code_tools: find_symbol honors qualified names")
   mistral::tools::code_tools tools;
   mistral::tools::qualified_sample sample;
 
-  auto result = mistral::tools::run_find_symbol(
-    tools, "widget::draw", sample.root.string());
+  auto result = mistral::tools::run_find_symbol(tools, "widget::draw", sample.root.string());
   REQUIRE(result.contains("matches"));
   CHECK(result["match"] == "exact");
   REQUIRE(result["count"].get<int>() == 2);
-  for (const auto& match : result["matches"]) {
+  for (const auto& match : result["matches"])
+  {
     CHECK(match["scope"] == "demo::widget");
   }
 
-  result = mistral::tools::run_find_symbol(
-    tools, "demo::widget::draw", sample.root.string());
+  result = mistral::tools::run_find_symbol(tools, "demo::widget::draw", sample.root.string());
   REQUIRE(result["count"].get<int>() == 2);
 
-  result = mistral::tools::run_find_symbol(
-    tools, "gadget::draw", sample.root.string());
+  result = mistral::tools::run_find_symbol(tools, "gadget::draw", sample.root.string());
   REQUIRE(result["count"].get<int>() == 1);
 
   // Unknown scope falls back to substring matching on the bare name.
-  result = mistral::tools::run_find_symbol(
-    tools, "nosuch::draw", sample.root.string());
+  result = mistral::tools::run_find_symbol(tools, "nosuch::draw", sample.root.string());
   CHECK(result["match"] == "substring");
   CHECK(result["count"].get<int>() == 3);
 }
@@ -522,8 +521,7 @@ TEST_CASE("code_tools: find_references searches qualified names by bare name")
   mistral::tools::code_tools tools;
   mistral::tools::qualified_sample sample;
 
-  auto result = mistral::tools::run_find_references(
-    tools, "widget::draw", sample.root.string());
+  auto result = mistral::tools::run_find_references(tools, "widget::draw", sample.root.string());
 
   REQUIRE(result.contains("matches"));
   REQUIRE(result["count"].get<int>() == 1);
@@ -575,8 +573,7 @@ TEST_CASE("code_tools: ast_search directory results are capped at max_results")
   mistral::tools::sample_project project;
 
   // a.cpp defines alpha and caller (two function_definitions).
-  auto result = mistral::tools::run_ast_search(
-    tools, "(function_definition) @fn", project.root.string());
+  auto result = mistral::tools::run_ast_search(tools, "(function_definition) @fn", project.root.string());
 
   REQUIRE(result.contains("matches"));
   CHECK(result["count"].get<int>() == 1);
@@ -588,16 +585,14 @@ TEST_CASE("code_tools: ast_search runs tree-sitter queries")
   mistral::tools::code_tools tools;
   mistral::tools::sample_file sample;
 
-  auto result = mistral::tools::run_ast_search(
-    tools, "(function_definition) @fn", sample.path.string());
+  auto result = mistral::tools::run_ast_search(tools, "(function_definition) @fn", sample.path.string());
 
   REQUIRE(result.contains("matches"));
   REQUIRE(result["count"].get<int>() == 1);
   REQUIRE(result["matches"][0]["captures"].size() == 1);
   CHECK(result["matches"][0]["captures"][0]["name"] == "fn");
   CHECK(result["matches"][0]["captures"][0]["line"].get<int>() == 7);
-  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() ==
-    "int main() { return 0; }");
+  CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "int main() { return 0; }");
   CHECK(result["matches"][0]["line_start"].get<int>() == 7);
   CHECK(result["matches"][0]["line_end"].get<int>() == 7);
 }
@@ -609,9 +604,8 @@ TEST_CASE("code_tools: ast_search evaluates predicates")
 
   // Directory search with an #eq? predicate.
   auto result = mistral::tools::run_ast_search(
-    tools,
-    "((call_expression function: (identifier) @fn) (#eq? @fn \"alpha\"))",
-    project.root.string());
+    tools, "((call_expression function: (identifier) @fn) (#eq? @fn \"alpha\"))", project.root.string()
+  );
 
   REQUIRE(result.contains("matches"));
   REQUIRE(result["count"].get<int>() == 1);
@@ -623,7 +617,8 @@ TEST_CASE("code_tools: ast_search evaluates predicates")
     tools,
     "((function_definition declarator: (function_declarator declarator: (identifier) @n)) "
     "(#match? @n \"^al\"))",
-    project.root.string());
+    project.root.string()
+  );
 
   REQUIRE(result["count"].get<int>() == 1);
   CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "alpha");
@@ -633,7 +628,8 @@ TEST_CASE("code_tools: ast_search evaluates predicates")
     tools,
     "((function_definition declarator: (function_declarator declarator: (identifier) @n)) "
     "(#not-eq? @n \"alpha\"))",
-    project.root.string());
+    project.root.string()
+  );
 
   REQUIRE(result["count"].get<int>() == 1);
   CHECK(result["matches"][0]["captures"][0]["text"].get<std::string>() == "caller");
@@ -645,20 +641,17 @@ TEST_CASE("code_tools: ast_search reports query errors")
   mistral::tools::sample_file sample;
 
   // Unknown node type.
-  auto result = mistral::tools::run_ast_search(
-    tools, "(nonexistent_node) @x", sample.path.string());
+  auto result = mistral::tools::run_ast_search(tools, "(nonexistent_node) @x", sample.path.string());
   CHECK(result.contains("error"));
   CHECK(result["error"].get<std::string>().find("unknown node type") != std::string::npos);
 
   // Unsupported predicate.
-  result = mistral::tools::run_ast_search(
-    tools, "((identifier) @x (#foo? @x))", sample.path.string());
+  result = mistral::tools::run_ast_search(tools, "((identifier) @x (#foo? @x))", sample.path.string());
   CHECK(result.contains("error"));
   CHECK(result["error"].get<std::string>().find("unsupported predicate") != std::string::npos);
 
   // Query without captures.
-  result = mistral::tools::run_ast_search(
-    tools, "(function_definition)", sample.path.string());
+  result = mistral::tools::run_ast_search(tools, "(function_definition)", sample.path.string());
   CHECK(result.contains("error"));
   CHECK(result["error"].get<std::string>().find("capture") != std::string::npos);
 

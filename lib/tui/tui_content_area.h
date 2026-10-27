@@ -1,8 +1,8 @@
 #ifndef MISTRAL_TUI_CONTENT_AREA_H
 #define MISTRAL_TUI_CONTENT_AREA_H
 
-#include "tui/tui_types.h"
 #include "tui/tui_content_log.h"
+#include "tui/tui_types.h"
 
 #include <cpptui.hpp>
 
@@ -30,7 +30,8 @@ namespace mistral::tui
     void layout() override
     {
       cpptui::ScrollableVertical::layout();
-      if (on_layout) on_layout();
+      if (on_layout)
+        on_layout();
     }
   };
 
@@ -68,7 +69,8 @@ namespace mistral::tui
         "mistral-tui prototype\n"
         "Type your message. Alt+Enter or double-Enter to send. "
         "ESC to cancel. Ctrl+C to quit.",
-        content_type::normal);
+        content_type::normal
+      );
       content_->flush();
 
       auto scroll = std::make_shared<resize_aware_scroll>();
@@ -103,31 +105,37 @@ namespace mistral::tui
 
       // For complete-message types, strip leading and trailing
       // newlines — these are inter-block spacing.
-      if (type == content_type::user || type == content_type::error ||
-          type == content_type::warning || type == content_type::system) {
+      if (
+        type == content_type::user || type == content_type::error || type == content_type::warning ||
+        type == content_type::system
+      )
+      {
         // Strip leading newlines
         size_t start = 0;
-        while (start < text.size() && text[start] == '\n') ++start;
-        if (start > 0) text = text.substr(start);
+        while (start < text.size() && text[start] == '\n')
+          ++start;
+        if (start > 0)
+          text = text.substr(start);
         // Strip trailing newlines
         size_t end = text.size();
-        while (end > 0 &&
-               (text[end - 1] == '\n' || text[end - 1] == '\r')) {
+        while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r'))
+        {
           --end;
         }
-        if (end < text.size()) text = text.substr(0, end);
+        if (end < text.size())
+          text = text.substr(0, end);
       }
 
       // Skip empty fragments.
-      if (text.empty()) return;
+      if (text.empty())
+        return;
 
       // Complete-message types (user, error, warning, system) are
       // always separate blocks — pass force_new so ContentLog doesn't
       // merge them with the previous block of the same kind.
-      bool force_new = (type == content_type::user ||
-                        type == content_type::error ||
-                        type == content_type::warning ||
-                        type == content_type::system);
+      bool force_new =
+        (type == content_type::user || type == content_type::error || type == content_type::warning ||
+         type == content_type::system);
       content_->append_fragment(text, type, force_new);
     }
 
@@ -144,11 +152,15 @@ namespace mistral::tui
       content_->flush();
       last_flushed_width_ = content_->width;
 
-      if (was_at_bottom) {
+      if (was_at_bottom)
+      {
         int max_scroll = content_->total_lines() - visible_h;
-        if (max_scroll < 0) max_scroll = 0;
+        if (max_scroll < 0)
+          max_scroll = 0;
         scroll_->scroll_offset = max_scroll;
-      } else {
+      }
+      else
+      {
         // Re-wrapping changes the line count; keep the scroll offset
         // within the new content range.
         clamp_scroll();
@@ -172,7 +184,10 @@ namespace mistral::tui
     }
 
     // Returns true if the last flush() found the user at the bottom.
-    bool was_at_bottom() const { return at_bottom_; }
+    bool was_at_bottom() const
+    {
+      return at_bottom_;
+    }
 
     // Sets scroll to the maximum offset (bottom of content) and marks
     // the view as at-bottom so subsequent flush() calls keep following
@@ -219,9 +234,11 @@ namespace mistral::tui
 
     void clamp_scroll()
     {
-      if (scroll_->scroll_offset < 0) scroll_->scroll_offset = 0;
+      if (scroll_->scroll_offset < 0)
+        scroll_->scroll_offset = 0;
       int ms = max_scroll_offset();
-      if (scroll_->scroll_offset > ms) scroll_->scroll_offset = ms;
+      if (scroll_->scroll_offset > ms)
+        scroll_->scroll_offset = ms;
     }
 
     // Detects terminal width changes and re-wraps the content.
@@ -233,8 +250,10 @@ namespace mistral::tui
     // last flush() and re-wraps all blocks when they differ.
     void check_resize()
     {
-      if (!content_) return;
-      if (content_->width != last_flushed_width_) {
+      if (!content_)
+        return;
+      if (content_->width != last_flushed_width_)
+      {
         flush();
       }
     }

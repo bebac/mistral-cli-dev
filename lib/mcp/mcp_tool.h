@@ -1,8 +1,8 @@
 #ifndef MISTRAL_MCP_TOOL_H
 #define MISTRAL_MCP_TOOL_H
 
-#include "mcp/mcp_client_interface.h"
 #include "agent/tool_registry.h"
+#include "mcp/mcp_client_interface.h"
 
 namespace mistral::mcp
 {
@@ -16,12 +16,9 @@ namespace mistral::mcp
   class mcp_tool : public agent::tool_interface
   {
   public:
-    mcp_tool(std::shared_ptr<mcp_client_interface> client, std::string name,
-            std::string description, json input_schema)
-      : client_(std::move(client))
-      , name_(std::move(name))
-      , description_(std::move(description))
-      , input_schema_(std::move(input_schema))
+    mcp_tool(std::shared_ptr<mcp_client_interface> client, std::string name, std::string description, json input_schema)
+      : client_(std::move(client)), name_(std::move(name)), description_(std::move(description)),
+        input_schema_(std::move(input_schema))
     {
     }
 
@@ -41,19 +38,14 @@ namespace mistral::mcp
       json function = {
         {"name", tool_name},
         {"description", description_},
-        {"parameters", input_schema_.is_object()
-          ? input_schema_ : json::object()}
+        {"parameters", input_schema_.is_object() ? input_schema_ : json::object()}
       };
-      return {
-        {"type", "function"},
-        {"function", function}
-      };
+      return {{"type", "function"}, {"function", function}};
     }
 
     std::shared_ptr<agent::tool_interface> clone() const override
     {
-      return std::make_shared<mcp_tool>(
-        client_, name_, description_, input_schema_);
+      return std::make_shared<mcp_tool>(client_, name_, description_, input_schema_);
     }
 
   private:

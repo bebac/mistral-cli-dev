@@ -23,13 +23,16 @@ namespace mistral::agent
     // new line.
     size_t line_count(std::string_view text)
     {
-      if (text.empty()) return 0;
+      if (text.empty())
+        return 0;
       size_t count = 1;
       for (char c : text)
       {
-        if (c == '\n') ++count;
+        if (c == '\n')
+          ++count;
       }
-      if (text.back() == '\n') --count;
+      if (text.back() == '\n')
+        --count;
       return count;
     }
 
@@ -63,8 +66,8 @@ namespace mistral::agent
       else
       {
         const auto& edits = patchset->edits;
-        oss << "  patchset: " << patchset_id << " ("
-            << edits.size() << (edits.size() == 1 ? " edit" : " edits") << ")\n";
+        oss << "  patchset: " << patchset_id << " (" << edits.size() << (edits.size() == 1 ? " edit" : " edits")
+            << ")\n";
 
         size_t shown = std::min(edits.size(), max_shown_edits);
         for (size_t i = 0; i < shown; ++i)
@@ -86,13 +89,11 @@ namespace mistral::agent
           {
             status = 'D'; // delete matched text
           }
-          oss << "    " << edit.patch_number << ". " << status << ' '
-              << edit.file_path << suffix << "\n";
+          oss << "    " << edit.patch_number << ". " << status << ' ' << edit.file_path << suffix << "\n";
         }
         if (edits.size() > max_shown_edits)
         {
-          oss << "    ... and " << (edits.size() - max_shown_edits)
-              << " more edits\n";
+          oss << "    ... and " << (edits.size() - max_shown_edits) << " more edits\n";
         }
       }
 
@@ -138,17 +139,11 @@ namespace mistral::agent
 
   void register_approval_renderers(tool_registry& tools)
   {
-    tools.register_approval_renderer(
-      "patchset_apply",
-      [](const json& args, std::string_view reason) {
-        return render_patchset_apply_approval(args, reason);
-      }
-    );
-    tools.register_approval_renderer(
-      "exec",
-      [](const json& args, std::string_view reason) {
-        return render_exec_approval(args, reason);
-      }
-    );
+    tools.register_approval_renderer("patchset_apply", [](const json& args, std::string_view reason) {
+      return render_patchset_apply_approval(args, reason);
+    });
+    tools.register_approval_renderer("exec", [](const json& args, std::string_view reason) {
+      return render_exec_approval(args, reason);
+    });
   }
 } // namespace mistral::agent

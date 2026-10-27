@@ -94,9 +94,7 @@ namespace mistral::agent
   TEST_CASE("build_approval_prompt truncates long strings")
   {
     std::string long_value(100, 'x');
-    json args = {
-      {"long_arg", long_value}
-    };
+    json args = {{"long_arg", long_value}};
     std::string prompt = build_approval_prompt("test_tool", args, "test reason");
     CHECK(prompt.find("...") != std::string::npos);
     CHECK(prompt.find(long_value) == std::string::npos);
@@ -104,10 +102,7 @@ namespace mistral::agent
 
   TEST_CASE("build_approval_prompt handles boolean values")
   {
-    json args = {
-      {"bool_true", true},
-      {"bool_false", false}
-    };
+    json args = {{"bool_true", true}, {"bool_false", false}};
     std::string prompt = build_approval_prompt("test_tool", args, "test reason");
     CHECK(prompt.find("true") != std::string::npos);
     CHECK(prompt.find("false") != std::string::npos);
@@ -115,10 +110,7 @@ namespace mistral::agent
 
   TEST_CASE("build_approval_prompt handles numeric values")
   {
-    json args = {
-      {"int_val", 42},
-      {"double_val", 3.14}
-    };
+    json args = {{"int_val", 42}, {"double_val", 3.14}};
     std::string prompt = build_approval_prompt("test_tool", args, "test reason");
     CHECK(prompt.find("42") != std::string::npos);
     CHECK(prompt.find("3.14") != std::string::npos);

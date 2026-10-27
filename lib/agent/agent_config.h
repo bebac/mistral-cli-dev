@@ -6,11 +6,11 @@
 #include "tools/code_index.h"
 #endif
 
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <map>
 
 namespace mistral::agent
 {
@@ -26,17 +26,17 @@ namespace mistral::agent
     std::string api_version = "v1"; // API version
 
     // Sampling parameters (defaults)
-    std::optional<std::string> reasoning_effort;  // e.g., "high", "low", "none"
-    std::optional<float> temperature;             // 0.0 to 1.0
-    std::optional<float> top_p;                   // 0.0 to 1.0
-    std::optional<int> top_k;                     // Mistral-specific
-    std::optional<int> max_tokens;                // Maximum tokens to generate
-    std::optional<float> frequency_penalty;       // -2.0 to 2.0
-    std::optional<float> presence_penalty;        // -2.0 to 2.0
-    std::optional<int> seed;                      // Random seed for deterministic output
-    std::optional<bool> safe_prompt;              // Mistral-specific
-    std::optional<float> randomness;              // Mistral-specific, 0.0 to 1.0
-    std::optional<bool> strict_mode;              // Strict tool schema mode (OpenAI-style)
+    std::optional<std::string> reasoning_effort; // e.g., "high", "low", "none"
+    std::optional<float> temperature;            // 0.0 to 1.0
+    std::optional<float> top_p;                  // 0.0 to 1.0
+    std::optional<int> top_k;                    // Mistral-specific
+    std::optional<int> max_tokens;               // Maximum tokens to generate
+    std::optional<float> frequency_penalty;      // -2.0 to 2.0
+    std::optional<float> presence_penalty;       // -2.0 to 2.0
+    std::optional<int> seed;                     // Random seed for deterministic output
+    std::optional<bool> safe_prompt;             // Mistral-specific
+    std::optional<float> randomness;             // Mistral-specific, 0.0 to 1.0
+    std::optional<bool> strict_mode;             // Strict tool schema mode (OpenAI-style)
   };
 
   // ---- Server-side Agent Configuration ----
@@ -48,8 +48,8 @@ namespace mistral::agent
   // server-side.
   struct server_agent_config
   {
-    std::string name;                     // Server-side agent name (required)
-    std::string instructions;             // Agent instructions (supports file://)
+    std::string name;         // Server-side agent name (required)
+    std::string instructions; // Agent instructions (supports file://)
     std::string description;
     std::vector<api::builtin_tool> tools; // Builtin tools, e.g. web_search
     // CompletionArgs (temperature, top_p, random_seed, ...) applied at
@@ -60,8 +60,7 @@ namespace mistral::agent
 
   // Metadata key under which the server-side agent's config fingerprint
   // is stored (see server_agent_config_fingerprint).
-  inline constexpr std::string_view server_agent_config_hash_key =
-    "mistral-cli-config-hash";
+  inline constexpr std::string_view server_agent_config_hash_key = "mistral-cli-config-hash";
 
   // Fingerprint of a server_agent config (model, tools, resolved
   // instructions, description, completion_args) as a hex string. Stored
@@ -71,15 +70,17 @@ namespace mistral::agent
   std::string server_agent_config_fingerprint(
     const server_agent_config& cfg,
     const std::string& resolved_instructions,
-    const std::string& model);
+    const std::string& model
+  );
 
   // ---- Agent Configuration ----
   // Represents an agent configuration that references a model by name.
   struct agent_config
   {
-    std::string model;              // Name of model from models section
+    std::string model; // Name of model from models section
     std::string system_prompt;
-    std::string tool_policy;        // Can be: "deny", "allow", "require_approval", a JSON object as string, or "file://path/to/policy.json"
+    std::string tool_policy; // Can be: "deny", "allow", "require_approval", a JSON object as string, or
+                             // "file://path/to/policy.json"
     std::vector<std::string> available_tools;
 
     // Server-side agent entity (Mistral Agents API). When set, the agent
@@ -93,17 +94,17 @@ namespace mistral::agent
     std::map<std::string, std::string> subagent_tools;
 
     // Sampling parameters (overrides model defaults)
-    std::optional<std::string> reasoning_effort;  // Override model default
-    std::optional<float> temperature;             // Override model default
-    std::optional<float> top_p;                   // Override model default
-    std::optional<int> top_k;                     // Override model default
-    std::optional<int> max_tokens;                // Override model default
-    std::optional<float> frequency_penalty;       // Override model default
-    std::optional<float> presence_penalty;        // Override model default
-    std::optional<int> seed;                      // Override model default
-    std::optional<bool> safe_prompt;              // Override model default
-    std::optional<float> randomness;              // Override model default
-    std::optional<bool> strict_mode;              // Override model default
+    std::optional<std::string> reasoning_effort; // Override model default
+    std::optional<float> temperature;            // Override model default
+    std::optional<float> top_p;                  // Override model default
+    std::optional<int> top_k;                    // Override model default
+    std::optional<int> max_tokens;               // Override model default
+    std::optional<float> frequency_penalty;      // Override model default
+    std::optional<float> presence_penalty;       // Override model default
+    std::optional<int> seed;                     // Override model default
+    std::optional<bool> safe_prompt;             // Override model default
+    std::optional<float> randomness;             // Override model default
+    std::optional<bool> strict_mode;             // Override model default
   };
 
   // ---- Tool Schema Options ----
@@ -112,7 +113,7 @@ namespace mistral::agent
   // into request bodies.
   struct tool_schema_options
   {
-    bool strict_mode = false;  // OpenAI-style strict tool schema mode
+    bool strict_mode = false; // OpenAI-style strict tool schema mode
   };
 
   // ---- MCP Server Configuration ----
@@ -157,7 +158,10 @@ namespace mistral::agent
     // starts, without requiring /mcp connect.
     bool auto_connect = false;
 
-    bool is_stdio() const { return !command.empty(); }
+    bool is_stdio() const
+    {
+      return !command.empty();
+    }
   };
 
   // ---- Full Configuration ----

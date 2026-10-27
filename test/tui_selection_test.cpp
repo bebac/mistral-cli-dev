@@ -1,6 +1,6 @@
-#include <doctest/doctest.h>
-#include "pty_test_harness.h"
 #include "cpptui.hpp"
+#include "pty_test_harness.h"
+#include <doctest/doctest.h>
 
 #include <atomic>
 #include <chrono>
@@ -28,7 +28,8 @@ TEST_CASE("Selection PTY: mouse select + Ctrl+C copy (UTF-8)")
 
   std::thread app_thread([&]() {
     using namespace cpptui;
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
 
@@ -37,9 +38,13 @@ TEST_CASE("Selection PTY: mouse select + Ctrl+C copy (UTF-8)")
 
       app.register_key('q', [&]() { app.quit(); });
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[sel1] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[sel1] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -54,9 +59,9 @@ TEST_CASE("Selection PTY: mouse select + Ctrl+C copy (UTF-8)")
   // x,y are 1-based; cpptui parseSGR subtracts 1.
   // Label is at (0,0).  Press at char 0 (x=1), drag to char 3 (x=4).
   // With inclusive_drag, selection range becomes [0, 4) = "café".
-  pty.send_keys("\033[<0;1;1M");   // Press left button at (0,0)
-  pty.send_keys("\033[<32;4;1M");  // Drag to (3,0)
-  pty.send_keys("\033[<0;4;1m");   // Release at (3,0)
+  pty.send_keys("\033[<0;1;1M");  // Press left button at (0,0)
+  pty.send_keys("\033[<32;4;1M"); // Drag to (3,0)
+  pty.send_keys("\033[<0;4;1m");  // Release at (3,0)
 
   // Give the app time to process mouse events.
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -96,7 +101,8 @@ TEST_CASE("Selection PTY: Ctrl+A select all + Ctrl+C copy (UTF-8)")
 
   std::thread app_thread([&]() {
     using namespace cpptui;
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
 
@@ -105,9 +111,13 @@ TEST_CASE("Selection PTY: Ctrl+A select all + Ctrl+C copy (UTF-8)")
 
       app.register_key('q', [&]() { app.quit(); });
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[sel2] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[sel2] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -118,8 +128,8 @@ TEST_CASE("Selection PTY: Ctrl+A select all + Ctrl+C copy (UTF-8)")
   REQUIRE(drainer.wait_for("café test", 5000));
 
   // Click to focus the Label.
-  pty.send_keys("\033[<0;1;1M");   // Press at (0,0)
-  pty.send_keys("\033[<0;1;1m");   // Release at (0,0)
+  pty.send_keys("\033[<0;1;1M"); // Press at (0,0)
+  pty.send_keys("\033[<0;1;1m"); // Release at (0,0)
 
   // Give the app time to process the click.
   std::this_thread::sleep_for(std::chrono::milliseconds(100));

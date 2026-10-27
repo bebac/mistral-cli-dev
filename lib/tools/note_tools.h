@@ -1,8 +1,8 @@
 #ifndef MISTRAL_NOTE_TOOLS_H
 #define MISTRAL_NOTE_TOOLS_H
 
-#include <dripcore/awaitable.h>
 #include "template/template_engine.h"
+#include <dripcore/awaitable.h>
 
 #include <nlohmann/json.hpp>
 

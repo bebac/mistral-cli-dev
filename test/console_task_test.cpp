@@ -1,12 +1,12 @@
 #include <doctest/doctest.h>
-#include <dripcore/scheduler.h>
 #include <dripcore/channel.h>
+#include <dripcore/scheduler.h>
 
 #include "console/console_task.h"
 
-#include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <unistd.h>
 
 #include <array>
 #include <atomic>
@@ -26,8 +26,8 @@ namespace
   //
   struct pty_terminal
   {
-    int master_fd    = -1;
-    int saved_stdin  = -1;
+    int master_fd = -1;
+    int saved_stdin = -1;
     int saved_stdout = -1;
 
     pty_terminal()
@@ -45,7 +45,7 @@ namespace
       int slave_fd = ::open(::ptsname(master_fd), O_RDWR);
       REQUIRE(slave_fd >= 0);
 
-      saved_stdin  = ::dup(STDIN_FILENO);
+      saved_stdin = ::dup(STDIN_FILENO);
       saved_stdout = ::dup(STDOUT_FILENO);
       ::dup2(slave_fd, STDIN_FILENO);
       ::dup2(slave_fd, STDOUT_FILENO);
@@ -60,17 +60,20 @@ namespace
     // Idempotent: safe to call explicitly and again from the destructor.
     void close()
     {
-      if (saved_stdin >= 0) {
+      if (saved_stdin >= 0)
+      {
         ::dup2(saved_stdin, STDIN_FILENO);
         ::close(saved_stdin);
         saved_stdin = -1;
       }
-      if (saved_stdout >= 0) {
+      if (saved_stdout >= 0)
+      {
         ::dup2(saved_stdout, STDOUT_FILENO);
         ::close(saved_stdout);
         saved_stdout = -1;
       }
-      if (master_fd >= 0) {
+      if (master_fd >= 0)
+      {
         ::close(master_fd);
         master_fd = -1;
       }
@@ -81,27 +84,34 @@ namespace
     // synchronization primitive: isocline writes its prompt to the PTY slave
     // (our stdout), which becomes readable on the master.  We wait for the
     // prompt text to confirm isocline is in its edit loop.
-    bool wait_for_output(const std::string& text, int timeout_ms = 5000) {
+    bool wait_for_output(const std::string& text, int timeout_ms = 5000)
+    {
       std::array<char, 4096> buf;
       std::string accumulated;
 
       auto start_time = std::chrono::steady_clock::now();
-      while (true) {
+      while (true)
+      {
         ssize_t n = ::read(master_fd, buf.data(), buf.size());
-        if (n > 0) {
+        if (n > 0)
+        {
           accumulated.append(buf.data(), n);
-          if (accumulated.find(text) != std::string::npos) {
+          if (accumulated.find(text) != std::string::npos)
+          {
             return true;
           }
-        } else if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        }
+        else if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK)
+        {
           // Non-recoverable error (e.g., EBADF, EIO)
           return false;
         }
 
         // Check timeout
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - start_time).count();
-        if (elapsed >= timeout_ms) {
+        auto elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
+        if (elapsed >= timeout_ms)
+        {
           return false;
         }
 
@@ -122,15 +132,17 @@ namespace
       auto start_time = std::chrono::steady_clock::now();
       while (!done.load())
       {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - start_time).count();
+        auto elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
 
-        if (elapsed >= timeout_ms) {
+        if (elapsed >= timeout_ms)
+        {
           std::cerr << "drain_until timed out\n";
           break;
         }
 
-        if (::poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN)) {
+        if (::poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN))
+        {
           ::read(master_fd, buf.data(), buf.size());
         }
       }
@@ -140,22 +152,27 @@ namespace
     {
       // Write in a loop to handle partial writes (EAGAIN)
       size_t offset = 0;
-      while (offset < data.size()) {
+      while (offset < data.size())
+      {
         ssize_t n = ::write(master_fd, data.c_str() + offset, data.size() - offset);
-        if (n > 0) {
+        if (n > 0)
+        {
           offset += n;
-        } else if (n == -1 && errno == EAGAIN) {
+        }
+        else if (n == -1 && errno == EAGAIN)
+        {
           // Non-blocking write would block; retry
           std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        } else if (n == -1) {
+        }
+        else if (n == -1)
+        {
           // Non-recoverable error
           break;
         }
       }
     }
-
   };
-}
+} // namespace
 
 // The PTY driver runs in a plain thread (not a dripcore task) because the
 // synchronization with isocline's terminal init (which runs in yet another
@@ -176,7 +193,7 @@ namespace
 TEST_CASE("console_task: single line input")
 {
   auto prompt_ch = std::make_shared<dripcore::channel<std::string>>(1);
-  auto input_ch  = std::make_shared<dripcore::channel<std::string>>(1);
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
   pty_terminal pty;
 
@@ -187,10 +204,9 @@ TEST_CASE("console_task: single line input")
     collector_task(
       std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
-      std::string& result)
-      : prompt_ch_(std::move(prompt_ch))
-      , input_ch_(std::move(input_ch))
-      , result_(result)
+      std::string& result
+    )
+      : prompt_ch_(std::move(prompt_ch)), input_ch_(std::move(input_ch)), result_(result)
     {
     }
 
@@ -199,11 +215,13 @@ TEST_CASE("console_task: single line input")
       prompt_ch_->try_send("mistral");
 
       auto val = co_await input_ch_->recv(this);
-      if (val) result_ = *val;
+      if (val)
+        result_ = *val;
 
       prompt_ch_->close();
       co_return;
     }
+
   private:
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;

@@ -1,33 +1,33 @@
 #ifndef MISTRAL_INTERACTIVE_AGENT_TASK_H
 #define MISTRAL_INTERACTIVE_AGENT_TASK_H
 
+#include "agent/agent_config.h"
+#include "agent/agent_system.h"
 #include "agent/agent_task_base.h"
-#include "agent/conversation.h"
-#include "agent/tool_registry.h"
-#include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
 #include "agent/approval_prompt.h"
-#include "agent/agent_system.h"
-#include "agent/agent_config.h"
 #include "agent/compact_command.h"
+#include "agent/conversation.h"
+#include "agent/policy_engine.h"
 #include "agent/render_sink.h"
+#include "agent/tool_registry.h"
 #include "tools/ask_tools.h"
 
 #include "api/types.h"
 #include "common/string_utils.h"
 
-#include <dripcore/task.h>
 #include <dripcore/channel.h>
+#include <dripcore/task.h>
 #include <dripcore/task_handle.h>
 
+#include <charconv>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
-#include <charconv>
-#include <filesystem>
-#include <format>
 
 namespace mistral::agent
 {
@@ -58,9 +58,7 @@ namespace mistral::agent
       std::shared_ptr<render_sink> sink = nullptr,
       bool resume = false
     )
-      : agent_task_base(agent_id, input_ch, output_ch, prompt_ch)
-      , sink_(std::move(sink))
-      , resume_(resume)
+      : agent_task_base(agent_id, input_ch, output_ch, prompt_ch), sink_(std::move(sink)), resume_(resume)
     {
       // Register the input channel so slash commands (e.g. /compact)
       // can route control messages to this task, which owns the
@@ -73,35 +71,41 @@ namespace mistral::agent
       // input_ch_. An empty answer means the human skipped the question.
       agent_system::instance().ask_tools().set_prompt_handler(
         [this](const std::string& prompt) -> dripcore::awaitable<std::string> {
-          if (prompt_ch_) {
+          if (prompt_ch_)
+          {
             prompt_ch_->try_send(prompt);
           }
           auto response = co_await input_ch_->recv(this);
           co_return response.value_or("");
-        });
+        }
+      );
     }
 
     dripcore::awaitable<> body() override
     {
       auto tools_schema = tools_.get_schema();
 
-      if (resume_) {
+      if (resume_)
+      {
         co_await resume_latest_session();
       }
 
       while (true)
       {
         // Signal console to show prompt.
-        if (prompt_ch_) {
+        if (prompt_ch_)
+        {
           prompt_ch_->try_send("mistral");
         }
 
         // Wait for user input.
         auto input = co_await input_ch_->recv(this);
 
-        if (!input || input->empty()) {
-          if (!input) break;  // Channel closed (EOF).
-          continue;           // Empty input, ask again.
+        if (!input || input->empty())
+        {
+          if (!input)
+            break;  // Channel closed (EOF).
+          continue; // Empty input, ask again.
         }
 
         // Compaction control message from the /compact slash command.
@@ -124,15 +128,18 @@ namespace mistral::agent
     {
       request_ch_->close();
 
-      if (output_ch_) {
+      if (output_ch_)
+      {
         output_ch_->close();
       }
 
-      if (stats_ch_) {
+      if (stats_ch_)
+      {
         stats_ch_->close();
       }
 
-      if (prompt_ch_) {
+      if (prompt_ch_)
+      {
         prompt_ch_->close();
       }
 
@@ -163,14 +170,16 @@ namespace mistral::agent
     {
       if (mc.type == "thinking")
       {
-        if (!in_thinking_) {
+        if (!in_thinking_)
+        {
           thinking_begin();
         }
         sink_->output_thinking(mc.content);
       }
       else if (mc.type == "text")
       {
-        if (in_thinking_) {
+        if (in_thinking_)
+        {
           thinking_end();
         }
         sink_->output(mc.content);
@@ -189,20 +198,18 @@ namespace mistral::agent
           tool_args = api::json::parse(tc.function.arguments);
         }
       }
-      catch (const std::exception &e)
+      catch (const std::exception& e)
       {
         std::string error_msg = std::string("Failed to parse tool arguments: ") + e.what();
         sink_->output_warning(error_msg);
-        chat_.add_tool_result(tc.function.name, tc.id,
-          build_tool_rejection("error", error_msg).dump());
+        chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("error", error_msg).dump());
         co_return;
       }
 
       if (auto precheck_error = precheck_tool_call(tc, tool_args))
       {
         sink_->output_warning(*precheck_error);
-        chat_.add_tool_result(tc.function.name, tc.id,
-          build_tool_rejection("error", *precheck_error).dump());
+        chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("error", *precheck_error).dump());
         co_return;
       }
 
@@ -210,13 +217,11 @@ namespace mistral::agent
 
       if (policy_result.decision == policy_decision::DENY)
       {
-        std::string rejection_msg = policy_result.rejection_message
-          ? *policy_result.rejection_message
-          : "Tool call denied by policy";
+        std::string rejection_msg =
+          policy_result.rejection_message ? *policy_result.rejection_message : "Tool call denied by policy";
         sink_->output_line(" \xe2\x86\x92 [DENIED] " + rejection_msg);
 
-        chat_.add_tool_result(tc.function.name, tc.id,
-          build_tool_rejection("denied", rejection_msg).dump());
+        chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("denied", rejection_msg).dump());
         co_return;
       }
 
@@ -230,22 +235,20 @@ namespace mistral::agent
         {
           // Note: std::string, not std::string_view — the ternary below
           // produces a temporary std::string, which a string_view would dangle on.
-          std::string reason = policy_result.reason
-            ? *policy_result.reason
-            : "Policy requires approval";
+          std::string reason = policy_result.reason ? *policy_result.reason : "Policy requires approval";
 
           // Try custom renderer first, fall back to generic
           auto custom = tools_.render_approval(tc.function.name, tool_args, reason);
-          std::string approval_prompt = custom
-            ? *custom
-            : build_approval_prompt(tc.function.name, tool_args, reason);
+          std::string approval_prompt = custom ? *custom : build_approval_prompt(tc.function.name, tool_args, reason);
 
-          if (prompt_ch_) {
+          if (prompt_ch_)
+          {
             prompt_ch_->try_send("[APPROVAL_PROMPT]" + approval_prompt);
           }
 
           auto response = co_await input_ch_->recv(this);
-          if (!response) {
+          if (!response)
+          {
             sink_->output_line(" \xe2\x86\x92 [CANCELLED] Approval prompt cancelled");
             co_return;
           }
@@ -255,17 +258,20 @@ namespace mistral::agent
 
           if (!parsed_action.has_value())
           {
-            if (prompt_ch_) {
+            if (prompt_ch_)
+            {
               prompt_ch_->try_send("[APPROVAL_PROMPT]" + get_approval_help_message());
             }
 
             response = co_await input_ch_->recv(this);
-            if (!response) {
+            if (!response)
+            {
               sink_->output_line(" \xe2\x86\x92 [CANCELLED] Approval prompt cancelled");
               co_return;
             }
             parsed_action = parse_approval_response(*response);
-            if (!parsed_action.has_value()) {
+            if (!parsed_action.has_value())
+            {
               parsed_action = approval_action::REJECT;
             }
           }
@@ -275,31 +281,35 @@ namespace mistral::agent
           if (action == approval_action::REJECT_WITH_MESSAGE)
           {
             std::string message_prompt = "  Enter message for AI (or press Enter for default): ";
-            if (prompt_ch_) {
+            if (prompt_ch_)
+            {
               prompt_ch_->try_send(message_prompt);
             }
 
             auto message_response = co_await input_ch_->recv(this);
-            if (message_response && !message_response->empty()) {
+            if (message_response && !message_response->empty())
+            {
               custom_message = *message_response;
-            } else if (policy_result.rejection_message) {
+            }
+            else if (policy_result.rejection_message)
+            {
               custom_message = *policy_result.rejection_message;
-            } else {
+            }
+            else
+            {
               custom_message = "Tool call rejected by user";
             }
           }
 
           if (action == approval_action::REJECT || action == approval_action::REJECT_WITH_MESSAGE)
           {
-            std::string rejection_msg = custom_message
-              ? *custom_message
-              : (policy_result.rejection_message
-                 ? *policy_result.rejection_message
-                 : "Tool call rejected by user");
+            std::string rejection_msg =
+              custom_message
+                ? *custom_message
+                : (policy_result.rejection_message ? *policy_result.rejection_message : "Tool call rejected by user");
             sink_->output_line(" \xe2\x86\x92 [REJECTED] " + rejection_msg);
 
-            chat_.add_tool_result(tc.function.name, tc.id,
-              build_tool_rejection("rejected", rejection_msg).dump());
+            chat_.add_tool_result(tc.function.name, tc.id, build_tool_rejection("rejected", rejection_msg).dump());
             co_return;
           }
 
@@ -327,7 +337,8 @@ namespace mistral::agent
 
     void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content) override
     {
-      if (!accumulated_content.empty()) {
+      if (!accumulated_content.empty())
+      {
         chat_.save(".mistral-cli", session_id_);
       }
       agent_task_base::agent_loop_on_completed(accumulated_content);
@@ -336,7 +347,8 @@ namespace mistral::agent
 
     void agent_loop_on_cancelled() override
     {
-      if (in_thinking_) {
+      if (in_thinking_)
+      {
         thinking_end();
       }
       sink_->cancelled();
@@ -361,23 +373,27 @@ namespace mistral::agent
         }
         else
         {
-          sink_->output_warning("Invalid /compact argument, keeping the default " +
-            std::to_string(default_compact_keep_turns) + " turn(s).");
+          sink_->output_warning(
+            "Invalid /compact argument, keeping the default " + std::to_string(default_compact_keep_turns) + " turn(s)."
+          );
         }
       }
 
       if (chat_.turn_count() <= keep_turns)
       {
-        sink_->output_status("Nothing to compact: the conversation has " +
-          std::to_string(chat_.turn_count()) + " turn(s), keeping the last " +
-          std::to_string(keep_turns) + ".");
+        sink_->output_status(
+          "Nothing to compact: the conversation has " + std::to_string(chat_.turn_count()) +
+          " turn(s), keeping the last " + std::to_string(keep_turns) + "."
+        );
         co_return;
       }
 
       auto to_summarize = chat_.messages_to_compact(keep_turns);
-      sink_->output_status(std::format(
-        "Compacting: summarizing {} message(s), keeping the last {} turn(s)...",
-        to_summarize.size(), keep_turns));
+      sink_->output_status(
+        std::format(
+          "Compacting: summarizing {} message(s), keeping the last {} turn(s)...", to_summarize.size(), keep_turns
+        )
+      );
 
       // Preserve the full history before compaction so it can be recovered.
       chat_.save_snapshot(".mistral-cli", session_id_);
@@ -396,14 +412,11 @@ namespace mistral::agent
 
       api::message instruction;
       instruction.role = "user";
-      instruction.content = {api::message_content{
-        .type = "text",
-        .content = std::string(compaction_instruction)
-      }};
+      instruction.content = {api::message_content{.type = "text", .content = std::string(compaction_instruction)}};
       request_msgs.push_back(std::move(instruction));
 
-      auto body = provider_->build_chat_request(
-        model_, request_msgs, api::json::array(), true, session_id_, sampling_params_);
+      auto body =
+        provider_->build_chat_request(model_, request_msgs, api::json::array(), true, session_id_, sampling_params_);
 
       response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
       agent_system::instance().set_current_response_ch(response_ch_);
@@ -453,7 +466,9 @@ namespace mistral::agent
             }
           }
         }
-        catch (...) {}
+        catch (...)
+        {
+        }
       }
 
       agent_system::instance().clear_current_response_ch();
@@ -470,8 +485,7 @@ namespace mistral::agent
 
       chat_.apply_compaction(summary, keep_turns);
       chat_.save(".mistral-cli", session_id_);
-      sink_->output_status(std::format(
-        "Compacted: history is now {} message(s).", chat_.size()));
+      sink_->output_status(std::format("Compacted: history is now {} message(s).", chat_.size()));
       co_return;
     }
 
@@ -484,50 +498,57 @@ namespace mistral::agent
     auto resume_latest_session() -> dripcore::awaitable<void>
     {
       namespace fs = std::filesystem;
-      const fs::path latest =
-        fs::path(".mistral-cli") / "chats" / "chat.latest.json";
+      const fs::path latest = fs::path(".mistral-cli") / "chats" / "chat.latest.json";
 
       std::error_code ec;
-      if (!fs::exists(latest, ec)) {
+      if (!fs::exists(latest, ec))
+      {
         sink_->output_status("No previous session found, starting fresh.");
         co_return;
       }
 
       // Recover the session id from the symlink target file name.
       std::string resumed_session_id;
-      if (fs::is_symlink(latest, ec)) {
+      if (fs::is_symlink(latest, ec))
+      {
         const auto target = fs::read_symlink(latest, ec);
-        if (!ec) {
-          if (auto id = conversation::session_id_from_filename(
-                target.filename().string())) {
+        if (!ec)
+        {
+          if (auto id = conversation::session_id_from_filename(target.filename().string()))
+          {
             resumed_session_id = *id;
           }
         }
       }
-      if (resumed_session_id.empty()) {
-        if (auto id = conversation::session_id_from_filename(
-              latest.filename().string())) {
+      if (resumed_session_id.empty())
+      {
+        if (auto id = conversation::session_id_from_filename(latest.filename().string()))
+        {
           resumed_session_id = *id;
         }
       }
 
-      try {
+      try
+      {
         size_t count = chat_.load(latest.string());
-        if (!resumed_session_id.empty()) {
+        if (!resumed_session_id.empty())
+        {
           session_id_ = resumed_session_id;
         }
         // The saved chat carries the old system prompt; re-apply the
         // current one so config changes take effect.
-        if (!system_prompt_.empty()) {
+        if (!system_prompt_.empty())
+        {
           chat_.set_system_message(system_prompt_);
         }
-        sink_->output_status(std::format(
-          "Resumed session {} ({} message(s)) from {}",
-          session_id_, count, latest.string()));
+        sink_->output_status(
+          std::format("Resumed session {} ({} message(s)) from {}", session_id_, count, latest.string())
+        );
         render_last_turn_preview();
-      } catch (const std::exception& e) {
-        sink_->output_warning(std::format(
-          "Could not resume previous session ({}), starting fresh.", e.what()));
+      }
+      catch (const std::exception& e)
+      {
+        sink_->output_warning(std::format("Could not resume previous session ({}), starting fresh.", e.what()));
       }
       co_return;
     }
@@ -538,36 +559,45 @@ namespace mistral::agent
     void render_last_turn_preview()
     {
       auto turn = chat_.last_turn();
-      if (turn.empty()) {
+      if (turn.empty())
+      {
         return;
       }
 
       const api::message* last_user = nullptr;
       const api::message* last_assistant = nullptr;
-      for (const auto& msg : turn) {
-        if (msg.role == "user") {
+      for (const auto& msg : turn)
+      {
+        if (msg.role == "user")
+        {
           last_user = &msg;
-        } else if (msg.role == "assistant") {
+        }
+        else if (msg.role == "assistant")
+        {
           bool has_text = false;
-          for (const auto& mc : msg.content) {
-            if (mc.type == "text" && !mc.content.empty()) {
+          for (const auto& mc : msg.content)
+          {
+            if (mc.type == "text" && !mc.content.empty())
+            {
               has_text = true;
               break;
             }
           }
-          if (has_text) {
+          if (has_text)
+          {
             last_assistant = &msg;
           }
         }
       }
 
-      if (!last_user) {
+      if (!last_user)
+      {
         return;
       }
 
       sink_->output_resume_preview(
-        preview_text(*last_user),
-        last_assistant ? preview_text(*last_assistant) : std::string());
+        preview_text(*last_user), last_assistant ? preview_text(*last_assistant) : std::string()
+      );
     }
 
     // Text content of a message (text blocks joined with spaces),
@@ -575,9 +605,12 @@ namespace mistral::agent
     static std::string preview_text(const api::message& msg)
     {
       std::string text;
-      for (const auto& mc : msg.content) {
-        if (mc.type == "text") {
-          if (!text.empty()) text += " ";
+      for (const auto& mc : msg.content)
+      {
+        if (mc.type == "text")
+        {
+          if (!text.empty())
+            text += " ";
           text += mc.content;
         }
       }

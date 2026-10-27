@@ -16,50 +16,56 @@ namespace mistral::tools
     const std::string& question,
     const std::string& context,
     const std::vector<std::string>& options,
-    const std::string& recommendation)
+    const std::string& recommendation
+  )
   {
     std::ostringstream oss;
     oss << "\n[QUESTION FROM AGENT]\n";
     oss << "  " << question << "\n";
-    if (!context.empty()) {
+    if (!context.empty())
+    {
       oss << "\n  Context: " << context << "\n";
     }
-    if (!options.empty()) {
+    if (!options.empty())
+    {
       oss << "\n  Options:\n";
       int i = 1;
-      for (const auto& opt : options) {
+      for (const auto& opt : options)
+      {
         oss << "    " << i++ << ". " << opt << "\n";
       }
     }
-    if (!recommendation.empty()) {
+    if (!recommendation.empty())
+    {
       oss << "\n  Recommendation: " << recommendation << "\n";
     }
-    if (!options.empty()) {
+    if (!options.empty())
+    {
       oss << "\n  Reply with the option number (1-based, as listed above) "
              "or the full option text.\n";
     }
     return oss.str();
   }
 
-  std::optional<std::string> ask_tools::match_option(
-    const std::string& answer,
-    const std::vector<std::string>& options)
+  std::optional<std::string> ask_tools::match_option(const std::string& answer, const std::vector<std::string>& options)
   {
-    if (options.empty()) {
+    if (options.empty())
+    {
       return std::nullopt;
     }
 
     // Trim surrounding whitespace.
     size_t first = answer.find_first_not_of(" \t\n\r");
-    if (first == std::string::npos) {
+    if (first == std::string::npos)
+    {
       return std::nullopt;
     }
     size_t last = answer.find_last_not_of(" \t\n\r");
     std::string trimmed = answer.substr(first, last - first + 1);
 
     // The whole answer must be digits (no sign, no other text).
-    if (!std::all_of(trimmed.begin(), trimmed.end(),
-                     [](unsigned char c) { return std::isdigit(c) != 0; })) {
+    if (!std::all_of(trimmed.begin(), trimmed.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+    {
       return std::nullopt;
     }
 
@@ -71,7 +77,8 @@ namespace mistral::tools
     }
 
     // Options are rendered 1-based; reject 0 and out-of-range values.
-    if (n < 1 || static_cast<size_t>(n) > options.size()) {
+    if (n < 1 || static_cast<size_t>(n) > options.size())
+    {
       return std::nullopt;
     }
 
@@ -97,10 +104,11 @@ namespace mistral::tools
     }
 
     std::string answer = co_await prompt_handler_(
-      std::string(ask_prompt_prefix) +
-      format_prompt(question, context, options, recommendation));
+      std::string(ask_prompt_prefix) + format_prompt(question, context, options, recommendation)
+    );
 
-    if (answer.empty()) {
+    if (answer.empty())
+    {
       co_return json{
         {"status", "skipped"},
         {"message",
@@ -113,12 +121,9 @@ namespace mistral::tools
     // Resolve a bare numeric answer (1-based, matching the rendered
     // option list) to the option text, so a raw answer like "5" is never
     // ambiguous about 0- vs 1-indexing.
-    json result{
-      {"status", "answered"},
-      {"answer", answer},
-      {"matched_option", nullptr}
-    };
-    if (auto matched = match_option(answer, options)) {
+    json result{{"status", "answered"}, {"answer", answer}, {"matched_option", nullptr}};
+    if (auto matched = match_option(answer, options))
+    {
       result["matched_option"] = *matched;
     }
     co_return result;

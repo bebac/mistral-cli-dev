@@ -35,7 +35,8 @@ namespace mistral::mcp
       std::string command,
       std::vector<std::string> args = {},
       std::map<std::string, std::string> env = {},
-      std::chrono::seconds request_timeout = std::chrono::seconds{30});
+      std::chrono::seconds request_timeout = std::chrono::seconds{30}
+    );
 
     ~mcp_stdio_client();
 
@@ -53,9 +54,20 @@ namespace mistral::mcp
     // Throws std::runtime_error on failure.
     dripcore::awaitable<bool> initialize() override;
 
-    bool initialized() const override { return initialized_; }
-    const json& server_info() const { return server_info_; }
-    const std::string& instructions() const override { return instructions_; }
+    bool initialized() const override
+    {
+      return initialized_;
+    }
+
+    const json& server_info() const
+    {
+      return server_info_;
+    }
+
+    const std::string& instructions() const override
+    {
+      return instructions_;
+    }
 
     // tools/list - returns the full result object (contains "tools").
     dripcore::awaitable<json> list_tools() override;
@@ -74,7 +86,10 @@ namespace mistral::mcp
     // Kill the child process and close pipes.
     void close();
 
-    bool connected() const { return pid_ > 0; }
+    bool connected() const
+    {
+      return pid_ > 0;
+    }
 
   private:
     // Write one JSON-RPC message as a newline-terminated line and
@@ -98,11 +113,11 @@ namespace mistral::mcp
     std::chrono::seconds timeout_;
 
     pid_t pid_ = -1;
-    int stdin_fd_ = -1;    // parent writes -> child stdin
-    int stdout_fd_ = -1;   // parent reads  <- child stdout
-    int stderr_fd_ = -1;   // parent reads  <- child stderr (drained)
+    int stdin_fd_ = -1;  // parent writes -> child stdin
+    int stdout_fd_ = -1; // parent reads  <- child stdout
+    int stderr_fd_ = -1; // parent reads  <- child stderr (drained)
 
-    std::string read_buffer_;  // partial line buffer for stdout
+    std::string read_buffer_; // partial line buffer for stdout
     bool initialized_ = false;
     json server_info_ = json::object();
     std::string instructions_;

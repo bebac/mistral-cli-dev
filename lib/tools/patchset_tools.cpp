@@ -1,14 +1,14 @@
 #include "tools/patchset_tools.h"
-#include "tools/edit_validator.h"
 #include "tools/edit_parser.h"
 #include "tools/edit_types.h"
+#include "tools/edit_validator.h"
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -16,29 +16,25 @@ namespace mistral::tools
 {
   using json = nlohmann::ordered_json;
 
-  patchset_tools::patchset_tools(patchset_store &store)
-    : store_(store) {}
+  patchset_tools::patchset_tools(patchset_store& store) : store_(store)
+  {
+  }
 
   json patchset_tools::patchset_add(
     std::string patchset_id,
     std::string file_path,
     std::string search_text,
-    std::string replace_text)
+    std::string replace_text
+  )
   {
     if (patchset_id.empty())
     {
-      return make_error_response(
-        "missing_patchset_id",
-        "patchset_id must not be empty"
-      );
+      return make_error_response("missing_patchset_id", "patchset_id must not be empty");
     }
 
     if (file_path.empty())
     {
-      return make_error_response(
-        "missing_file_path",
-        "file_path must not be empty"
-      );
+      return make_error_response("missing_file_path", "file_path must not be empty");
     }
 
     auto patchset = store_.get_patchset(patchset_id);
@@ -46,8 +42,9 @@ namespace mistral::tools
     {
       return make_error_response(
         "already_applied",
-        "Patchset '" + patchset_id + "' has already been applied. "
-        "Use a new patchset ID for new changes."
+        "Patchset '" + patchset_id +
+          "' has already been applied. "
+          "Use a new patchset ID for new changes."
       );
     }
 
@@ -64,11 +61,14 @@ namespace mistral::tools
         {
           return make_error_response(
             "patchset_conflict",
-            "Only one patchset can be stored at a time. Patchset '" +
-              *current_id + "' is stored and not yet applied. Either "
+            "Only one patchset can be stored at a time. Patchset '" + *current_id +
+              "' is stored and not yet applied. Either "
               "continue adding edits to it with patchset_id '" +
-              *current_id + "', apply it with patchset_apply, or discard "
-              "it with patchset_clear('" + *current_id + "') before "
+              *current_id +
+              "', apply it with patchset_apply, or discard "
+              "it with patchset_clear('" +
+              *current_id +
+              "') before "
               "creating a new patchset."
           );
         }
@@ -82,7 +82,7 @@ namespace mistral::tools
     size_t next_patch_number = 1;
     if (patchset)
     {
-      for (const auto &edit : patchset->edits)
+      for (const auto& edit : patchset->edits)
       {
         next_patch_number = std::max(next_patch_number, edit.patch_number + 1);
       }
@@ -102,10 +102,7 @@ namespace mistral::tools
     auto stored = store_.get_patchset(patchset_id);
     if (!stored || stored->edits.empty())
     {
-      return make_error_response(
-        "store_failed",
-        "Failed to store edit in patchset '" + patchset_id + "'"
-      );
+      return make_error_response("store_failed", "Failed to store edit in patchset '" + patchset_id + "'");
     }
 
     return json{
@@ -124,19 +121,13 @@ namespace mistral::tools
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     // 2. Check if already applied
     if (patchset->applied)
     {
-      return make_error_response(
-        "already_applied",
-        "Patchset '" + patchset_id + "' has already been applied"
-      );
+      return make_error_response("already_applied", "Patchset '" + patchset_id + "' has already been applied");
     }
 
     // 3. Check for empty patchset (formatting error indicator)
@@ -144,9 +135,10 @@ namespace mistral::tools
     {
       return make_error_response(
         "no_edits",
-        "Patchset '" + patchset_id + "' contains 0 edits. "
-        "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
-        "markers or mismatched ~~~ code fences)."
+        "Patchset '" + patchset_id +
+          "' contains 0 edits. "
+          "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
+          "markers or mismatched ~~~ code fences)."
       );
     }
 
@@ -183,10 +175,7 @@ namespace mistral::tools
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     json result;
@@ -194,7 +183,7 @@ namespace mistral::tools
     result["edit_count"] = patchset->edits.size();
 
     json edits_array = json::array();
-    for (const auto &edit : patchset->edits)
+    for (const auto& edit : patchset->edits)
     {
       json edit_json;
       edit_json["patch_number"] = edit.patch_number;
@@ -213,10 +202,7 @@ namespace mistral::tools
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     // Check for empty patchset (formatting error indicator)
@@ -224,9 +210,10 @@ namespace mistral::tools
     {
       return make_error_response(
         "no_edits",
-        "Patchset '" + patchset_id + "' contains 0 edits. "
-        "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
-        "markers or mismatched ~~~ code fences)."
+        "Patchset '" + patchset_id +
+          "' contains 0 edits. "
+          "This may indicate a formatting error (e.g., missing >>>>>>> REPLACE "
+          "markers or mismatched ~~~ code fences)."
       );
     }
 
@@ -238,7 +225,7 @@ namespace mistral::tools
     result["fixable_error_count"] = validation_result.fixable_error_count();
 
     json validations_array = json::array();
-    for (const auto &v : validation_result.validations)
+    for (const auto& v : validation_result.validations)
     {
       json val_json;
       val_json["patch_number"] = v.patch_number;
@@ -264,28 +251,23 @@ namespace mistral::tools
     int patch_number,
     std::string file_path,
     std::optional<std::string> search_text,
-    std::optional<std::string> replace_text)
+    std::optional<std::string> replace_text
+  )
   {
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     // Check if already applied
     if (patchset->applied)
     {
-      return make_error_response(
-        "already_applied",
-        "Patchset '" + patchset_id + "' has already been applied"
-      );
+      return make_error_response("already_applied", "Patchset '" + patchset_id + "' has already been applied");
     }
 
     // Find the edit with the matching patch_number
-    for (auto &edit : patchset->edits)
+    for (auto& edit : patchset->edits)
     {
       if (edit.patch_number == static_cast<size_t>(patch_number))
       {
@@ -315,8 +297,7 @@ namespace mistral::tools
     }
 
     return make_error_response(
-      "edit_not_found",
-      "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
+      "edit_not_found", "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
     );
   }
 
@@ -325,33 +306,23 @@ namespace mistral::tools
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     // Check if already applied
     if (patchset->applied)
     {
-      return make_error_response(
-        "already_applied",
-        "Patchset '" + patchset_id + "' has already been applied"
-      );
+      return make_error_response("already_applied", "Patchset '" + patchset_id + "' has already been applied");
     }
 
     // Find the edit with the matching patch_number
-    auto it = std::find_if(
-      patchset->edits.begin(), patchset->edits.end(),
-      [&](const file_edit_t &edit) {
-        return edit.patch_number == static_cast<size_t>(patch_number);
-      }
-    );
+    auto it = std::find_if(patchset->edits.begin(), patchset->edits.end(), [&](const file_edit_t& edit) {
+      return edit.patch_number == static_cast<size_t>(patch_number);
+    });
     if (it == patchset->edits.end())
     {
       return make_error_response(
-        "edit_not_found",
-        "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
+        "edit_not_found", "No edit with patch_number " + std::to_string(patch_number) + " in patchset " + patchset_id
       );
     }
 
@@ -364,7 +335,7 @@ namespace mistral::tools
     store_.store_patchset(patchset_id, patchset->edits);
 
     json remaining = json::array();
-    for (const auto &edit : patchset->edits)
+    for (const auto& edit : patchset->edits)
     {
       remaining.push_back(edit.patch_number);
     }
@@ -383,17 +354,14 @@ namespace mistral::tools
     auto patchset = store_.get_patchset(patchset_id);
     if (!patchset)
     {
-      return make_error_response(
-        "patchset_not_found",
-        "No patchset with ID: " + patchset_id
-      );
+      return make_error_response("patchset_not_found", "No patchset with ID: " + patchset_id);
     }
 
     store_.remove_patchset(patchset_id);
     return json{{"status", "success"}};
   }
 
-  json patchset_tools::apply_validated_edits(const std::vector<file_edit_t> &edits)
+  json patchset_tools::apply_validated_edits(const std::vector<file_edit_t>& edits)
   {
     json result;
     result["status"] = "success";
@@ -403,7 +371,7 @@ namespace mistral::tools
 
     json results_array = json::array();
 
-    for (const auto &edit : edits)
+    for (const auto& edit : edits)
     {
       json edit_result;
       edit_result["patch_number"] = edit.patch_number;
@@ -424,8 +392,7 @@ namespace mistral::tools
             {
               edit_result["status"] = "failed";
               edit_result["error_type"] = "write_failed";
-              edit_result["error"] = "Could not create directory: " + parent_path.string() +
-                                     " (" + ec.message() + ")";
+              edit_result["error"] = "Could not create directory: " + parent_path.string() + " (" + ec.message() + ")";
               results_array.push_back(edit_result);
               result["failed"] = result["failed"].get<int>() + 1;
               continue;
@@ -480,8 +447,7 @@ namespace mistral::tools
           std::string content;
           try
           {
-            content.assign(std::istreambuf_iterator<char>(in),
-                           std::istreambuf_iterator<char>());
+            content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
           }
           catch (const std::exception&)
           {
@@ -530,7 +496,7 @@ namespace mistral::tools
         results_array.push_back(edit_result);
         result["applied"] = result["applied"].get<int>() + 1;
       }
-      catch (const std::exception &e)
+      catch (const std::exception& e)
       {
         edit_result["status"] = "failed";
         edit_result["error_type"] = "write_failed";
@@ -545,9 +511,10 @@ namespace mistral::tools
   }
 
   json patchset_tools::attempt_automatic_correction(
-      const std::string &patchset_id,
-      const std::vector<file_edit_t> &edits,
-      const validation_result_t &validation)
+    const std::string& patchset_id,
+    const std::vector<file_edit_t>& edits,
+    const validation_result_t& validation
+  )
   {
     // This is a placeholder for Phase 5 - patchfixer integration
     // For Phase 4, we return a validation failure with review_attempted flag
@@ -564,7 +531,7 @@ namespace mistral::tools
 
     // Format errors
     json errors_array = json::array();
-    for (const auto &v : validation.validations)
+    for (const auto& v : validation.validations)
     {
       if (!v.valid)
       {
@@ -586,18 +553,15 @@ namespace mistral::tools
     return result;
   }
 
-  json patchset_tools::make_error_response(const std::string &error_type, const std::string &error_message)
+  json patchset_tools::make_error_response(const std::string& error_type, const std::string& error_message)
   {
-    return json{
-      {"status", "error"},
-      {"error_type", error_type},
-      {"error", error_message}
-    };
+    return json{{"status", "error"}, {"error_type", error_type}, {"error", error_message}};
   }
 
   json patchset_tools::make_validation_failure_response(
-    const std::string &patchset_id,
-    const validation_result_t &validation)
+    const std::string& patchset_id,
+    const validation_result_t& validation
+  )
   {
     json result;
     result["status"] = "validation_failed";
@@ -607,7 +571,7 @@ namespace mistral::tools
     result["review_attempted"] = false;
 
     json errors_array = json::array();
-    for (const auto &v : validation.validations)
+    for (const auto& v : validation.validations)
     {
       if (!v.valid)
       {

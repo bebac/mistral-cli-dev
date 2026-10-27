@@ -41,8 +41,10 @@ namespace mistral::utils
       {
         fs::path candidate = fs::path(dir) / command;
         std::error_code ec;
-        if (fs::exists(candidate, ec) && fs::is_regular_file(candidate, ec) &&
-            ::access(candidate.string().c_str(), X_OK) == 0)
+        if (
+          fs::exists(candidate, ec) && fs::is_regular_file(candidate, ec) &&
+          ::access(candidate.string().c_str(), X_OK) == 0
+        )
         {
           return candidate.string();
         }

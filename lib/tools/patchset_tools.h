@@ -1,13 +1,13 @@
 #pragma once
 
-#include "tools/patchset_store.h"
 #include "tools/edit_types.h"
+#include "tools/patchset_store.h"
 
 #include <nlohmann/json.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
 
 namespace mistral::tools
 {
@@ -16,7 +16,7 @@ namespace mistral::tools
   class patchset_tools
   {
   public:
-    explicit patchset_tools(patchset_store &store);
+    explicit patchset_tools(patchset_store& store);
 
     // Add a single edit to a patchset. Creates the patchset when the ID
     // is new; appends when the ID matches a stored non-applied patchset
@@ -62,17 +62,15 @@ namespace mistral::tools
 
   private:
     // Helper methods
-    json apply_validated_edits(const std::vector<file_edit_t> &edits);
+    json apply_validated_edits(const std::vector<file_edit_t>& edits);
     json attempt_automatic_correction(
-      const std::string &patchset_id,
-      const std::vector<file_edit_t> &edits,
-      const validation_result_t &validation);
-    json make_error_response(const std::string &error_type, const std::string &error_message);
-    json make_validation_failure_response(
-      const std::string &patchset_id,
-      const validation_result_t &validation
+      const std::string& patchset_id,
+      const std::vector<file_edit_t>& edits,
+      const validation_result_t& validation
     );
+    json make_error_response(const std::string& error_type, const std::string& error_message);
+    json make_validation_failure_response(const std::string& patchset_id, const validation_result_t& validation);
 
-    patchset_store &store_;
+    patchset_store& store_;
   };
 } // namespace mistral::tools

@@ -2,8 +2,8 @@
 #include "agent/agent_system.h"
 #include "agent/tool_registry.h"
 
-#include <nlohmann/json.hpp>
 #include <dripcore/task.h>
+#include <nlohmann/json.hpp>
 
 namespace mistral::agent
 {
@@ -24,13 +24,15 @@ namespace mistral::agent
 
   dripcore::awaitable<std::string> tool_command::execute(
     dripcore::task&,
-    const std::string &args,
-    agent::agent_system &agent_sys)
+    const std::string& args,
+    agent::agent_system& agent_sys
+  )
   {
     // Parse the command: /tool <name> <json_args>
     // Find first space to separate tool name from arguments
     size_t first_space = args.find(' ');
-    if (first_space == std::string::npos) {
+    if (first_space == std::string::npos)
+    {
       co_return "Error: Missing tool name or arguments. Usage: /tool <tool_name> <json_arguments>";
     }
 
@@ -43,43 +45,48 @@ namespace mistral::agent
     json_args_str.erase(0, json_args_str.find_first_not_of(" \t"));
     json_args_str.erase(json_args_str.find_last_not_of(" \t") + 1);
 
-    if (tool_name.empty()) {
+    if (tool_name.empty())
+    {
       co_return "Error: Tool name cannot be empty";
     }
 
-    if (json_args_str.empty()) {
+    if (json_args_str.empty())
+    {
       co_return "Error: JSON arguments cannot be empty";
     }
 
     // Parse JSON arguments
     json json_args;
-    try {
+    try
+    {
       json_args = json::parse(json_args_str);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       co_return std::string("Error: Invalid JSON arguments: ") + e.what();
     }
 
     // Check if tool exists
-    if (!agent_sys.global_tools().has_tool(tool_name)) {
+    if (!agent_sys.global_tools().has_tool(tool_name))
+    {
       co_return "Error: Tool '" + tool_name + "' not found. Use /tools to list available tools.";
     }
 
     // Build tool call JSON
-    json tool_call = {
-      {"function", {
-        {"name", tool_name},
-        {"arguments", json_args.dump()}
-      }}
-    };
+    json tool_call = {{"function", {{"name", tool_name}, {"arguments", json_args.dump()}}}};
 
     // Execute the tool
-    try {
+    try
+    {
       json result = co_await agent_sys.global_tools().dispatch(tool_call);
-      if (result.is_string()) {
+      if (result.is_string())
+      {
         co_return result.get<std::string>();
       }
       co_return result.dump(2); // Pretty print with 2-space indent
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       co_return std::string("Error executing tool: ") + e.what();
     }
   }

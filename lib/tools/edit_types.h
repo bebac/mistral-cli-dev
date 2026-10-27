@@ -1,11 +1,11 @@
 #ifndef MISTRAL_EDIT_TYPES_H
 #define MISTRAL_EDIT_TYPES_H
 
-#include <string>
-#include <vector>
-#include <optional>
 #include <algorithm>
 #include <iterator>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace mistral::tools
 {
@@ -23,7 +23,8 @@ namespace mistral::tools
   {
     std::string file_path;
     bool valid = false;
-    std::string error_type; // "file_not_found", "search_not_found", "multiple_matches", "format_error", "invalid_path", "file_exists", "missing_file_path"
+    std::string error_type; // "file_not_found", "search_not_found", "multiple_matches", "format_error", "invalid_path",
+                            // "file_exists", "missing_file_path"
     std::string error_message;
     std::string search_text;
     size_t match_count = 0; // How many times search_text appears in target file
@@ -48,51 +49,31 @@ namespace mistral::tools
 
     bool all_valid() const
     {
-      return std::all_of(
-        validations.begin(),
-        validations.end(),
-        [](const edit_validation_t &ev) {
-          return ev.valid;
-        }
-      );
+      return std::all_of(validations.begin(), validations.end(), [](const edit_validation_t& ev) { return ev.valid; });
     }
 
     int fixable_error_count() const
     {
-      return static_cast<int>(std::count_if(
-        validations.begin(),
-        validations.end(),
-        [](const edit_validation_t &ev) {
-          return !ev.valid && ev.is_fixable;
-        })
-      );
+      return static_cast<int>(std::count_if(validations.begin(), validations.end(), [](const edit_validation_t& ev) {
+        return !ev.valid && ev.is_fixable;
+      }));
     }
 
     std::vector<edit_validation_t> get_fixable_errors() const
     {
       std::vector<edit_validation_t> result;
-      std::copy_if(
-        validations.begin(),
-        validations.end(),
-        std::back_inserter(result),
-        [](const edit_validation_t &ev) {
-          return !ev.valid && ev.is_fixable;
-        }
-      );
+      std::copy_if(validations.begin(), validations.end(), std::back_inserter(result), [](const edit_validation_t& ev) {
+        return !ev.valid && ev.is_fixable;
+      });
       return result;
     }
 
     std::vector<edit_validation_t> get_non_fixable_errors() const
     {
       std::vector<edit_validation_t> result;
-      std::copy_if(
-        validations.begin(),
-        validations.end(),
-        std::back_inserter(result),
-        [](const edit_validation_t &ev) {
-          return !ev.valid && !ev.is_fixable;
-        }
-      );
+      std::copy_if(validations.begin(), validations.end(), std::back_inserter(result), [](const edit_validation_t& ev) {
+        return !ev.valid && !ev.is_fixable;
+      });
       return result;
     }
   };

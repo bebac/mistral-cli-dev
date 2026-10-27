@@ -25,8 +25,7 @@ namespace mistral::mcp
     virtual dripcore::awaitable<json> list_tools() = 0;
 
     // tools/call - returns the full result object.
-    virtual dripcore::awaitable<json> call_tool(
-      const std::string& name, const json& args) = 0;
+    virtual dripcore::awaitable<json> call_tool(const std::string& name, const json& args) = 0;
 
     virtual bool initialized() const = 0;
     virtual const std::string& instructions() const = 0;

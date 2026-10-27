@@ -1,6 +1,6 @@
-#include <doctest/doctest.h>
-#include "pty_test_harness.h"
 #include "cpptui.hpp"
+#include "pty_test_harness.h"
+#include <doctest/doctest.h>
 
 #include <atomic>
 #include <iostream>
@@ -18,13 +18,16 @@ TEST_CASE("cpptui PTY: Terminal construct and render")
   std::atomic<bool> app_exited{false};
 
   std::thread app_thread([&]() {
-    try {
+    try
+    {
       using namespace cpptui;
       Terminal term;
       Buffer buf(80, 24);
       Buffer prev(80, 24);
       term.render(buf, prev);
-    } catch (...) {
+    }
+    catch (...)
+    {
       // Swallow exceptions — the test verifies output via the PTY.
     }
     app_exited.store(true, std::memory_order_release);
@@ -105,7 +108,8 @@ TEST_CASE("cpptui PTY: keypress updates rendered output")
 
     int counter = 0;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
 
@@ -115,17 +119,20 @@ TEST_CASE("cpptui PTY: keypress updates rendered output")
       // Space cycles through distinctive labels.
       app.register_key(' ', [&]() {
         counter++;
-        std::string text = (counter == 1) ? "BBBB" :
-                           (counter == 2) ? "CCCC" : "DDDD";
+        std::string text = (counter == 1) ? "BBBB" : (counter == 2) ? "CCCC" : "DDDD";
         label->set_text(StyledText(text));
       });
 
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test3] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test3] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);

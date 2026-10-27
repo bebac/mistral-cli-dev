@@ -1,6 +1,6 @@
-#include <doctest/doctest.h>
 #include "pty_test_harness.h"
 #include "tui/tui_chat_input.h"
+#include <doctest/doctest.h>
 
 #include <atomic>
 #include <iostream>
@@ -25,7 +25,8 @@ TEST_CASE("ChatInput PTY: text input and Alt+Enter submit")
   std::thread app_thread([&]() {
     using namespace cpptui;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
       root->width = 80;
@@ -45,9 +46,7 @@ TEST_CASE("ChatInput PTY: text input and Alt+Enter submit")
       input->width = 78;
       input->height = 5;
 
-      input->on_submit = [&]() {
-        status->set_text(StyledText("SUBMITTED"));
-      };
+      input->on_submit = [&]() { status->set_text(StyledText("SUBMITTED")); };
 
       root->add(status);
       root->add(input);
@@ -55,9 +54,13 @@ TEST_CASE("ChatInput PTY: text input and Alt+Enter submit")
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test1] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test1] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -100,7 +103,8 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
   std::thread app_thread([&]() {
     using namespace cpptui;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
       root->width = 80;
@@ -120,9 +124,7 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
       input->width = 78;
       input->height = 5;
 
-      input->on_submit = [&]() {
-        status->set_text(StyledText("SUBMITTED"));
-      };
+      input->on_submit = [&]() { status->set_text(StyledText("SUBMITTED")); };
 
       root->add(status);
       root->add(input);
@@ -130,9 +132,13 @@ TEST_CASE("ChatInput PTY: double-Enter submit")
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test2] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test2] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -180,7 +186,8 @@ TEST_CASE("ChatInput PTY: double-Enter submits with stray space after cursor")
   std::thread app_thread([&]() {
     using namespace cpptui;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
       root->width = 80;
@@ -200,9 +207,7 @@ TEST_CASE("ChatInput PTY: double-Enter submits with stray space after cursor")
       input->width = 78;
       input->height = 5;
 
-      input->on_submit = [&]() {
-        status->set_text(StyledText("SUBMITTED"));
-      };
+      input->on_submit = [&]() { status->set_text(StyledText("SUBMITTED")); };
 
       root->add(status);
       root->add(input);
@@ -210,9 +215,13 @@ TEST_CASE("ChatInput PTY: double-Enter submits with stray space after cursor")
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test4] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test4] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -262,7 +271,8 @@ TEST_CASE("ChatInput PTY: submitted text has trailing whitespace trimmed")
   std::thread app_thread([&]() {
     using namespace cpptui;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
       root->width = 80;
@@ -283,8 +293,7 @@ TEST_CASE("ChatInput PTY: submitted text has trailing whitespace trimmed")
       input->height = 5;
 
       input->on_submit = [&]() {
-        status->set_text(StyledText(
-          "LEN=" + std::to_string(input->get_submit_text().size())));
+        status->set_text(StyledText("LEN=" + std::to_string(input->get_submit_text().size())));
       };
 
       root->add(status);
@@ -293,9 +302,13 @@ TEST_CASE("ChatInput PTY: submitted text has trailing whitespace trimmed")
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test5] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test5] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);
@@ -343,7 +356,8 @@ TEST_CASE("ChatInput PTY: single-key approval mode")
   std::thread app_thread([&]() {
     using namespace cpptui;
 
-    try {
+    try
+    {
       App app;
       auto root = std::make_shared<Vertical>();
       root->width = 80;
@@ -363,9 +377,7 @@ TEST_CASE("ChatInput PTY: single-key approval mode")
       input->width = 78;
       input->height = 5;
 
-      input->on_approval_key = [&](char ch) {
-        status->set_text(StyledText(std::string("APPROVED:") + ch));
-      };
+      input->on_approval_key = [&](char ch) { status->set_text(StyledText(std::string("APPROVED:") + ch)); };
 
       // Enter single-key approval mode before running.
       input->set_approval_mode(ChatInput::approval_mode::single_key);
@@ -376,9 +388,13 @@ TEST_CASE("ChatInput PTY: single-key approval mode")
       app.register_key('q', [&]() { app.quit(); });
 
       app.run(root);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
       std::cerr << "[test3] exception: " << e.what() << "\n";
-    } catch (...) {
+    }
+    catch (...)
+    {
       std::cerr << "[test3] unknown exception\n";
     }
     app_exited.store(true, std::memory_order_release);

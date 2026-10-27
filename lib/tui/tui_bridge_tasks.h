@@ -1,14 +1,14 @@
 #ifndef MISTRAL_TUI_BRIDGE_TASKS_H
 #define MISTRAL_TUI_BRIDGE_TASKS_H
 
-#include "tui/tui_thread_safe_queue.h"
-#include "tui/tui_types.h"
-#include "tui/tui_approval_state.h"
 #include "slash_command/slash_command.h"
 #include "trace/trace.h"
+#include "tui/tui_approval_state.h"
+#include "tui/tui_thread_safe_queue.h"
+#include "tui/tui_types.h"
 
-#include <dripcore/task.h>
 #include <dripcore/channel.h>
+#include <dripcore/task.h>
 
 #include <atomic>
 #include <functional>
@@ -44,11 +44,8 @@ namespace mistral::tui
       append_fn append_content,
       approval_state_fn on_approval_state
     )
-      : prompt_ch_(std::move(prompt_ch))
-      , agent_ready_(agent_ready)
-      , post_(std::move(post))
-      , append_content_(std::move(append_content))
-      , on_approval_state_(std::move(on_approval_state))
+      : prompt_ch_(std::move(prompt_ch)), agent_ready_(agent_ready), post_(std::move(post)),
+        append_content_(std::move(append_content)), on_approval_state_(std::move(on_approval_state))
     {
     }
 
@@ -57,19 +54,17 @@ namespace mistral::tui
       while (true)
       {
         auto msg = co_await prompt_ch_->recv(this);
-        if (!msg) break;  // Channel closed.
+        if (!msg)
+          break; // Channel closed.
 
         mistral::trace::logger::instance().trace(
-          mistral::trace::category::approval,
-          "prompt_bridge received: {}", msg->substr(0, 80)
+          mistral::trace::category::approval, "prompt_bridge received: {}", msg->substr(0, 80)
         );
 
         if (msg->find("[APPROVAL_PROMPT]") == 0)
         {
-          std::string prompt_text =
-            msg->substr(std::string("[APPROVAL_PROMPT]").length());
-          post_([fn = append_content_, on_state = on_approval_state_,
-                 text = std::move(prompt_text)]() {
+          std::string prompt_text = msg->substr(std::string("[APPROVAL_PROMPT]").length());
+          post_([fn = append_content_, on_state = on_approval_state_, text = std::move(prompt_text)]() {
             fn(text, mistral::tui::content_type::tool_approval);
             on_state(approval_state::single_key);
           });
@@ -79,10 +74,8 @@ namespace mistral::tui
           // ask_user tool: free-text question from the agent. Render the
           // question attached to the tool block and switch the input into
           // answer mode (Enter submits, Esc skips).
-          std::string prompt_text =
-            msg->substr(std::string("[ASK_USER]").length());
-          post_([fn = append_content_, on_state = on_approval_state_,
-                 text = std::move(prompt_text)]() {
+          std::string prompt_text = msg->substr(std::string("[ASK_USER]").length());
+          post_([fn = append_content_, on_state = on_approval_state_, text = std::move(prompt_text)]() {
             fn(text, mistral::tui::content_type::tool_approval);
             on_state(approval_state::ask);
           });
@@ -100,15 +93,12 @@ namespace mistral::tui
           // The user pressed 'r', which transitioned the UI to text_input
           // mode directly (via set_approval_state). Now the agent sends
           // the text prompt. We just append it inline.
-          post_([fn = append_content_, text = *msg]() {
-            fn(text, mistral::tui::content_type::system);
-          });
+          post_([fn = append_content_, text = *msg]() { fn(text, mistral::tui::content_type::system); });
         }
       }
 
       mistral::trace::logger::instance().trace(
-        mistral::trace::category::approval,
-        "prompt_bridge channel closed, exiting"
+        mistral::trace::category::approval, "prompt_bridge channel closed, exiting"
       );
       co_return;
     }
@@ -140,8 +130,7 @@ namespace mistral::tui
   // which were structurally identical except for the element type and the
   // set of channels to close on EOF.
   // ---------------------------------------------------------------------------
-  template<typename T>
-  class pipe_bridge_task : public dripcore::task
+  template <typename T> class pipe_bridge_task : public dripcore::task
   {
   public:
     using cleanup_fn = std::function<void()>;
@@ -152,10 +141,7 @@ namespace mistral::tui
       thread_safe_queue<T>& queue,
       cleanup_fn on_eof = nullptr
     )
-      : pipe_read_fd_(pipe_read_fd)
-      , target_ch_(std::move(target_ch))
-      , queue_(queue)
-      , on_eof_(std::move(on_eof))
+      : pipe_read_fd_(pipe_read_fd), target_ch_(std::move(target_ch)), queue_(queue), on_eof_(std::move(on_eof))
     {
     }
 
@@ -168,16 +154,19 @@ namespace mistral::tui
         char buf[16];
         ssize_t n = ::read(pipe_read_fd_, buf, sizeof(buf));
 
-        if (n <= 0) {
+        if (n <= 0)
+        {
           // EOF — pipe write end closed, shutdown.
           target_ch_->close();
-          if (on_eof_) on_eof_();
+          if (on_eof_)
+            on_eof_();
           co_return;
         }
 
         // Drain all pending items and send to target channel.
         auto items = queue_.drain();
-        for (auto& item : items) {
+        for (auto& item : items)
+        {
           target_ch_->try_send(std::move(item));
         }
       }
@@ -206,9 +195,8 @@ namespace mistral::tui
       post_fn post,
       append_fn append_content
     )
-      : slash_cmd_response_ch_(std::move(slash_cmd_response_ch))
-      , post_(std::move(post))
-      , append_content_(std::move(append_content))
+      : slash_cmd_response_ch_(std::move(slash_cmd_response_ch)), post_(std::move(post)),
+        append_content_(std::move(append_content))
     {
     }
 
@@ -217,7 +205,8 @@ namespace mistral::tui
       while (true)
       {
         auto response = co_await slash_cmd_response_ch_->recv(this);
-        if (!response) break;  // Channel closed.
+        if (!response)
+          break; // Channel closed.
 
         post_([fn = append_content_, text = std::move(*response)]() {
           fn("\n" + text + "\n", mistral::tui::content_type::system);

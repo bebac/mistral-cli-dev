@@ -3,8 +3,8 @@
 
 #include <fcntl.h>
 #include <stdexcept>
-#include <utility>
 #include <unistd.h>
+#include <utility>
 
 namespace mistral::common
 {
@@ -35,8 +35,7 @@ namespace mistral::common
     wakeup_pipe(const wakeup_pipe&) = delete;
     wakeup_pipe& operator=(const wakeup_pipe&) = delete;
 
-    wakeup_pipe(wakeup_pipe&& other) noexcept
-      : fds_{other.fds_[0], other.fds_[1]}
+    wakeup_pipe(wakeup_pipe&& other) noexcept : fds_{other.fds_[0], other.fds_[1]}
     {
       other.fds_[0] = -1;
       other.fds_[1] = -1;
@@ -57,13 +56,21 @@ namespace mistral::common
 
     bool notify(char byte = '1')
     {
-      if (fds_[1] < 0) return false;
+      if (fds_[1] < 0)
+        return false;
       ssize_t ret = ::write(fds_[1], &byte, 1);
       return ret == 1;
     }
 
-    int read_fd() const { return fds_[0]; }
-    int write_fd() const { return fds_[1]; }
+    int read_fd() const
+    {
+      return fds_[0];
+    }
+
+    int write_fd() const
+    {
+      return fds_[1];
+    }
 
     void close_write()
     {
@@ -92,7 +99,10 @@ namespace mistral::common
       return {r, w};
     }
 
-    bool valid() const { return fds_[0] >= 0 && fds_[1] >= 0; }
+    bool valid() const
+    {
+      return fds_[0] >= 0 && fds_[1] >= 0;
+    }
 
   private:
     void close_all()

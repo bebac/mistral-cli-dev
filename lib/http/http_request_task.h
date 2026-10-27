@@ -1,12 +1,12 @@
 #ifndef MISTRAL_HTTP_REQUEST_TASK_H
 #define MISTRAL_HTTP_REQUEST_TASK_H
 
-#include "http/http_coordinator_event.h"
 #include "api/types.h"
+#include "http/http_coordinator_event.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
 #include <dripcore/cancelled.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
 
 #include <memory>
 
@@ -20,19 +20,20 @@ namespace mistral::net
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
       std::shared_ptr<dripcore::channel<coordinator_event>> event_ch
     )
-      : request_ch_(std::move(request_ch))
-      , event_ch_(std::move(event_ch))
+      : request_ch_(std::move(request_ch)), event_ch_(std::move(event_ch))
     {
     }
 
   protected:
     dripcore::awaitable<> body() override
     {
-      while (true) {
+      while (true)
+      {
         auto req = co_await request_ch_->recv(this);
 
         // No request means we are shutting down
-        if (!req) {
+        if (!req)
+        {
           event_ch_->try_send({coordinator_event_type::shutdown});
           break;
         }

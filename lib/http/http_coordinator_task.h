@@ -1,38 +1,38 @@
 #ifndef MISTRAL_HTTP_COORDINATOR_TASK_H
 #define MISTRAL_HTTP_COORDINATOR_TASK_H
 
+#include "api/types.h"
 #include "http/http_client.h"
 #include "http/http_coordinator_event.h"
-#include "http/http_request_task.h"
 #include "http/http_read_task.h"
+#include "http/http_request_task.h"
 #include "http/http_write_task.h"
 #include "http/tls_connection.h"
-#include "api/types.h"
 #include "trace/trace.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
-#include <dripcore/cancelled.h>
-#include <dripcore/task_control.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/cancelled.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
+#include <dripcore/task_control.h>
+#include <dripcore/task_handle.h>
 
-#include <http/headers.h>
-#include <http/stream.h>
-#include <http/sse.h>
 #include <http/event.h>
+#include <http/headers.h>
+#include <http/sse.h>
+#include <http/stream.h>
 
 #include <openssl/ssl.h>
 
 #include <charconv>
-#include <memory>
-#include <string>
-#include <variant>
 #include <format>
-#include <span>
-#include <unordered_map>
-#include <iostream>
 #include <functional>
+#include <iostream>
+#include <memory>
+#include <span>
+#include <string>
+#include <unordered_map>
+#include <variant>
 
 namespace mistral::net
 {
@@ -58,11 +58,10 @@ namespace mistral::net
       while (send_offset < pending_body.size())
       {
         size_t remaining = pending_body.size() - send_offset;
-        size_t sent = stream.send_data(
-          std::span<const std::byte>(pending_body.data() + send_offset, remaining),
-          false);
+        size_t sent = stream.send_data(std::span<const std::byte>(pending_body.data() + send_offset, remaining), false);
         send_offset += sent;
-        if (sent == 0) break;  // window exhausted
+        if (sent == 0)
+          break; // window exhausted
       }
     }
 
@@ -70,7 +69,8 @@ namespace mistral::net
     // and END_STREAM has not already been sent.
     void try_end_stream()
     {
-      if (!end_stream_sent && send_offset >= pending_body.size()) {
+      if (!end_stream_sent && send_offset >= pending_body.size())
+      {
         stream.send_end();
         end_stream_sent = true;
       }
@@ -80,13 +80,15 @@ namespace mistral::net
     void finalize()
     {
       mistral::trace::logger::instance().trace(
-        mistral::trace::category::stream,
-        "on_end status_code='{}', req.stream={}", response->status_code, req_stream);
+        mistral::trace::category::stream, "on_end status_code='{}', req.stream={}", response->status_code, req_stream
+      );
       if (response->status_code < 200 || response->status_code >= 300)
       {
-        response_ch->try_send({api::event_type::error,
+        response_ch->try_send({
+          api::event_type::error,
           std::format("HTTP {}: {}", response->status_code, response->body),
-          response->status_code});
+          response->status_code,
+        });
       }
       else if (!req_stream)
       {
@@ -118,12 +120,9 @@ namespace mistral::net
       std::string api_key,
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch
     )
-      : host_(std::move(host))
-      , port_(port)
-      , api_key_(std::move(api_key))
-      , request_ch_(std::move(request_ch))
-      , event_ch_(std::make_shared<dripcore::channel<coordinator_event>>(32))
-      , output_ready_ch_(std::make_shared<dripcore::channel<bool>>(1))
+      : host_(std::move(host)), port_(port), api_key_(std::move(api_key)), request_ch_(std::move(request_ch)),
+        event_ch_(std::make_shared<dripcore::channel<coordinator_event>>(32)),
+        output_ready_ch_(std::make_shared<dripcore::channel<bool>>(1))
     {
     }
 
@@ -134,29 +133,32 @@ namespace mistral::net
       spawn_local<http_request_task>(request_ch_, event_ch_);
 
       // Main event loop
-      while (true) {
+      while (true)
+      {
         auto evt = co_await event_ch_->recv(this);
-        if (!evt) break;  // Channel closed
+        if (!evt)
+          break; // Channel closed
 
-        switch (evt->type) {
-          case coordinator_event_type::new_request:
-            co_await handle_new_request(*evt->request);
-            break;
+        switch (evt->type)
+        {
+        case coordinator_event_type::new_request:
+          co_await handle_new_request(*evt->request);
+          break;
 
-          case coordinator_event_type::connection_closed:
-            handle_connection_closed();
-            break;
+        case coordinator_event_type::connection_closed:
+          handle_connection_closed();
+          break;
 
-          case coordinator_event_type::connection_error:
-            handle_connection_error(evt->error);
-            break;
+        case coordinator_event_type::connection_error:
+          handle_connection_error(evt->error);
+          break;
 
-          case coordinator_event_type::goaway_received:
-            handle_goaway(evt->last_stream_id, evt->error);
-            break;
+        case coordinator_event_type::goaway_received:
+          handle_goaway(evt->last_stream_id, evt->error);
+          break;
 
-          case coordinator_event_type::shutdown:
-            co_return;
+        case coordinator_event_type::shutdown:
+          co_return;
         }
       }
 
@@ -174,14 +176,17 @@ namespace mistral::net
     {
       auto response_ch = req.response_ch;
 
-      if (!response_ch) {
+      if (!response_ch)
+      {
         std::cerr << "[http_coordinator] response_ch is required!" << std::endl;
         co_return;
       }
 
       // If not connected, establish connection
-      if (!client_.connected()) {
-        try {
+      if (!client_.connected())
+      {
+        try
+        {
           std::cerr << "[http_coordinator] " << host_ << " connecting..." << std::endl;
           client_.connect(host_, port_);
 
@@ -193,7 +198,8 @@ namespace mistral::net
           // Register output readiness callback — signals the write task
           // when the engine has output ready to send.
           client_.on_output_ready([this]() {
-            if (output_ready_ch_) {
+            if (output_ready_ch_)
+            {
               output_ready_ch_->try_send(true);
             }
           });
@@ -202,13 +208,13 @@ namespace mistral::net
           // Pass a direct event handler to the reader — protocol events
           // are dispatched inline, avoiding a channel hop. This is safe
           // because all tasks run on the same single-threaded executor.
-          reader_task_ = spawn_local<http_read_task>(
-            std::ref(client_), event_ch_,
-            [this](http::event& ev) { dispatch_protocol_event(ev); }
-          );
+          reader_task_ = spawn_local<http_read_task>(std::ref(client_), event_ch_, [this](http::event& ev) {
+            dispatch_protocol_event(ev);
+          });
           writer_task_ = spawn_local<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& e)
+        {
           std::cerr << "[http_coordinator] connection failed: " << e.what() << std::endl;
           response_ch->try_send({api::event_type::error, e.what()});
           response_ch->close();
@@ -234,10 +240,12 @@ namespace mistral::net
       // If the engine throws during send_headers or send_data, fail the
       // stream so the consumer's event loop is unblocked with an error
       // instead of waiting for a response that will never arrive.
-      try {
+      try
+      {
         send_request_body(stream, req, state);
       }
-      catch (const std::exception& e) {
+      catch (const std::exception& e)
+      {
         state->fail(std::format("send error: {}", e.what()));
         stream_registry_.erase(stream.id());
       }
@@ -252,10 +260,9 @@ namespace mistral::net
       case http::event_type::goaway:
       {
         auto& goaway = std::get<http::goaway_info>(evt.payload);
-        event_ch_->try_send({
-          coordinator_event_type::goaway_received, {},
-          http::make_error_code(goaway.ec), goaway.last_stream_id
-        });
+        event_ch_->try_send(
+          {coordinator_event_type::goaway_received, {}, http::make_error_code(goaway.ec), goaway.last_stream_id}
+        );
         return;
       }
 
@@ -272,7 +279,8 @@ namespace mistral::net
 
       // Per-stream events — look up the stream in the registry.
       auto it = stream_registry_.find(evt.stream_id);
-      if (it == stream_registry_.end()) {
+      if (it == stream_registry_.end())
+      {
         return;
       }
       auto& state = it->second;
@@ -283,11 +291,10 @@ namespace mistral::net
       {
         auto& h = std::get<http::headers>(evt.payload);
         auto status = h.get(":status");
-        mistral::trace::logger::instance().trace(
-          mistral::trace::category::stream, "on_headers status='{}'", status);
-        if (!status.empty()) {
-          std::from_chars(status.data(), status.data() + status.size(),
-            state->response->status_code);
+        mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_headers status='{}'", status);
+        if (!status.empty())
+        {
+          std::from_chars(status.data(), status.data() + status.size(), state->response->status_code);
         }
         break;
       }
@@ -297,7 +304,8 @@ namespace mistral::net
         // If the consumer closed the response channel (cancelled),
         // fail the stream immediately so the consumer's event loop
         // terminates instead of waiting for the full server response.
-        if (state->response_ch->is_closed()) {
+        if (state->response_ch->is_closed())
+        {
           state->fail("cancelled");
           stream_registry_.erase(it);
           return;
@@ -307,20 +315,21 @@ namespace mistral::net
         auto* first = reinterpret_cast<const char*>(data.data());
         state->response->body.append(first, first + data.size());
         mistral::trace::logger::instance().trace(
-          mistral::trace::category::stream, "on_data body={}",
-          state->response->body);
-        if (state->req_stream) {
+          mistral::trace::category::stream, "on_data body={}", state->response->body
+        );
+        if (state->req_stream)
+        {
           std::span<const std::byte> data_span(data.data(), data.size());
-          state->sse_parser->parse(
-            data_span,
-            [&state](http::sse_event sse_evt) {
-              if (sse_evt.data == "[DONE]") {
-                state->response_ch->try_send({api::event_type::done, {}});
-              } else if (!sse_evt.data.empty()) {
-                state->response_ch->try_send({api::event_type::data, std::move(sse_evt.data)});
-              }
+          state->sse_parser->parse(data_span, [&state](http::sse_event sse_evt) {
+            if (sse_evt.data == "[DONE]")
+            {
+              state->response_ch->try_send({api::event_type::done, {}});
             }
-          );
+            else if (!sse_evt.data.empty())
+            {
+              state->response_ch->try_send({api::event_type::data, std::move(sse_evt.data)});
+            }
+          });
         }
         break;
       }
@@ -334,7 +343,8 @@ namespace mistral::net
       {
         auto ec = std::get<std::error_code>(evt.payload);
         mistral::trace::logger::instance().trace(
-          mistral::trace::category::stream, "on_reset error_code='{}'", ec.message());
+          mistral::trace::category::stream, "on_reset error_code='{}'", ec.message()
+        );
         state->fail(std::format("stream reset: {}", ec.message()));
         stream_registry_.erase(it);
         break;
@@ -379,7 +389,8 @@ namespace mistral::net
 
     void fail_all_streams(const std::string& reason)
     {
-      for (auto& [id, state] : stream_registry_) {
+      for (auto& [id, state] : stream_registry_)
+      {
         state->fail(reason);
       }
       stream_registry_.clear();
@@ -409,8 +420,8 @@ namespace mistral::net
 
     void handle_goaway(uint32_t last_stream_id, std::error_code ec)
     {
-      std::cerr << "[http_coordinator] GOAWAY received, last_stream_id=" << last_stream_id
-                << ", error=" << ec.message() << " (active_streams=" << client_.active_streams() << ")" << std::endl;
+      std::cerr << "[http_coordinator] GOAWAY received, last_stream_id=" << last_stream_id << ", error=" << ec.message()
+                << " (active_streams=" << client_.active_streams() << ")" << std::endl;
       fail_all_streams(std::format("goaway: {}", ec.message()));
       client_.shutdown(); // Same reasoning as for coordinator_event_type::shutdown
     }

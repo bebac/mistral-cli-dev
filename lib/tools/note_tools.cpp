@@ -18,7 +18,8 @@ namespace mistral::tools
   static std::string trim(const std::string& s)
   {
     auto start = s.find_first_not_of(" \t");
-    if (start == std::string::npos) return "";
+    if (start == std::string::npos)
+      return "";
     auto end = s.find_last_not_of(" \t");
     return s.substr(start, end - start + 1);
   }
@@ -30,15 +31,18 @@ namespace mistral::tools
     std::string v = trim(value);
 
     // Strip surrounding brackets if present.
-    if (v.size() >= 2 && v.front() == '[' && v.back() == ']') {
+    if (v.size() >= 2 && v.front() == '[' && v.back() == ']')
+    {
       v = v.substr(1, v.size() - 2);
     }
 
     std::istringstream ss(v);
     std::string item;
-    while (std::getline(ss, item, ',')) {
+    while (std::getline(ss, item, ','))
+    {
       auto t = trim(item);
-      if (!t.empty()) {
+      if (!t.empty())
+      {
         tags.push_back(t);
       }
     }
@@ -50,16 +54,18 @@ namespace mistral::tools
     parsed_note result;
 
     // Frontmatter must start with "---\n" at the very beginning.
-    if (!content.starts_with("---\n") && !content.starts_with("---\r\n")) {
+    if (!content.starts_with("---\n") && !content.starts_with("---\r\n"))
+    {
       result.body = content;
       return result;
     }
 
     // Find the closing "---".
-    size_t start = content.find('\n') + 1;  // Skip past first "---\n".
+    size_t start = content.find('\n') + 1; // Skip past first "---\n".
     size_t end = content.find("\n---", start);
 
-    if (end == std::string::npos) {
+    if (end == std::string::npos)
+    {
       // No closing --- found; treat entire content as body.
       result.body = content;
       return result;
@@ -73,27 +79,35 @@ namespace mistral::tools
     while (std::getline(ss, line))
     {
       // Strip \r if present.
-      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (!line.empty() && line.back() == '\r')
+        line.pop_back();
 
       auto colon = line.find(':');
-      if (colon == std::string::npos) continue;
+      if (colon == std::string::npos)
+        continue;
 
       std::string key = trim(line.substr(0, colon));
       std::string value = trim(line.substr(colon + 1));
 
-      if (key == "title") {
+      if (key == "title")
+      {
         result.front.title = value;
-      } else if (key == "tags") {
+      }
+      else if (key == "tags")
+      {
         result.front.tags = parse_tag_list(value);
       }
     }
 
     // Body is everything after the closing "---\n".
-    size_t body_start = end + 4;  // Skip "\n---"
-    if (body_start < content.size() && content[body_start] == '\n') {
+    size_t body_start = end + 4; // Skip "\n---"
+    if (body_start < content.size() && content[body_start] == '\n')
+    {
       ++body_start;
-    } else if (body_start + 1 < content.size() && content[body_start] == '\r') {
-      body_start += 2;  // Skip \r\n
+    }
+    else if (body_start + 1 < content.size() && content[body_start] == '\r')
+    {
+      body_start += 2; // Skip \r\n
     }
 
     result.body = (body_start < content.size()) ? content.substr(body_start) : "";
@@ -156,19 +170,19 @@ namespace mistral::tools
 
   // ---- note_tools ----
 
-  note_tools::note_tools(std::string notes_dir)
-    : notes_dir_(std::move(notes_dir))
+  note_tools::note_tools(std::string notes_dir) : notes_dir_(std::move(notes_dir))
   {
     fs::create_directories(notes_dir_);
     engine_.set_include_base(notes_dir_);
-    engine_.enable_command_expansion(false);  // No shell exec when reading notes.
+    engine_.enable_command_expansion(false); // No shell exec when reading notes.
   }
 
   fs::path note_tools::resolve_path(const std::string& path) const
   {
     fs::path p = fs::path(notes_dir_) / path;
     // Append .md if no extension.
-    if (!p.has_extension()) {
+    if (!p.has_extension())
+    {
       p += ".md";
     }
     return p;
@@ -178,7 +192,8 @@ namespace mistral::tools
   {
     fs::path base = folder.empty() ? fs::path(notes_dir_) : fs::path(notes_dir_) / folder;
 
-    if (!fs::exists(base)) {
+    if (!fs::exists(base))
+    {
       co_return std::format("error: folder '{}' does not exist", folder);
     }
 
@@ -186,10 +201,12 @@ namespace mistral::tools
 
     for (const auto& entry : fs::recursive_directory_iterator(base))
     {
-      if (!entry.is_regular_file()) continue;
+      if (!entry.is_regular_file())
+        continue;
 
       auto ext = entry.path().extension().string();
-      if (ext != ".md") continue;
+      if (ext != ".md")
+        continue;
 
       auto rel = fs::relative(entry.path(), notes_dir_);
 
@@ -200,13 +217,17 @@ namespace mistral::tools
       auto parsed = parse_frontmatter(ss.str());
 
       out << rel.string();
-      if (!parsed.front.title.empty()) {
+      if (!parsed.front.title.empty())
+      {
         out << "  — " << parsed.front.title;
       }
-      if (!parsed.front.tags.empty()) {
+      if (!parsed.front.tags.empty())
+      {
         out << "  [";
-        for (size_t i = 0; i < parsed.front.tags.size(); ++i) {
-          if (i > 0) out << ", ";
+        for (size_t i = 0; i < parsed.front.tags.size(); ++i)
+        {
+          if (i > 0)
+            out << ", ";
           out << parsed.front.tags[i];
         }
         out << "]";
@@ -222,12 +243,14 @@ namespace mistral::tools
   {
     auto full = resolve_path(path);
 
-    if (!fs::exists(full)) {
+    if (!fs::exists(full))
+    {
       co_return {{"error", std::format("note not found: {}", path)}};
     }
 
     std::ifstream f(full);
-    if (!f) {
+    if (!f)
+    {
       co_return {{"error", std::format("cannot open note: {}", path)}};
     }
 
@@ -239,16 +262,21 @@ namespace mistral::tools
 
     // Resolve includes in the body via the template engine.
     std::string rendered;
-    try {
+    try
+    {
       rendered = engine_.process(parsed.body);
-    } catch (const std::exception& e) {
-      rendered = parsed.body;  // Fallback to raw on error.
+    }
+    catch (const std::exception& e)
+    {
+      rendered = parsed.body; // Fallback to raw on error.
     }
 
     json result;
     result["path"] = fs::relative(full, notes_dir_).string();
-    if (!parsed.front.title.empty()) result["title"] = parsed.front.title;
-    if (!parsed.front.tags.empty()) result["tags"] = parsed.front.tags;
+    if (!parsed.front.title.empty())
+      result["title"] = parsed.front.title;
+    if (!parsed.front.tags.empty())
+      result["tags"] = parsed.front.tags;
     result["content"] = rendered;
     co_return result;
   }
@@ -257,28 +285,30 @@ namespace mistral::tools
   {
     auto full = resolve_path(path);
 
-    try {
+    try
+    {
       fs::create_directories(full.parent_path());
 
       std::ofstream f(full, std::ios::binary);
-      if (!f) {
+      if (!f)
+      {
         co_return {{"error", std::format("cannot write note: {}", path)}};
       }
       f << content;
       f.close();
 
-      co_return {
-        {"status", "ok"},
-        {"path", fs::relative(full, notes_dir_).string()}
-      };
-    } catch (const std::exception& e) {
+      co_return {{"status", "ok"}, {"path", fs::relative(full, notes_dir_).string()}};
+    }
+    catch (const std::exception& e)
+    {
       co_return {{"error", e.what()}};
     }
   }
 
   dripcore::awaitable<json> note_tools::search_notes(std::string query, std::string tag)
   {
-    if (query.empty() && tag.empty()) {
+    if (query.empty() && tag.empty())
+    {
       co_return {{"error", "at least one of query or tag must be provided"}};
     }
 
@@ -292,11 +322,14 @@ namespace mistral::tools
 
     for (const auto& entry : fs::recursive_directory_iterator(notes_dir_))
     {
-      if (!entry.is_regular_file()) continue;
-      if (entry.path().extension() != ".md") continue;
+      if (!entry.is_regular_file())
+        continue;
+      if (entry.path().extension() != ".md")
+        continue;
 
       std::ifstream f(entry.path());
-      if (!f) continue;
+      if (!f)
+        continue;
 
       std::ostringstream ss;
       ss << f.rdbuf();
@@ -306,23 +339,33 @@ namespace mistral::tools
       auto rel = fs::relative(entry.path(), notes_dir_).string();
 
       // Tag filter.
-      if (!tag_lower.empty()) {
+      if (!tag_lower.empty())
+      {
         bool has_tag = false;
-        for (const auto& t : parsed.front.tags) {
+        for (const auto& t : parsed.front.tags)
+        {
           std::string t_lower = t;
           std::transform(t_lower.begin(), t_lower.end(), t_lower.begin(), ::tolower);
-          if (t_lower == tag_lower) { has_tag = true; break; }
+          if (t_lower == tag_lower)
+          {
+            has_tag = true;
+            break;
+          }
         }
-        if (!has_tag) continue;
+        if (!has_tag)
+          continue;
       }
 
       // Text search.
       json match;
       match["path"] = rel;
-      if (!parsed.front.title.empty()) match["title"] = parsed.front.title;
-      if (!parsed.front.tags.empty()) match["tags"] = parsed.front.tags;
+      if (!parsed.front.title.empty())
+        match["title"] = parsed.front.title;
+      if (!parsed.front.tags.empty())
+        match["tags"] = parsed.front.tags;
 
-      if (!query_lower.empty()) {
+      if (!query_lower.empty())
+      {
         // Search line by line, collect matching lines with context.
         json matching_lines = json::array();
         std::istringstream lines(content);
@@ -335,15 +378,14 @@ namespace mistral::tools
           std::string line_lower = line;
           std::transform(line_lower.begin(), line_lower.end(), line_lower.begin(), ::tolower);
 
-          if (line_lower.find(query_lower) != std::string::npos) {
-            matching_lines.push_back({
-              {"line", line_num},
-              {"text", trim(line)}
-            });
+          if (line_lower.find(query_lower) != std::string::npos)
+          {
+            matching_lines.push_back({{"line", line_num}, {"text", trim(line)}});
           }
         }
 
-        if (matching_lines.empty()) continue;  // Query didn't match.
+        if (matching_lines.empty())
+          continue; // Query didn't match.
         match["matches"] = std::move(matching_lines);
       }
 

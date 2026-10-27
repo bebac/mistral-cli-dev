@@ -1,5 +1,5 @@
-#include "tools/edit_parser.h"
 #include "doctest/doctest.h"
+#include "tools/edit_parser.h"
 
 #include <filesystem>
 #include <fstream>
@@ -91,13 +91,13 @@ namespace mistral::tools
       // marker: the backticked mention is skipped, the valid one is used.
       auto result = extract_patchset_id(
         "Emitting the patchset now (patchset: `my-id`):\n\n"
-        "Here are the changes (patchset: my-id):");
+        "Here are the changes (patchset: my-id):"
+      );
       CHECK(result.has_value());
       CHECK(*result == "my-id");
 
       // Invalid mentions before and after a valid one: the valid one wins
-      result = extract_patchset_id(
-        "(patchset: `first`) ... (patchset: second) ... (patchset: `third`)");
+      result = extract_patchset_id("(patchset: `first`) ... (patchset: second) ... (patchset: `third`)");
       CHECK(result.has_value());
       CHECK(*result == "second");
 
@@ -106,8 +106,7 @@ namespace mistral::tools
       CHECK(!result.has_value());
 
       // Backticked mention without closing parenthesis, then a valid marker
-      result = extract_patchset_id(
-        "(patchset: `oops\n\nHere are the changes (patchset: fine):");
+      result = extract_patchset_id("(patchset: `oops\n\nHere are the changes (patchset: fine):");
       CHECK(result.has_value());
       CHECK(*result == "fine");
     }
@@ -129,12 +128,7 @@ namespace mistral::tools
 
       // Add a fixable error
       result.validations.push_back(
-        {
-          .file_path = "test2.cpp",
-          .valid = false,
-          .error_type = "search_not_found",
-          .is_fixable = true
-        }
+        {.file_path = "test2.cpp", .valid = false, .error_type = "search_not_found", .is_fixable = true}
       );
       CHECK(result.all_valid() == false);
       CHECK(result.fixable_error_count() == 1);
@@ -143,12 +137,7 @@ namespace mistral::tools
 
       // Add a non-fixable error
       result.validations.push_back(
-        {
-          .file_path = "test3.cpp",
-          .valid = false,
-          .error_type = "file_not_found",
-          .is_fixable = false
-        }
+        {.file_path = "test3.cpp", .valid = false, .error_type = "file_not_found", .is_fixable = false}
       );
       CHECK(result.all_valid() == false);
       CHECK(result.fixable_error_count() == 1);
@@ -388,7 +377,10 @@ namespace mistral::tools
       REQUIRE(result->second.size() == 1);
       CHECK(result->second[0].file_path == "markerless_new_file_test.tmp");
       CHECK(result->second[0].search_text == "");
-      CHECK(result->second[0].replace_text == "#include <iostream>\n\nint main() {\n  std::cout << \"Hello!\" << std::endl;\n  return 0;\n}");
+      CHECK(
+        result->second[0].replace_text ==
+        "#include <iostream>\n\nint main() {\n  std::cout << \"Hello!\" << std::endl;\n  return 0;\n}"
+      );
       CHECK(result->second[0].patch_number == 1);
 
       // Clean up
@@ -705,9 +697,8 @@ namespace mistral::tools
 
     TEST_CASE("parse_edit_blocks - no edit blocks returns nullopt")
     {
-      std::string input =
-        "This is just a regular response without any edit blocks.\n"
-        "Nothing to see here.";
+      std::string input = "This is just a regular response without any edit blocks.\n"
+                          "Nothing to see here.";
 
       auto result = parse_edit_blocks(input);
       CHECK(!result.has_value());
@@ -735,12 +726,12 @@ namespace mistral::tools
       CHECK((*result)[0].file_path == "src/main.cpp");
     }
 
-    TEST_CASE("parse_edits_with_patchset - mismatched closing fence backticks (4 instead of 5)"
-              * doctest::may_fail(true)
-              * doctest::skip() // Skip this test. It is a malformed patchset. I don't see
-                                // an easy way to handle this other than hoping that the agent
-                                // realizes that the patchset does not contain the expected
-                                // number of edits and creates a new corrected patchset.
+    TEST_CASE(
+      "parse_edits_with_patchset - mismatched closing fence backticks (4 instead of 5)" * doctest::may_fail(true) *
+      doctest::skip() // Skip this test. It is a malformed patchset. I don't see
+                      // an easy way to handle this other than hoping that the agent
+                      // realizes that the patchset does not contain the expected
+                      // number of edits and creates a new corrected patchset.
     )
     {
       // Known limitation: when the AI emits tilde opening fences (~~~)
@@ -750,6 +741,7 @@ namespace mistral::tools
       // finds the last 3-tilde fence, and merges all edits into 1 garbled
       // edit. This is an AI formatting error, not a parser bug — the parser
       // correctly requires consistent 3-tilde fencing.
+      // clang-format off
       std::string input =
         "Here are the changes (patchset: fix-remove-patchset-callsites):\n"
         "\n"
@@ -795,6 +787,7 @@ namespace mistral::tools
         "    auto retrieved = agent_sys.get_patchset(\"multi-edit\");\n"
         ">>>>>>> REPLACE\n"
         "~~~";
+      // clang-format on
 
       auto result = parse_edits_with_patchset(input);
       REQUIRE(result.has_value());

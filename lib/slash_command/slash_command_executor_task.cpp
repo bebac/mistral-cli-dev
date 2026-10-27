@@ -11,11 +11,10 @@ namespace mistral::slash_command
   slash_command_executor_task::slash_command_executor_task(
     std::shared_ptr<dripcore::channel<slash_command_request>> cmd_request_ch,
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
-    std::shared_ptr<slash_command_registry> registry)
-    :
-    cmd_request_ch_(std::move(cmd_request_ch)),
-    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
-    registry_(std::move(registry))
+    std::shared_ptr<slash_command_registry> registry
+  )
+    : cmd_request_ch_(std::move(cmd_request_ch)), slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
+      registry_(std::move(registry))
   {
   }
 
@@ -25,11 +24,12 @@ namespace mistral::slash_command
     {
       auto request = co_await cmd_request_ch_->recv(this);
 
-      if (!request) {
+      if (!request)
+      {
         break;
       }
 
-      const slash_command *const_cmd = registry_->get_command(request->command_name);
+      const slash_command* const_cmd = registry_->get_command(request->command_name);
 
       if (!const_cmd)
       {
@@ -41,14 +41,10 @@ namespace mistral::slash_command
       try
       {
         // const_cast is safe here because registry stores non-const commands
-        slash_command *cmd = const_cast<slash_command *>(const_cmd);
-        response = co_await cmd->execute(
-          *this,
-          request->args,
-          agent::agent_system::instance()
-        );
+        slash_command* cmd = const_cast<slash_command*>(const_cmd);
+        response = co_await cmd->execute(*this, request->args, agent::agent_system::instance());
       }
-      catch (const std::exception &e)
+      catch (const std::exception& e)
       {
         response = std::string("Error executing /") + request->command_name + ": " + e.what();
       }

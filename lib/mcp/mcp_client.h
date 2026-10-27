@@ -29,9 +29,7 @@ namespace mistral::mcp
   class mcp_client : public mcp_client_interface
   {
   public:
-    explicit mcp_client(
-      std::string endpoint_url,
-      std::chrono::seconds request_timeout = std::chrono::seconds{30});
+    explicit mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout = std::chrono::seconds{30});
 
     // Parses the endpoint URL and opens a TCP connection.
     // Returns false when the server is unreachable.
@@ -42,23 +40,33 @@ namespace mistral::mcp
     // populated. Throws std::runtime_error on failure.
     dripcore::awaitable<bool> initialize() override;
 
-    bool initialized() const override { return !session_id_.empty(); }
-    const std::string& session_id() const { return session_id_; }
-    const json& server_info() const { return server_info_; }
-    const std::string& instructions() const override { return instructions_; }
+    bool initialized() const override
+    {
+      return !session_id_.empty();
+    }
+    const std::string& session_id() const
+    {
+      return session_id_;
+    }
+    const json& server_info() const
+    {
+      return server_info_;
+    }
+    const std::string& instructions() const override
+    {
+      return instructions_;
+    }
 
     // tools/list - returns the full result object (contains "tools").
     dripcore::awaitable<json> list_tools() override;
 
     // tools/call - returns the full result object (content[] and,
     // when the tool declares an outputSchema, structuredContent).
-    dripcore::awaitable<json> call_tool(
-      const std::string& name, const json& args) override;
+    dripcore::awaitable<json> call_tool(const std::string& name, const json& args) override;
 
     // Generic JSON-RPC request. Returns the "result" member; throws
     // std::runtime_error on transport failure or JSON-RPC error.
-    dripcore::awaitable<json> request(
-      const std::string& method, const json& params);
+    dripcore::awaitable<json> request(const std::string& method, const json& params);
 
     // JSON-RPC notification (no response expected).
     dripcore::awaitable<bool> notify(const std::string& method);

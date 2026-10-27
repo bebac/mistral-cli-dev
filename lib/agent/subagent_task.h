@@ -2,11 +2,11 @@
 #define MISTRAL_SUBAGENT_TASK_H
 
 #include "agent/agent_task_base.h"
-#include "agent/policy_engine.h"
 #include "agent/approval_manager.h"
+#include "agent/policy_engine.h"
 
-#include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/task_handle.h>
 
 namespace mistral::agent
 {

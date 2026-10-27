@@ -3,10 +3,10 @@
 
 #include "agent/agent_system.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
+#include <dripcore/task_handle.h>
 
 #include <memory>
 #include <string>
@@ -27,8 +27,7 @@ namespace mistral::agent
      * @brief Construct a new agent_system_task.
      * @param agent_response_ch Channel to receive AI responses from.
      */
-    explicit agent_system_task(
-        std::shared_ptr<dripcore::channel<std::string>> agent_response_ch);
+    explicit agent_system_task(std::shared_ptr<dripcore::channel<std::string>> agent_response_ch);
 
     dripcore::awaitable<> body() override;
 

@@ -1,6 +1,6 @@
-#include "tui/tui_thread_safe_queue.h"
-#include "tui/tui_render_sink.h"
 #include "doctest/doctest.h"
+#include "tui/tui_render_sink.h"
+#include "tui/tui_thread_safe_queue.h"
 
 #include <atomic>
 #include <functional>
@@ -14,10 +14,12 @@
 // fragments, and flush calls. Allows the test to control when drain
 // callbacks execute (simulating the UI event loop).
 // ---------------------------------------------------------------------------
-namespace {
+namespace
+{
   using content_type = mistral::tui::content_type;
 
-  struct sink_test_harness {
+  struct sink_test_harness
+  {
     std::mutex mutex;
     std::vector<std::pair<std::string, content_type>> appended;
     int flush_count = 0;
@@ -25,7 +27,8 @@ namespace {
     std::vector<std::function<void()>> posted;
     int post_count = 0;
 
-    mistral::tui::post_fn make_post() {
+    mistral::tui::post_fn make_post()
+    {
       return [this](std::function<void()> cb) {
         std::lock_guard<std::mutex> lock(mutex);
         posted.push_back(std::move(cb));
@@ -33,32 +36,37 @@ namespace {
       };
     }
 
-    mistral::tui::append_fn make_append() {
+    mistral::tui::append_fn make_append()
+    {
       return [this](const std::string& text, content_type type) {
         std::lock_guard<std::mutex> lock(mutex);
         appended.emplace_back(text, type);
       };
     }
 
-    mistral::tui::flush_fn make_flush() {
+    mistral::tui::flush_fn make_flush()
+    {
       return [this]() {
         std::lock_guard<std::mutex> lock(mutex);
         ++flush_count;
       };
     }
 
-    mistral::tui::completed_fn make_completed() {
+    mistral::tui::completed_fn make_completed()
+    {
       return [this]() {
         std::lock_guard<std::mutex> lock(mutex);
         ++completed_count;
       };
     }
 
-    bool run_one_posted() {
+    bool run_one_posted()
+    {
       std::function<void()> cb;
       {
         std::lock_guard<std::mutex> lock(mutex);
-        if (posted.empty()) return false;
+        if (posted.empty())
+          return false;
         cb = std::move(posted.front());
         posted.erase(posted.begin());
       }
@@ -66,8 +74,11 @@ namespace {
       return true;
     }
 
-    void run_all_posted() {
-      while (run_one_posted()) {}
+    void run_all_posted()
+    {
+      while (run_one_posted())
+      {
+      }
     }
   };
 } // namespace
@@ -78,7 +89,8 @@ namespace {
 
 TEST_SUITE_BEGIN("thread_safe_queue");
 
-TEST_CASE("push and drain returns items in FIFO order") {
+TEST_CASE("push and drain returns items in FIFO order")
+{
   mistral::tui::thread_safe_queue<int> q;
   q.push(1);
   q.push(2);
@@ -90,13 +102,15 @@ TEST_CASE("push and drain returns items in FIFO order") {
   CHECK(items[2] == 3);
 }
 
-TEST_CASE("drain on empty queue returns empty deque") {
+TEST_CASE("drain on empty queue returns empty deque")
+{
   mistral::tui::thread_safe_queue<int> q;
   auto items = q.drain();
   CHECK(items.empty());
 }
 
-TEST_CASE("drain clears the queue") {
+TEST_CASE("drain clears the queue")
+{
   mistral::tui::thread_safe_queue<int> q;
   q.push(1);
   q.push(2);
@@ -106,7 +120,8 @@ TEST_CASE("drain clears the queue") {
   CHECK(second.empty());
 }
 
-TEST_CASE("push after drain works") {
+TEST_CASE("push after drain works")
+{
   mistral::tui::thread_safe_queue<int> q;
   q.push(1);
   q.drain();
@@ -116,19 +131,23 @@ TEST_CASE("push after drain works") {
   CHECK(items[0] == 2);
 }
 
-TEST_CASE("concurrent push from multiple threads") {
+TEST_CASE("concurrent push from multiple threads")
+{
   mistral::tui::thread_safe_queue<int> q;
   constexpr int N = 1000;
   constexpr int T = 4;
   std::vector<std::thread> threads;
-  for (int t = 0; t < T; ++t) {
+  for (int t = 0; t < T; ++t)
+  {
     threads.emplace_back([&q, t]() {
-      for (int i = 0; i < N; ++i) {
+      for (int i = 0; i < N; ++i)
+      {
         q.push(t * N + i);
       }
     });
   }
-  for (auto& th : threads) th.join();
+  for (auto& th : threads)
+    th.join();
   auto items = q.drain();
   CHECK(items.size() == static_cast<size_t>(N * T));
 }
@@ -141,10 +160,10 @@ TEST_SUITE_END();
 
 TEST_SUITE_BEGIN("tui_render_sink");
 
-TEST_CASE("single output call posts one drain callback") {
+TEST_CASE("single output call posts one drain callback")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output("hello");
   CHECK(h.post_count == 1);
@@ -157,10 +176,10 @@ TEST_CASE("single output call posts one drain callback") {
   CHECK(h.flush_count == 1);
 }
 
-TEST_CASE("multiple outputs before drain batch into single post") {
+TEST_CASE("multiple outputs before drain batch into single post")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output("a");
   sink.output("b");
@@ -177,10 +196,10 @@ TEST_CASE("multiple outputs before drain batch into single post") {
   CHECK(h.flush_count == 1);
 }
 
-TEST_CASE("pending flag is cleared after drain completes") {
+TEST_CASE("pending flag is cleared after drain completes")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output("a");
   CHECK(h.post_count == 1);
@@ -197,10 +216,10 @@ TEST_CASE("pending flag is cleared after drain completes") {
   CHECK(h.appended.size() == 2);
 }
 
-TEST_CASE("pending flag correctly managed across multiple drain cycles") {
+TEST_CASE("pending flag correctly managed across multiple drain cycles")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   // Cycle 1: single item
   sink.output("a");
@@ -222,7 +241,8 @@ TEST_CASE("pending flag correctly managed across multiple drain cycles") {
   CHECK(h.appended.size() == 4);
 }
 
-TEST_CASE("re-post when items arrive during drain") {
+TEST_CASE("re-post when items arrive during drain")
+{
   std::mutex mutex;
   std::vector<std::pair<std::string, content_type>> appended;
   int flush_count = 0;
@@ -245,7 +265,8 @@ TEST_CASE("re-post when items arrive during drain") {
     // processing. Since pending is still true, output("b") will
     // not post a new callback. After drain finishes, it finds
     // "b" in the buffer and re-posts.
-    if (text == "a" && sink_ptr) {
+    if (text == "a" && sink_ptr)
+    {
       sink_ptr->output("b");
     }
   };
@@ -302,10 +323,10 @@ TEST_CASE("re-post when items arrive during drain") {
   }
 }
 
-TEST_CASE("content type routing") {
+TEST_CASE("content type routing")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output("normal text");
   sink.output_thinking("thinking text");
@@ -358,10 +379,10 @@ TEST_CASE("content type routing") {
   CHECK(h.appended[10].second == content_type::warning);
 }
 
-TEST_CASE("output_status routes to system content type") {
+TEST_CASE("output_status routes to system content type")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output_status("Compacted: history is now 3 message(s).");
 
@@ -374,10 +395,10 @@ TEST_CASE("output_status routes to system content type") {
   CHECK(h.appended[0].second == content_type::system);
 }
 
-TEST_CASE("output_resume_preview styles user and assistant lines") {
+TEST_CASE("output_resume_preview styles user and assistant lines")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output_resume_preview("what next?", "the answer");
 
@@ -392,10 +413,10 @@ TEST_CASE("output_resume_preview styles user and assistant lines") {
   CHECK(h.appended[2].second == content_type::normal);
 }
 
-TEST_CASE("output_resume_preview without assistant reply") {
+TEST_CASE("output_resume_preview without assistant reply")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output_resume_preview("what next?", "");
 
@@ -408,16 +429,15 @@ TEST_CASE("output_resume_preview without assistant reply") {
   CHECK(h.appended[1].second == content_type::user);
 }
 
-TEST_CASE("output_resume_preview renders the complete last turn") {
+TEST_CASE("output_resume_preview renders the complete last turn")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   // The preview shows the complete last turn: long, multi-line content
   // is enqueued in full, newlines preserved (no truncation, no
   // whitespace collapsing).
-  const std::string long_reply =
-    "First line of the reply.\n\nSecond paragraph with `code`.\n- item";
+  const std::string long_reply = "First line of the reply.\n\nSecond paragraph with `code`.\n- item";
   sink.output_resume_preview("a long user message\nspanning lines", long_reply);
 
   h.run_all_posted();
@@ -431,10 +451,10 @@ TEST_CASE("output_resume_preview renders the complete last turn") {
   CHECK(h.appended[2].second == content_type::normal);
 }
 
-TEST_CASE("output_tool_result truncates long results") {
+TEST_CASE("output_tool_result truncates long results")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   std::string long_result(300, 'x');
   sink.output_tool_result(long_result);
@@ -449,10 +469,10 @@ TEST_CASE("output_tool_result truncates long results") {
   CHECK(h.appended[0].first.substr(205) == "...\n");
 }
 
-TEST_CASE("output_tool_result does not truncate short results") {
+TEST_CASE("output_tool_result does not truncate short results")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   sink.output_tool_result("short");
 
@@ -462,10 +482,10 @@ TEST_CASE("output_tool_result does not truncate short results") {
   CHECK(h.appended[0].first == " \xe2\x86\x92 short\n");
 }
 
-TEST_CASE("output_tool_result boundary at exactly 200 chars") {
+TEST_CASE("output_tool_result boundary at exactly 200 chars")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   std::string exact_200(200, 'x');
   sink.output_tool_result(exact_200);
@@ -477,10 +497,10 @@ TEST_CASE("output_tool_result boundary at exactly 200 chars") {
   CHECK(h.appended[0].first == " \xe2\x86\x92 " + exact_200 + "\n");
 }
 
-TEST_CASE("output_tool_result truncates at 201 chars") {
+TEST_CASE("output_tool_result truncates at 201 chars")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   std::string result_201(201, 'x');
   sink.output_tool_result(result_201);
@@ -492,23 +512,26 @@ TEST_CASE("output_tool_result truncates at 201 chars") {
   CHECK(h.appended[0].first == expected);
 }
 
-TEST_CASE("concurrent enqueue from multiple threads") {
+TEST_CASE("concurrent enqueue from multiple threads")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
 
   constexpr int N = 100;
   constexpr int T = 4;
   std::vector<std::thread> threads;
 
-  for (int t = 0; t < T; ++t) {
+  for (int t = 0; t < T; ++t)
+  {
     threads.emplace_back([&sink, t]() {
-      for (int i = 0; i < N; ++i) {
+      for (int i = 0; i < N; ++i)
+      {
         sink.output(std::to_string(t * N + i));
       }
     });
   }
-  for (auto& th : threads) th.join();
+  for (auto& th : threads)
+    th.join();
 
   // Drain all posted callbacks. May need multiple rounds
   // because re-posting can happen.
@@ -518,11 +541,10 @@ TEST_CASE("concurrent enqueue from multiple threads") {
   CHECK(h.flush_count >= 1);
 }
 
-TEST_CASE("completed_fn is called after drain when completed() is invoked") {
+TEST_CASE("completed_fn is called after drain when completed() is invoked")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush(),
-    h.make_completed());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush(), h.make_completed());
 
   sink.output("hello");
   sink.completed();
@@ -534,11 +556,10 @@ TEST_CASE("completed_fn is called after drain when completed() is invoked") {
   CHECK(h.flush_count >= 1);
 }
 
-TEST_CASE("completed_fn is called even with pending fragments") {
+TEST_CASE("completed_fn is called even with pending fragments")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush(),
-    h.make_completed());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush(), h.make_completed());
 
   sink.output("a");
   sink.output("b");
@@ -550,11 +571,10 @@ TEST_CASE("completed_fn is called even with pending fragments") {
   CHECK(h.completed_count == 1);
 }
 
-TEST_CASE("completed_fn not called without completed() invocation") {
+TEST_CASE("completed_fn not called without completed() invocation")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush(),
-    h.make_completed());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush(), h.make_completed());
 
   sink.output("hello");
   h.run_all_posted();
@@ -562,11 +582,10 @@ TEST_CASE("completed_fn not called without completed() invocation") {
   CHECK(h.completed_count == 0);
 }
 
-TEST_CASE("completed_fn called once per completed() call") {
+TEST_CASE("completed_fn called once per completed() call")
+{
   sink_test_harness h;
-  mistral::tui::tui_render_sink sink(
-    h.make_post(), h.make_append(), h.make_flush(),
-    h.make_completed());
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush(), h.make_completed());
 
   sink.output("a");
   sink.completed();

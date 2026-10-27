@@ -1,9 +1,9 @@
 #include "agent/save_command.h"
 #include "agent/agent_system.h"
 
+#include <dripcore/task.h>
 #include <filesystem>
 #include <fstream>
-#include <dripcore/task.h>
 
 namespace mistral::agent
 {
@@ -24,8 +24,9 @@ namespace mistral::agent
 
   dripcore::awaitable<std::string> save_command::execute(
     dripcore::task&,
-    const std::string &args,
-    agent::agent_system &agent_sys)
+    const std::string& args,
+    agent::agent_system& agent_sys
+  )
   {
     // Get the last response from agent_system
     std::string response = agent_sys.get_last_response();
@@ -61,4 +62,4 @@ namespace mistral::agent
 
     co_return "Saved last response to: " + filename;
   }
-} // namespace mistral::console
+} // namespace mistral::agent

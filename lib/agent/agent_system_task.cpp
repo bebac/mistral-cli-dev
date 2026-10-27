@@ -2,9 +2,8 @@
 
 namespace mistral::agent
 {
-  agent_system_task::agent_system_task(
-      std::shared_ptr<dripcore::channel<std::string>> agent_response_ch)
-      : agent_response_ch_(std::move(agent_response_ch))
+  agent_system_task::agent_system_task(std::shared_ptr<dripcore::channel<std::string>> agent_response_ch)
+    : agent_response_ch_(std::move(agent_response_ch))
   {
   }
 

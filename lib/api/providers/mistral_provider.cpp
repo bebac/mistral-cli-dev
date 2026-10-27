@@ -11,18 +11,22 @@ namespace mistral::api
     json& body,
     bool stream,
     const std::optional<std::string>& prompt_cache_key,
-    const sampling_params& params) const
+    const sampling_params& params
+  ) const
   {
     (void)stream;
 
     // Mistral-specific fields
-    if (params.safe_prompt) {
+    if (params.safe_prompt)
+    {
       body["safe_prompt"] = *params.safe_prompt;
     }
-    if (params.randomness) {
+    if (params.randomness)
+    {
       body["randomness"] = *params.randomness;
     }
-    if (prompt_cache_key) {
+    if (prompt_cache_key)
+    {
       body["prompt_cache_key"] = *prompt_cache_key;
     }
   }

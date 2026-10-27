@@ -1,8 +1,8 @@
 #ifndef MISTRAL_MCP_MANAGER_H
 #define MISTRAL_MCP_MANAGER_H
 
-#include "mcp/mcp_client_interface.h"
 #include "agent/agent_config.h"
+#include "mcp/mcp_client_interface.h"
 
 #include <dripcore/awaitable.h>
 
@@ -86,11 +86,17 @@ namespace mistral::mcp
 
     // Combined agent instructions from connected servers (from the
     // initialize result). Empty when nothing is connected.
-    const std::string& instructions() const { return instructions_; }
+    const std::string& instructions() const
+    {
+      return instructions_;
+    }
 
     // Bumped whenever tools are registered; agent tasks compare it
     // against their snapshot to detect registry refreshes.
-    uint64_t registry_version() const { return registry_version_; }
+    uint64_t registry_version() const
+    {
+      return registry_version_;
+    }
 
   private:
     mcp_manager() = default;

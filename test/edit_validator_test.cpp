@@ -1,5 +1,5 @@
-#include "tools/edit_validator.h"
 #include "doctest/doctest.h"
+#include "tools/edit_validator.h"
 
 #include <filesystem>
 #include <fstream>
@@ -16,8 +16,7 @@ namespace mistral::tools
     class temp_file
     {
     public:
-      explicit temp_file(const std::string& content = "", int test_line = 0,
-                         const std::string& ext = ".tmp")
+      explicit temp_file(const std::string& content = "", int test_line = 0, const std::string& ext = ".tmp")
       {
         // Use a relative path that's valid for the validator
         // Include test line number to avoid collisions between different test cases
@@ -44,7 +43,10 @@ namespace mistral::tools
         }
       }
 
-      std::string path() const { return path_; }
+      std::string path() const
+      {
+        return path_;
+      }
 
       void write(const std::string& content)
       {
@@ -753,8 +755,7 @@ namespace mistral::tools
 
     TEST_CASE("validate_edit - new file with patch markers (non-md)")
     {
-      std::string new_path = "test_new_markers_" +
-        std::to_string(__LINE__) + ".cpp";
+      std::string new_path = "test_new_markers_" + std::to_string(__LINE__) + ".cpp";
       std::filesystem::remove(new_path);
 
       file_edit_t edit;

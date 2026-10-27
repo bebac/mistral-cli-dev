@@ -30,8 +30,8 @@ namespace mistral::api
     // Content is a vector of message_content blocks.
     // Each block can be "thinking" or "text" type.
     std::vector<message_content> content;
-    std::optional<std::vector<tool_call>> tool_calls;  // Incremental tool calls
-    std::string finish_reason;                  // "stop", "tool_calls", or empty
+    std::optional<std::vector<tool_call>> tool_calls; // Incremental tool calls
+    std::string finish_reason;                        // "stop", "tool_calls", or empty
   };
 
   // Parse a non-streaming response into message content + tool calls.

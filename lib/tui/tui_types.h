@@ -11,16 +11,17 @@ namespace mistral::tui
   // tasks, content area, and content log to tell the TUI which color/style
   // to apply to a fragment.
   // ---------------------------------------------------------------------------
-  enum class content_type {
-    normal,       // Regular AI response text
-    thinking,     // AI thinking/reasoning
-    tool_call,    // Tool call header (e.g. "[tool] write(...)")
-    tool_result,  // Tool result or status (e.g. "→ result")
+  enum class content_type
+  {
+    normal,        // Regular AI response text
+    thinking,      // AI thinking/reasoning
+    tool_call,     // Tool call header (e.g. "[tool] write(...)")
+    tool_result,   // Tool result or status (e.g. "→ result")
     tool_approval, // Tool approval prompt (attached to last tool block)
-    error,        // Error messages
-    warning,      // Warning messages
-    user,         // User input echo
-    system,       // System messages (non-approval)
+    error,         // Error messages
+    warning,       // Warning messages
+    user,          // User input echo
+    system,        // System messages (non-approval)
   };
 
   // ---------------------------------------------------------------------------
@@ -33,10 +34,10 @@ namespace mistral::tui
   // Defining these in one place ensures signature changes are caught at
   // compile time across all consumers.
   // ---------------------------------------------------------------------------
-  using post_fn      = std::function<void(std::function<void()>)>;
-  using append_fn    = std::function<void(const std::string&, content_type)>;
-  using flush_fn     = std::function<void()>;
+  using post_fn = std::function<void(std::function<void()>)>;
+  using append_fn = std::function<void(const std::string&, content_type)>;
+  using flush_fn = std::function<void()>;
   using completed_fn = std::function<void()>;
-}
+} // namespace mistral::tui
 
 #endif // MISTRAL_TUI_TYPES_H

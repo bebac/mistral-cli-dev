@@ -37,8 +37,7 @@ namespace
 
     server_agent_test_fixture()
     {
-      temp_dir =
-        (std::filesystem::temp_directory_path() / "mistral_server_agent_test").string();
+      temp_dir = (std::filesystem::temp_directory_path() / "mistral_server_agent_test").string();
       std::filesystem::remove_all(temp_dir);
       std::filesystem::create_directories(temp_dir);
       config_file = (std::filesystem::path(temp_dir) / "mistral-cli.json").string();
@@ -62,8 +61,7 @@ namespace
 
     void initialize()
     {
-      agent::agent_system::instance().initialize(
-        config_file, base_dir, notes_dir, request_ch);
+      agent::agent_system::instance().initialize(config_file, base_dir, notes_dir, request_ch);
     }
   };
 
@@ -136,13 +134,13 @@ namespace
 
   struct fake_http_options
   {
-    bool agent_exists = false;        // GET /v1/agents/pages returns a match
-    bool drift_metadata = false;      // existing agent has a stale config hash
-    bool drift_model_metadata = false;  // existing agent was created with another model
-    bool fail_create = false;         // POST /v1/agents fails
-    bool fail_patch = false;          // PATCH /v1/agents/{id} fails
-    bool fail_conversations = false;  // POST /v1/conversations fails
-    bool plain_content = false;       // message.output content is a plain string
+    bool agent_exists = false;         // GET /v1/agents/pages returns a match
+    bool drift_metadata = false;       // existing agent has a stale config hash
+    bool drift_model_metadata = false; // existing agent was created with another model
+    bool fail_create = false;          // POST /v1/agents fails
+    bool fail_patch = false;           // PATCH /v1/agents/{id} fails
+    bool fail_conversations = false;   // POST /v1/conversations fails
+    bool plain_content = false;        // message.output content is a plain string
     // Override the message.output content chunks (defaults to the standard
     // text + tool_reference set).
     std::optional<json> conversation_content;
@@ -154,18 +152,19 @@ namespace
     fake_http_task(
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
       std::vector<api::api_request>* captured,
-      fake_http_options opts = {})
-      : request_ch_(std::move(request_ch))
-      , captured_(captured)
-      , opts_(opts)
-    {}
+      fake_http_options opts = {}
+    )
+      : request_ch_(std::move(request_ch)), captured_(captured), opts_(opts)
+    {
+    }
 
     dripcore::awaitable<> body() override
     {
       while (true)
       {
         auto req = co_await request_ch_->recv(this);
-        if (!req) break;
+        if (!req)
+          break;
         captured_->push_back(*req);
         handle(*req);
       }
@@ -183,15 +182,15 @@ namespace
 
     // The config fingerprint the server-side agent would carry in its
     // metadata (computed from the initialized agent_system config).
-    static std::string current_config_fingerprint(
-      const std::string& model_override = "")
+    static std::string current_config_fingerprint(const std::string& model_override = "")
     {
       const auto& sys = agent::agent_system::instance();
       const auto& cfg = sys.get_agent_config("researcher");
       return agent::server_agent_config_fingerprint(
-        *cfg.server_agent, sys.resolve_server_agent_instructions(cfg),
-        model_override.empty()
-          ? sys.resolve_model_id(cfg.model) : model_override);
+        *cfg.server_agent,
+        sys.resolve_server_agent_instructions(cfg),
+        model_override.empty() ? sys.resolve_model_id(cfg.model) : model_override
+      );
     }
 
     void respond_conversation(std::shared_ptr<event_ch> ch)
@@ -207,28 +206,50 @@ namespace
       }
       else
       {
-        content = json::array({
-          json{{"type", "text"}, {"text", "Research"}},
-          json{{"type", "tool_reference"}, {"tool", "web_search"},
-               {"title", "Example Source"}, {"url", "https://example.com/article"}},
-          json{{"type", "text"}, {"text", " findings"}}
-        });
+        content = json::array(
+          {json{{"type", "text"}, {"text", "Research"}},
+           json{
+             {"type", "tool_reference"},
+             {"tool", "web_search"},
+             {"title", "Example Source"},
+             {"url", "https://example.com/article"}
+           },
+           json{{"type", "text"}, {"text", " findings"}}}
+        );
       }
       json response = {
         {"object", "conversation.response"},
         {"conversation_id", "conv_test123"},
-        {"outputs", json::array({
-          json{{"type", "tool.execution"}, {"name", "web_search"}, {"object", "entry"},
-               {"created_at", "2026-01-01T00:00:00Z"}, {"completed_at", "2026-01-01T00:00:01Z"},
-               {"id", "tool_exec_1"}},
-          json{{"type", "message.output"}, {"content", content}, {"object", "entry"},
-               {"created_at", "2026-01-01T00:00:01Z"}, {"completed_at", "2026-01-01T00:00:02Z"},
-               {"id", "msg_1"}, {"agent_id", "agt_created"}, {"model", "mistral-small-latest"},
-               {"role", "assistant"}}
-        })},
-        {"usage", json{{"prompt_tokens", 100}, {"completion_tokens", 20},
-                       {"total_tokens", 120}, {"connector_tokens", 500},
-                       {"connectors", json{{"web_search", 1}}}}}
+        {"outputs",
+         json::array(
+           {json{
+              {"type", "tool.execution"},
+              {"name", "web_search"},
+              {"object", "entry"},
+              {"created_at", "2026-01-01T00:00:00Z"},
+              {"completed_at", "2026-01-01T00:00:01Z"},
+              {"id", "tool_exec_1"}
+            },
+            json{
+              {"type", "message.output"},
+              {"content", content},
+              {"object", "entry"},
+              {"created_at", "2026-01-01T00:00:01Z"},
+              {"completed_at", "2026-01-01T00:00:02Z"},
+              {"id", "msg_1"},
+              {"agent_id", "agt_created"},
+              {"model", "mistral-small-latest"},
+              {"role", "assistant"}
+            }}
+         )},
+        {"usage",
+         json{
+           {"prompt_tokens", 100},
+           {"completion_tokens", 20},
+           {"total_tokens", 120},
+           {"connector_tokens", 500},
+           {"connectors", json{{"web_search", 1}}}
+         }}
       };
       respond_json(ch, response.dump());
     }
@@ -261,16 +282,9 @@ namespace
             {"updated_at", "2026-01-01T00:00:00Z"},
             {"deployment_chat", false},
             {"source", "api"},
-            {"metadata", json{{
-              std::string(agent::server_agent_config_hash_key),
-              metadata_hash
-            }}}
+            {"metadata", json{{std::string(agent::server_agent_config_hash_key), metadata_hash}}}
           };
-          json page = {
-            {"object", "list"},
-            {"data", json::array({agent_json})},
-            {"next_page_token", nullptr}
-          };
+          json page = {{"object", "list"}, {"data", json::array({agent_json})}, {"next_page_token", nullptr}};
           respond_json(ch, page.dump());
         }
         else
@@ -287,30 +301,42 @@ namespace
         }
         else
         {
-          respond_json(ch,
-            R"({"id":"agt_created","name":"mistral-cli-researcher","model":"mistral-small-latest","version":1,"versions":[1],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})");
+          respond_json(
+            ch,
+            R"({"id":"agt_created","name":"mistral-cli-researcher","model":"mistral-small-latest","version":1,"versions":[1],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})"
+          );
         }
       }
       else if (req.method == "PATCH" && req.path.starts_with("/v1/agents/"))
       {
         if (opts_.fail_patch)
         {
-          ch->try_send({api::event_type::error,
-            "HTTP 400: {\"object\":\"error\",\"message\":\"WebSearchTool connector is not supported\",\"type\":\"invalid_tools\",\"code\":\"1800\"}", 400});
+          ch->try_send(
+            {api::event_type::error,
+             "HTTP 400: {\"object\":\"error\",\"message\":\"WebSearchTool connector is not "
+             "supported\",\"type\":\"invalid_tools\",\"code\":\"1800\"}",
+             400}
+          );
           ch->try_send({api::event_type::done, {}});
         }
         else
         {
-          respond_json(ch,
-            R"({"id":"agt_existing","name":"mistral-cli-researcher","model":"mistral-small-latest","version":2,"versions":[1,2],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})");
+          respond_json(
+            ch,
+            R"({"id":"agt_existing","name":"mistral-cli-researcher","model":"mistral-small-latest","version":2,"versions":[1,2],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})"
+          );
         }
       }
       else if (req.method == "POST" && req.path == "/v1/conversations")
       {
         if (opts_.fail_conversations)
         {
-          ch->try_send({api::event_type::error,
-            "HTTP 400: {\"object\":\"error\",\"message\":\"WebSearchTool connector is not supported\",\"type\":\"invalid_tools\",\"code\":\"1800\"}", 400});
+          ch->try_send(
+            {api::event_type::error,
+             "HTTP 400: {\"object\":\"error\",\"message\":\"WebSearchTool connector is not "
+             "supported\",\"type\":\"invalid_tools\",\"code\":\"1800\"}",
+             400}
+          );
           ch->try_send({api::event_type::done, {}});
         }
         else
@@ -320,8 +346,7 @@ namespace
       }
       else
       {
-        ch->try_send({api::event_type::error,
-          "unexpected request: " + req.method + " " + req.path});
+        ch->try_send({api::event_type::error, "unexpected request: " + req.method + " " + req.path});
         ch->try_send({api::event_type::done, {}});
       }
     }
@@ -341,20 +366,18 @@ namespace
       std::string agent_id,
       std::string message,
       std::vector<std::string>* results,
-      int runs = 1)
-      : request_ch_(std::move(request_ch))
-      , agent_id_(std::move(agent_id))
-      , message_(std::move(message))
-      , results_(results)
-      , runs_(runs)
-    {}
+      int runs = 1
+    )
+      : request_ch_(std::move(request_ch)), agent_id_(std::move(agent_id)), message_(std::move(message)),
+        results_(results), runs_(runs)
+    {
+    }
 
     dripcore::awaitable<> body() override
     {
       for (int i = 0; i < runs_; ++i)
       {
-        results_->push_back(co_await agent::agent_system::instance().run_subagent(
-          *this, agent_id_, message_));
+        results_->push_back(co_await agent::agent_system::instance().run_subagent(*this, agent_id_, message_));
       }
       request_ch_->close();
       co_return;
@@ -376,11 +399,11 @@ namespace
       const std::string& agent_id,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch,
-      std::string* result)
-      : agent_task_base(agent_id, std::move(input_ch))
-      , request_ch_(std::move(request_ch))
-      , result_(result)
-    {}
+      std::string* result
+    )
+      : agent_task_base(agent_id, std::move(input_ch)), request_ch_(std::move(request_ch)), result_(result)
+    {
+    }
 
     dripcore::awaitable<> body() override
     {
@@ -394,13 +417,25 @@ namespace
     }
 
   protected:
-    void thinking_begin() override {}
-    void thinking_end() override {}
-    void agent_loop_on_sending_chat_request() override {}
-    void agent_loop_on_message_content(const api::message_content&) override {}
-    auto agent_loop_do_tool_call(const api::tool_call&)
-      -> dripcore::awaitable<void> override { co_return; }
-    void agent_loop_on_error(const std::string&) override {}
+    void thinking_begin() override
+    {
+    }
+    void thinking_end() override
+    {
+    }
+    void agent_loop_on_sending_chat_request() override
+    {
+    }
+    void agent_loop_on_message_content(const api::message_content&) override
+    {
+    }
+    auto agent_loop_do_tool_call(const api::tool_call&) -> dripcore::awaitable<void> override
+    {
+      co_return;
+    }
+    void agent_loop_on_error(const std::string&) override
+    {
+    }
 
   private:
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
@@ -411,13 +446,13 @@ namespace
   class dispatch_task : public dripcore::task
   {
   public:
-    explicit dispatch_task(std::string* result) : result_(result) {}
+    explicit dispatch_task(std::string* result) : result_(result)
+    {
+    }
 
     dripcore::awaitable<> body() override
     {
-      json tool_call = {
-        {"function", {{"name", "web_search"}, {"arguments", R"({"query":"x"})"}}}
-      };
+      json tool_call = {{"function", {{"name", "web_search"}, {"arguments", R"({"query":"x"})"}}}};
       auto res = co_await agent::agent_system::instance().global_tools().dispatch(tool_call);
       *result_ = res.dump();
       co_return;
@@ -495,7 +530,8 @@ TEST_CASE("create_agent_request: serializes completion_args")
 TEST_CASE("agent_entity_from_json: parses the fields mistral-cli uses")
 {
   auto j = json::parse(
-    R"({"id":"agt_123","name":"mistral-cli-researcher","model":"mistral-small-latest","version":3,"description":"d","instructions":"i","versions":[1,2,3],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})");
+    R"({"id":"agt_123","name":"mistral-cli-researcher","model":"mistral-small-latest","version":3,"description":"d","instructions":"i","versions":[1,2,3],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deployment_chat":false,"source":"api"})"
+  );
   auto entity = api::agent_entity_from_json(j);
   CHECK(entity.id == "agt_123");
   CHECK(entity.name == "mistral-cli-researcher");
@@ -539,8 +575,9 @@ TEST_CASE("chat completion request still carries model and provider fields (regr
   user.content = {api::message_content{.type = "text", .content = "hello"}};
   messages.push_back(user);
 
-  auto body = json::parse(provider.build_chat_request(
-    "mistral-small-latest", messages, json::array(), true, "cache-key", params));
+  auto body = json::parse(
+    provider.build_chat_request("mistral-small-latest", messages, json::array(), true, "cache-key", params)
+  );
 
   CHECK(body["model"] == "mistral-small-latest");
   CHECK(body["stream"] == true);
@@ -566,31 +603,25 @@ TEST_CASE("fingerprint: stable and sensitive to config changes")
   cfg.tools = {api::builtin_tool{.type = "web_search"}};
   cfg.completion_args = json{{"temperature", 0.2}};
 
-  const auto fp1 = agent::server_agent_config_fingerprint(
-    cfg, "You research things.", "mistral-small-latest");
-  CHECK(fp1 == agent::server_agent_config_fingerprint(
-    cfg, "You research things.", "mistral-small-latest"));
+  const auto fp1 = agent::server_agent_config_fingerprint(cfg, "You research things.", "mistral-small-latest");
+  CHECK(fp1 == agent::server_agent_config_fingerprint(cfg, "You research things.", "mistral-small-latest"));
   CHECK(fp1.size() == 16);
 
   // Sensitive to model changes.
-  CHECK(agent::server_agent_config_fingerprint(
-    cfg, "You research things.", "mistral-large-latest") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(cfg, "You research things.", "mistral-large-latest") != fp1);
 
   // Sensitive to tool changes.
   auto cfg2 = cfg;
   cfg2.tools = {api::builtin_tool{.type = "web_search_premium"}};
-  CHECK(agent::server_agent_config_fingerprint(
-    cfg2, "You research things.", "mistral-small-latest") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(cfg2, "You research things.", "mistral-small-latest") != fp1);
 
   // Sensitive to instruction changes.
-  CHECK(agent::server_agent_config_fingerprint(
-    cfg, "Other instructions.", "mistral-small-latest") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(cfg, "Other instructions.", "mistral-small-latest") != fp1);
 
   // Sensitive to completion_args changes.
   auto cfg3 = cfg;
   cfg3.completion_args = json{{"temperature", 0.5}};
-  CHECK(agent::server_agent_config_fingerprint(
-    cfg3, "You research things.", "mistral-small-latest") != fp1);
+  CHECK(agent::server_agent_config_fingerprint(cfg3, "You research things.", "mistral-small-latest") != fp1);
 }
 
 TEST_SUITE_END;
@@ -701,25 +732,20 @@ TEST_CASE_FIXTURE(server_agent_test_fixture, "config: resolves file:// server-ag
   }
 
   json config = {
-    {"models", {
-      {"mistral-small", {
-        {"provider", "mistral"},
+    {"models",
+     {{"mistral-small",
+       {{"provider", "mistral"},
         {"model_id", "mistral-small-latest"},
         {"api_key_env", "MISTRAL_API_KEY"},
         {"base_url", "https://api.mistral.ai"},
-        {"api_version", "v1"}
-      }}
-    }},
-    {"agents", {
-      {"researcher", {
-        {"model", "mistral-small"},
-        {"server_agent", {
-          {"name", "mistral-cli-researcher"},
+        {"api_version", "v1"}}}}},
+    {"agents",
+     {{"researcher",
+       {{"model", "mistral-small"},
+        {"server_agent",
+         {{"name", "mistral-cli-researcher"},
           {"instructions", "file://" + prompt_path},
-          {"tools", json::array({json{{"type", "web_search"}}})}
-        }}
-      }}
-    }}
+          {"tools", json::array({json{{"type", "web_search"}}})}}}}}}}
   };
   write_config(config.dump(2));
   initialize();
@@ -757,7 +783,8 @@ TEST_CASE_FIXTURE(server_agent_test_fixture, "web_search is registered in the gl
       bool query_required = false;
       for (const auto& r : required)
       {
-        if (r == "query") query_required = true;
+        if (r == "query")
+          query_required = true;
       }
       CHECK(query_required);
     }
@@ -788,8 +815,7 @@ TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("server_agent_task");
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "creates the server-side agent when not found, then completes")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "creates the server-side agent when not found, then completes")
 {
   write_config(k_researcher_config);
   initialize();
@@ -799,14 +825,12 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
 
   dripcore::scheduler sched;
   sched.spawn<fake_http_task>(request_ch, &captured, fake_http_options{});
-  sched.spawn<subagent_caller_task>(
-    request_ch, "researcher", "What is the latest Mistral model?", &results);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "What is the latest Mistral model?", &results);
   sched.run();
 
   REQUIRE(results.size() == 1);
   // Text chunks are joined; tool_reference chunks become a source list.
-  CHECK(results[0] ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(results[0] == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
 
   // Request sequence: find (miss) -> create -> conversation.
   REQUIRE(captured.size() == 3);
@@ -849,8 +873,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(*sys.get_server_agent_id("researcher") == "agt_created");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "reuses an existing server-side agent by name and caches the id")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "reuses an existing server-side agent by name and caches the id")
 {
   write_config(k_researcher_config);
   initialize();
@@ -863,15 +886,12 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   opts.agent_exists = true;
   sched.spawn<fake_http_task>(request_ch, &captured, opts);
   // Two runs: the second must hit the session cache (no find/create).
-  sched.spawn<subagent_caller_task>(
-    request_ch, "researcher", "query", &results, /*runs=*/2);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results, /*runs=*/2);
   sched.run();
 
   REQUIRE(results.size() == 2);
-  CHECK(results[0] ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
-  CHECK(results[1] ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(results[0] == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(results[1] == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
 
   // First run: find (hit, matching config hash) + conversation.
   // Second run: conversation only (session cache).
@@ -887,8 +907,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(body2["agent_id"] == "agt_existing");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "updates the server-side agent when the local config drifted")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "updates the server-side agent when the local config drifted")
 {
   write_config(k_researcher_config);
   initialize();
@@ -899,14 +918,13 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   dripcore::scheduler sched;
   fake_http_options opts;
   opts.agent_exists = true;
-  opts.drift_metadata = true;  // existing agent has a stale config hash
+  opts.drift_metadata = true; // existing agent has a stale config hash
   sched.spawn<fake_http_task>(request_ch, &captured, opts);
   sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
   sched.run();
 
   REQUIRE(results.size() == 1);
-  CHECK(results[0] ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(results[0] == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
 
   // find (hit, stale hash) + PATCH (update in place) + conversation.
   REQUIRE(captured.size() == 3);
@@ -923,8 +941,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(json::parse(captured[2].body)["agent_id"] == "agt_existing");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "updates the server-side agent when the model drifted")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "updates the server-side agent when the model drifted")
 {
   write_config(k_researcher_config);
   initialize();
@@ -935,14 +952,13 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   dripcore::scheduler sched;
   fake_http_options opts;
   opts.agent_exists = true;
-  opts.drift_model_metadata = true;  // created with a different model
+  opts.drift_model_metadata = true; // created with a different model
   sched.spawn<fake_http_task>(request_ch, &captured, opts);
   sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
   sched.run();
 
   REQUIRE(results.size() == 1);
-  CHECK(results[0] ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(results[0] == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
 
   // find (hit, model drift) + PATCH (carries the model) + conversation.
   REQUIRE(captured.size() == 3);
@@ -953,8 +969,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(captured[2].path == "/v1/conversations");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "surfaces setup errors through the subagent error path (with hint)")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "surfaces setup errors through the subagent error path (with hint)")
 {
   write_config(k_researcher_config);
   initialize();
@@ -965,7 +980,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   dripcore::scheduler sched;
   fake_http_options opts;
   opts.agent_exists = true;
-  opts.drift_metadata = true;  // triggers PATCH
+  opts.drift_metadata = true; // triggers PATCH
   opts.fail_patch = true;
   sched.spawn<fake_http_task>(request_ch, &captured, opts);
   sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
@@ -985,8 +1000,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(captured[1].method == "PATCH");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "parses plain string conversation content")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "parses plain string conversation content")
 {
   write_config(k_researcher_config);
   initialize();
@@ -1005,8 +1019,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(results[0] == "Research findings");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "reports an error when the server-side agent cannot be created")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "reports an error when the server-side agent cannot be created")
 {
   write_config(k_researcher_config);
   initialize();
@@ -1033,8 +1046,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(captured[1].path == "/v1/agents");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "surfaces the API error when the conversation request fails")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "surfaces the API error when the conversation request fails")
 {
   write_config(k_researcher_config);
   initialize();
@@ -1058,8 +1070,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(results[0].find("hint:") != std::string::npos);
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "routes a web_search tool call to the researcher subagent")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "routes a web_search tool call to the researcher subagent")
 {
   write_config(k_full_config);
   initialize();
@@ -1073,8 +1084,7 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   sched.spawn<tool_routing_agent_task>("main", input_ch, request_ch, &result);
   sched.run();
 
-  CHECK(result ==
-    "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
+  CHECK(result == "Research findings\n\nSources:\n- [Example Source](https://example.com/article)");
 
   // find (miss) + create + conversation.
   REQUIRE(captured.size() == 3);
@@ -1085,19 +1095,17 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   CHECK(conv_body["inputs"] == "test query");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "renders sources without urls as bare titles and lists all sources")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "renders sources without urls as bare titles and lists all sources")
 {
   write_config(k_researcher_config);
   initialize();
 
   fake_http_options opts;
-  opts.conversation_content = json::array({
-    json{{"type", "text"}, {"text", "Answer"}},
-    json{{"type", "tool_reference"}, {"title", "With URL"},
-         {"url", "https://example.com/a"}},
-    json{{"type", "tool_reference"}, {"title", "Without URL"}}
-  });
+  opts.conversation_content = json::array(
+    {json{{"type", "text"}, {"text", "Answer"}},
+     json{{"type", "tool_reference"}, {"title", "With URL"}, {"url", "https://example.com/a"}},
+     json{{"type", "tool_reference"}, {"title", "Without URL"}}}
+  );
 
   std::vector<api::api_request> captured;
   std::vector<std::string> results;
@@ -1108,28 +1116,22 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   sched.run();
 
   REQUIRE(results.size() == 1);
-  CHECK(results[0] ==
-    "Answer\n\nSources:\n- [With URL](https://example.com/a)\n- Without URL");
+  CHECK(results[0] == "Answer\n\nSources:\n- [With URL](https://example.com/a)\n- Without URL");
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "deduplicates repeated tool_reference citations in the source list")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "deduplicates repeated tool_reference citations in the source list")
 {
   write_config(k_researcher_config);
   initialize();
 
   fake_http_options opts;
-  opts.conversation_content = json::array({
-    json{{"type", "text"}, {"text", "Answer"}},
-    json{{"type", "tool_reference"}, {"title", "Same Source"},
-         {"url", "https://example.com/a"}},
-    json{{"type", "tool_reference"}, {"title", "Same Source"},
-         {"url", "https://example.com/a"}},
-    json{{"type", "tool_reference"}, {"title", "Other Source"},
-         {"url", "https://example.com/b"}},
-    json{{"type", "tool_reference"}, {"title", "Same Source"},
-         {"url", "https://example.com/a"}}
-  });
+  opts.conversation_content = json::array(
+    {json{{"type", "text"}, {"text", "Answer"}},
+     json{{"type", "tool_reference"}, {"title", "Same Source"}, {"url", "https://example.com/a"}},
+     json{{"type", "tool_reference"}, {"title", "Same Source"}, {"url", "https://example.com/a"}},
+     json{{"type", "tool_reference"}, {"title", "Other Source"}, {"url", "https://example.com/b"}},
+     json{{"type", "tool_reference"}, {"title", "Same Source"}, {"url", "https://example.com/a"}}}
+  );
 
   std::vector<api::api_request> captured;
   std::vector<std::string> results;
@@ -1140,13 +1142,13 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
   sched.run();
 
   REQUIRE(results.size() == 1);
-  CHECK(results[0] ==
-    "Answer\n\nSources:\n- [Same Source](https://example.com/a)"
-    "\n- [Other Source](https://example.com/b)");
+  CHECK(
+    results[0] == "Answer\n\nSources:\n- [Same Source](https://example.com/a)"
+                  "\n- [Other Source](https://example.com/b)"
+  );
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "rejects a non-mistral provider before making any request")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "rejects a non-mistral provider before making any request")
 {
   write_config(R"({
     "models": {
@@ -1181,15 +1183,12 @@ TEST_CASE_FIXTURE(server_agent_test_fixture,
 
   REQUIRE(results.size() == 1);
   CHECK(results[0].find("Error: could not set up server-side agent") == 0);
-  CHECK(results[0].find(
-    "provider 'openai' does not support the Mistral Agents API")
-    != std::string::npos);
+  CHECK(results[0].find("provider 'openai' does not support the Mistral Agents API") != std::string::npos);
   // The provider check happens before any HTTP request.
   CHECK(captured.empty());
 }
 
-TEST_CASE_FIXTURE(server_agent_test_fixture,
-  "percent-encodes the server agent name in the find request")
+TEST_CASE_FIXTURE(server_agent_test_fixture, "percent-encodes the server agent name in the find request")
 {
   write_config(R"({
     "models": {

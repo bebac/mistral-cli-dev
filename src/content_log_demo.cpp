@@ -36,9 +36,14 @@ using content_type = mistral::tui::content_type;
 // force_new controls whether a new block is created even if the last block
 // has the same kind — used to separate individual tool calls/results.
 // ---------------------------------------------------------------------------
-enum class special_type { none, turn_separator };
+enum class special_type
+{
+  none,
+  turn_separator
+};
 
-struct stream_fragment {
+struct stream_fragment
+{
   std::string text;
   content_type type;
   bool force_new;
@@ -51,25 +56,30 @@ struct stream_fragment {
 // Each chunk is at most chunk_size characters, split on word boundaries
 // when possible. The first chunk gets force_new=true, rest get false.
 // ---------------------------------------------------------------------------
-static void add_text_chunks(std::vector<stream_fragment>& queue,
-                            const std::string& text,
-                            content_type type,
-                            std::size_t chunk_size = 80)
+static void add_text_chunks(
+  std::vector<stream_fragment>& queue,
+  const std::string& text,
+  content_type type,
+  std::size_t chunk_size = 80
+)
 {
-  if (text.empty()) return;
+  if (text.empty())
+    return;
   std::size_t pos = 0;
   bool first = true;
-  while (pos < text.size()) {
+  while (pos < text.size())
+  {
     std::size_t end = std::min(pos + chunk_size, text.size());
     // Try to break on a word boundary
-    if (end < text.size()) {
+    if (end < text.size())
+    {
       std::size_t space = text.rfind(' ', end);
-      if (space != std::string::npos && space > pos) {
+      if (space != std::string::npos && space > pos)
+      {
         end = space + 1;
       }
     }
-    queue.push_back({text.substr(pos, end - pos), type, first,
-                     special_type::none, 0});
+    queue.push_back({text.substr(pos, end - pos), type, first, special_type::none, 0});
     first = false;
     pos = end;
   }
@@ -81,12 +91,16 @@ static void add_text_chunks(std::vector<stream_fragment>& queue,
 // ---------------------------------------------------------------------------
 static std::string extract_content_string(const nlohmann::json& content)
 {
-  if (content.is_string()) return content.get<std::string>();
-  if (content.is_array()) {
+  if (content.is_string())
+    return content.get<std::string>();
+  if (content.is_array())
+  {
     std::string result;
-    for (const auto& mc : content) {
+    for (const auto& mc : content)
+    {
       std::string type = mc.value("type", "text");
-      if (type == "text") {
+      if (type == "text")
+      {
         result += mc.value("text", "");
       }
     }
@@ -100,24 +114,28 @@ static std::string extract_content_string(const nlohmann::json& content)
 // Each tool call and tool result becomes its own block (force_new=true)
 // so they can be individually collapsed/expanded in the future.
 // ---------------------------------------------------------------------------
-static bool build_fragment_queue(std::vector<stream_fragment>& queue,
-                                 const std::string& path)
+static bool build_fragment_queue(std::vector<stream_fragment>& queue, const std::string& path)
 {
   std::ifstream in(path);
-  if (!in) {
+  if (!in)
+  {
     std::cerr << "Cannot open: " << path << "\n";
     return false;
   }
 
   nlohmann::json data;
-  try {
+  try
+  {
     data = nlohmann::json::parse(in);
-  } catch (const std::exception& e) {
+  }
+  catch (const std::exception& e)
+  {
     std::cerr << "JSON parse error: " << e.what() << "\n";
     return false;
   }
 
-  if (!data.is_array()) {
+  if (!data.is_array())
+  {
     std::cerr << "Expected JSON array at top level\n";
     return false;
   }
@@ -125,8 +143,10 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
   // Build a map of tool_call_id → result text from all tool messages.
   // This lets us interleave each tool_call with its matching result.
   std::map<std::string, std::string> tool_results;
-  for (const auto& msg : data) {
-    if (msg.value("role", "") == "tool") {
+  for (const auto& msg : data)
+  {
+    if (msg.value("role", "") == "tool")
+    {
       std::string id = msg.value("tool_call_id", "");
       std::string text = extract_content_string(msg["content"]);
       tool_results[id] = text;
@@ -135,48 +155,60 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
 
   int turn_number = 0;
 
-  for (const auto& msg : data) {
+  for (const auto& msg : data)
+  {
     std::string role = msg.value("role", "");
 
-    if (role == "system") {
+    if (role == "system")
+    {
       continue;
     }
 
-    if (role == "user") {
+    if (role == "user")
+    {
       turn_number++;
       // Emit turn separator before each user message.
-      queue.push_back({"", content_type::system, true,
-                       special_type::turn_separator, turn_number});
+      queue.push_back({"", content_type::system, true, special_type::turn_separator, turn_number});
       std::string text = extract_content_string(msg["content"]);
       add_text_chunks(queue, "> " + text, content_type::user);
     }
-    else if (role == "assistant") {
+    else if (role == "assistant")
+    {
       // Content can be a string or an array of message_content objects.
-      if (msg.contains("content")) {
+      if (msg.contains("content"))
+      {
         const auto& content = msg["content"];
-        if (content.is_string()) {
-          if (!content.get<std::string>().empty()) {
-            add_text_chunks(queue, content.get<std::string>(),
-                            content_type::normal);
+        if (content.is_string())
+        {
+          if (!content.get<std::string>().empty())
+          {
+            add_text_chunks(queue, content.get<std::string>(), content_type::normal);
           }
         }
-        else if (content.is_array()) {
-          for (const auto& mc : content) {
+        else if (content.is_array())
+        {
+          for (const auto& mc : content)
+          {
             std::string type = mc.value("type", "text");
-            if (type == "thinking") {
+            if (type == "thinking")
+            {
               std::string thinking_text;
               const auto& thinking = mc["thinking"];
-              if (thinking.is_string()) {
+              if (thinking.is_string())
+              {
                 thinking_text = thinking.get<std::string>();
               }
-              else if (thinking.is_array() && !thinking.empty()) {
+              else if (thinking.is_array() && !thinking.empty())
+              {
                 thinking_text = thinking[0].value("text", "");
               }
               add_text_chunks(queue, thinking_text, content_type::thinking);
             }
-            else if (type == "text") {
+            else if (type == "text")
+            {
               std::string text = mc.value("text", "");
-              if (!text.empty()) {
+              if (!text.empty())
+              {
                 add_text_chunks(queue, text, content_type::normal);
               }
             }
@@ -186,21 +218,19 @@ static bool build_fragment_queue(std::vector<stream_fragment>& queue,
 
       // Tool calls — each one creates a new tool block, immediately
       // followed by its matching result (interleaved by tool_call_id).
-      if (msg.contains("tool_calls") && msg["tool_calls"].is_array()) {
-        for (const auto& tc : msg["tool_calls"]) {
+      if (msg.contains("tool_calls") && msg["tool_calls"].is_array())
+      {
+        for (const auto& tc : msg["tool_calls"])
+        {
           std::string name = tc["function"].value("name", "");
           std::string args = tc["function"].value("arguments", "");
           std::string id = tc.value("id", "");
-          queue.push_back({
-            "[tool] " + name + "(" + args + ")",
-            content_type::tool_call,
-            true
-          });
+          queue.push_back({"[tool] " + name + "(" + args + ")", content_type::tool_call, true});
           // Emit matching result immediately after the call.
           auto it = tool_results.find(id);
-          if (it != tool_results.end()) {
-            add_text_chunks(queue, " \xe2\x86\x92 " + it->second + "\n",
-                            content_type::tool_result, 200);
+          if (it != tool_results.end())
+          {
+            add_text_chunks(queue, " \xe2\x86\x92 " + it->second + "\n", content_type::tool_result, 200);
           }
         }
       }
@@ -227,7 +257,8 @@ public:
   void layout() override
   {
     cpptui::ScrollableVertical::layout();
-    if (on_layout) on_layout();
+    if (on_layout)
+      on_layout();
   }
 };
 
@@ -237,7 +268,8 @@ public:
 int main(int argc, char* argv[])
 {
   std::string chat_path = ".mistral-cli/chats/chat.latest.json";
-  if (argc > 1) chat_path = argv[1];
+  if (argc > 1)
+    chat_path = argv[1];
 
   // Use light theme.
   cpptui::Theme::set_theme(cpptui::Theme::Light());
@@ -249,7 +281,8 @@ int main(int argc, char* argv[])
 
   // Parse chat log into a fragment queue (no ContentLog interaction yet).
   std::vector<stream_fragment> queue;
-  if (!build_fragment_queue(queue, chat_path)) {
+  if (!build_fragment_queue(queue, chat_path))
+  {
     return 1;
   }
 
@@ -265,8 +298,7 @@ int main(int argc, char* argv[])
   footer->right_text = "q quit";
   // Show just the filename, not the full path.
   auto pos = chat_path.find_last_of('/');
-  footer->center_text = (pos != std::string::npos)
-    ? chat_path.substr(pos + 1) : chat_path;
+  footer->center_text = (pos != std::string::npos) ? chat_path.substr(pos + 1) : chat_path;
   footer->fg_color = cpptui::Theme::current().panel_fg;
   footer->bg_color = cpptui::Theme::current().panel_bg;
 
@@ -278,10 +310,12 @@ int main(int argc, char* argv[])
 
   // Scroll helpers.
   auto clamp_scroll = [&]() {
-    if (scroll->scroll_offset < 0) scroll->scroll_offset = 0;
+    if (scroll->scroll_offset < 0)
+      scroll->scroll_offset = 0;
     int visible_h = scroll->height > 0 ? scroll->height : 1;
     int max_scroll = scroll->content_height - visible_h;
-    if (max_scroll < 0) max_scroll = 0;
+    if (max_scroll < 0)
+      max_scroll = 0;
     if (scroll->scroll_offset > max_scroll)
       scroll->scroll_offset = max_scroll;
   };
@@ -292,7 +326,8 @@ int main(int argc, char* argv[])
   // produced at another width.
   int last_flushed_width = 0;
   scroll->on_layout = [&]() {
-    if (content_log->width == last_flushed_width) return;
+    if (content_log->width == last_flushed_width)
+      return;
     last_flushed_width = content_log->width;
     content_log->flush();
     clamp_scroll();
@@ -302,7 +337,8 @@ int main(int argc, char* argv[])
   auto scroll_to_bottom = [&]() {
     int visible_h = scroll->height > 0 ? scroll->height : 1;
     int max_scroll = scroll->content_height - visible_h;
-    if (max_scroll < 0) max_scroll = 0;
+    if (max_scroll < 0)
+      max_scroll = 0;
     scroll->scroll_offset = max_scroll;
   };
 
@@ -332,11 +368,12 @@ int main(int argc, char* argv[])
   // Tab — toggle collapse/expand block at viewport top.
   app.register_key(9, [&]() {
     int block_idx = content_log->block_at_line(scroll->scroll_offset);
-    if (block_idx >= 0) {
+    if (block_idx >= 0)
+    {
       content_log->toggle_collapse(block_idx);
       content_log->flush();
-      if (auto cont =
-            std::dynamic_pointer_cast<cpptui::Container>(root)) {
+      if (auto cont = std::dynamic_pointer_cast<cpptui::Container>(root))
+      {
         cont->layout();
       }
       clamp_scroll();
@@ -361,37 +398,45 @@ int main(int argc, char* argv[])
   int stream_phase = 0;
 
   app.add_timer(30, [&]() {
-    if (stream_phase == 0) {
+    if (stream_phase == 0)
+    {
       // Wait for layout to assign width to content_log.
-      if (content_log->width <= 0) return;
+      if (content_log->width <= 0)
+        return;
       stream_phase = 1;
     }
 
-    if (stream_phase == 1) {
+    if (stream_phase == 1)
+    {
       // Feed a few fragments per tick to simulate streaming.
       constexpr int fragments_per_tick = 5;
-      for (int i = 0; i < fragments_per_tick && !queue.empty(); ++i) {
+      for (int i = 0; i < fragments_per_tick && !queue.empty(); ++i)
+      {
         auto frag = queue.front();
         queue.erase(queue.begin());
         // Handle special fragment types.
-        if (frag.special == special_type::turn_separator) {
+        if (frag.special == special_type::turn_separator)
+        {
           content_log->append_turn_separator(frag.turn_number);
-        } else {
+        }
+        else
+        {
           content_log->append_fragment(frag.text, frag.type, frag.force_new);
         }
       }
       content_log->flush();
-      if (auto cont =
-            std::dynamic_pointer_cast<cpptui::Container>(root)) {
+      if (auto cont = std::dynamic_pointer_cast<cpptui::Container>(root))
+      {
         cont->layout();
       }
       scroll_to_bottom();
       app.update();
 
-      if (queue.empty()) {
+      if (queue.empty())
+      {
         content_log->flush();
-        if (auto cont =
-              std::dynamic_pointer_cast<cpptui::Container>(root)) {
+        if (auto cont = std::dynamic_pointer_cast<cpptui::Container>(root))
+        {
           cont->layout();
         }
         scroll_to_bottom();

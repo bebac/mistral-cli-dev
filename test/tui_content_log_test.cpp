@@ -1,6 +1,6 @@
-#include "tui/tui_content_log.h"
-#include "tui/tui_content_area.h"
 #include "doctest/doctest.h"
+#include "tui/tui_content_area.h"
+#include "tui/tui_content_log.h"
 
 #include <cpptui.hpp>
 
@@ -13,7 +13,8 @@ TEST_SUITE_BEGIN("content_log");
 // Block creation and kind mapping
 // ---------------------------------------------------------------------------
 
-TEST_CASE("append_fragment creates block with correct kind for each type") {
+TEST_CASE("append_fragment creates block with correct kind for each type")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("hello", content_type::normal);
   log.append_fragment("thinking...", content_type::thinking);
@@ -35,7 +36,8 @@ TEST_CASE("append_fragment creates block with correct kind for each type") {
   CHECK(log.block_at(6).kind == BlockKind::system);
 }
 
-TEST_CASE("append_fragment stores text in block") {
+TEST_CASE("append_fragment stores text in block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("hello world", content_type::normal);
   REQUIRE(log.block_count() == 1);
@@ -46,7 +48,8 @@ TEST_CASE("append_fragment stores text in block") {
 // Same-kind append merges into last block
 // ---------------------------------------------------------------------------
 
-TEST_CASE("same-kind append merges into last block") {
+TEST_CASE("same-kind append merges into last block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("hello ", content_type::normal);
   log.append_fragment("world", content_type::normal);
@@ -55,7 +58,8 @@ TEST_CASE("same-kind append merges into last block") {
   CHECK(log.block_at(0).text == "hello world");
 }
 
-TEST_CASE("same-kind append merges for thinking") {
+TEST_CASE("same-kind append merges for thinking")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("first ", content_type::thinking);
   log.append_fragment("second", content_type::thinking);
@@ -64,7 +68,8 @@ TEST_CASE("same-kind append merges for thinking") {
   CHECK(log.block_at(0).text == "first second");
 }
 
-TEST_CASE("tool_result appends to last tool block result_text") {
+TEST_CASE("tool_result appends to last tool block result_text")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] read()", content_type::tool_call);
   log.append_fragment("line1\n", content_type::tool_result);
@@ -80,7 +85,8 @@ TEST_CASE("tool_result appends to last tool block result_text") {
 // Different-kind append creates new block
 // ---------------------------------------------------------------------------
 
-TEST_CASE("different-kind append creates new block") {
+TEST_CASE("different-kind append creates new block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("hello", content_type::normal);
   log.append_fragment("thinking", content_type::thinking);
@@ -92,7 +98,8 @@ TEST_CASE("different-kind append creates new block") {
   CHECK(log.block_at(1).kind == BlockKind::thinking);
 }
 
-TEST_CASE("alternating types create separate blocks") {
+TEST_CASE("alternating types create separate blocks")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("a", content_type::normal);
   log.append_fragment("b", content_type::thinking);
@@ -104,7 +111,8 @@ TEST_CASE("alternating types create separate blocks") {
   CHECK(log.block_at(2).text == "c");
 }
 
-TEST_CASE("same kind after gap creates new block") {
+TEST_CASE("same kind after gap creates new block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("first", content_type::normal);
   log.append_fragment("thinking", content_type::thinking);
@@ -120,7 +128,8 @@ TEST_CASE("same kind after gap creates new block") {
 // flush() updates cached_lines and total_lines
 // ---------------------------------------------------------------------------
 
-TEST_CASE("flush updates cached_lines for single block") {
+TEST_CASE("flush updates cached_lines for single block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -134,7 +143,8 @@ TEST_CASE("flush updates cached_lines for single block") {
   CHECK(log.total_lines() == 1);
 }
 
-TEST_CASE("flush sets fixed_height to total_lines") {
+TEST_CASE("flush sets fixed_height to total_lines")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -145,7 +155,8 @@ TEST_CASE("flush sets fixed_height to total_lines") {
   CHECK(log.fixed_height == 1);
 }
 
-TEST_CASE("flush wraps long text into multiple lines") {
+TEST_CASE("flush wraps long text into multiple lines")
+{
   mistral::tui::ContentLog log;
   log.width = 10;
   log.height = 24;
@@ -158,7 +169,8 @@ TEST_CASE("flush wraps long text into multiple lines") {
   CHECK(log.fixed_height == log.total_lines());
 }
 
-TEST_CASE("flush handles newlines in text") {
+TEST_CASE("flush handles newlines in text")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -173,7 +185,8 @@ TEST_CASE("flush handles newlines in text") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("flush uses 80 as default width when width is 0") {
+TEST_CASE("flush uses 80 as default width when width is 0")
+{
   mistral::tui::ContentLog log;
   log.width = 0;
   log.height = 24;
@@ -193,7 +206,8 @@ TEST_CASE("flush uses 80 as default width when width is 0") {
 // flush() only re-wraps dirty blocks
 // ---------------------------------------------------------------------------
 
-TEST_CASE("flush only re-wraps dirty blocks") {
+TEST_CASE("flush only re-wraps dirty blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -221,7 +235,8 @@ TEST_CASE("flush only re-wraps dirty blocks") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("append after flush re-wraps last block") {
+TEST_CASE("append after flush re-wraps last block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -242,7 +257,8 @@ TEST_CASE("append after flush re-wraps last block") {
   CHECK(log.total_lines() == 1);
 }
 
-TEST_CASE("flush with no blocks is no-op") {
+TEST_CASE("flush with no blocks is no-op")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -251,7 +267,8 @@ TEST_CASE("flush with no blocks is no-op") {
   CHECK(log.fixed_height == 0);
 }
 
-TEST_CASE("flush with no dirty blocks is no-op") {
+TEST_CASE("flush with no dirty blocks is no-op")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -266,7 +283,8 @@ TEST_CASE("flush with no dirty blocks is no-op") {
   CHECK(log.fixed_height == 1);
 }
 
-TEST_CASE("flush updates total_lines correctly across multiple blocks") {
+TEST_CASE("flush updates total_lines correctly across multiple blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -292,7 +310,8 @@ TEST_CASE("flush updates total_lines correctly across multiple blocks") {
 // Color and style mapping
 // ---------------------------------------------------------------------------
 
-TEST_CASE("text block uses default color") {
+TEST_CASE("text block uses default color")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("hello", content_type::normal);
   REQUIRE(log.block_count() == 1);
@@ -300,7 +319,8 @@ TEST_CASE("text block uses default color") {
   CHECK(log.block_at(0).bold == false);
 }
 
-TEST_CASE("thinking block uses input_placeholder color") {
+TEST_CASE("thinking block uses input_placeholder color")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("thinking", content_type::thinking);
   REQUIRE(log.block_count() == 1);
@@ -308,7 +328,8 @@ TEST_CASE("thinking block uses input_placeholder color") {
   CHECK(log.block_at(0).bold == false);
 }
 
-TEST_CASE("tool block uses primary color and bold") {
+TEST_CASE("tool block uses primary color and bold")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] read()", content_type::tool_call);
   REQUIRE(log.block_count() == 1);
@@ -316,7 +337,8 @@ TEST_CASE("tool block uses primary color and bold") {
   CHECK(log.block_at(0).bold == true);
 }
 
-TEST_CASE("tool block from result uses primary color") {
+TEST_CASE("tool block from result uses primary color")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("-> result", content_type::tool_result);
   REQUIRE(log.block_count() == 1);
@@ -324,7 +346,8 @@ TEST_CASE("tool block from result uses primary color") {
   CHECK(log.block_at(0).bold == true);
 }
 
-TEST_CASE("error block uses error color and bold") {
+TEST_CASE("error block uses error color and bold")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[error] oops", content_type::error);
   REQUIRE(log.block_count() == 1);
@@ -332,7 +355,8 @@ TEST_CASE("error block uses error color and bold") {
   CHECK(log.block_at(0).bold == true);
 }
 
-TEST_CASE("warning block uses warning color") {
+TEST_CASE("warning block uses warning color")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[warning] careful", content_type::warning);
   REQUIRE(log.block_count() == 1);
@@ -340,7 +364,8 @@ TEST_CASE("warning block uses warning color") {
   CHECK(log.block_at(0).bold == false);
 }
 
-TEST_CASE("user block uses success color and bold") {
+TEST_CASE("user block uses success color and bold")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("> user", content_type::user);
   REQUIRE(log.block_count() == 1);
@@ -348,7 +373,8 @@ TEST_CASE("user block uses success color and bold") {
   CHECK(log.block_at(0).bold == true);
 }
 
-TEST_CASE("system block uses warning color") {
+TEST_CASE("system block uses warning color")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("system msg", content_type::system);
   REQUIRE(log.block_count() == 1);
@@ -360,7 +386,8 @@ TEST_CASE("system block uses warning color") {
 // Render
 // ---------------------------------------------------------------------------
 
-TEST_CASE("render produces correct text output") {
+TEST_CASE("render produces correct text output")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -382,7 +409,8 @@ TEST_CASE("render produces correct text output") {
   CHECK(buffer.get(5, 0).content == " ");
 }
 
-TEST_CASE("render multiple blocks on separate lines") {
+TEST_CASE("render multiple blocks on separate lines")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -413,7 +441,8 @@ TEST_CASE("render multiple blocks on separate lines") {
   CHECK(buffer.get(2, 2).content == "\xe2\x96\xbc"); // ▼
 }
 
-TEST_CASE("render applies error color and bold") {
+TEST_CASE("render applies error color and bold")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -430,7 +459,8 @@ TEST_CASE("render applies error color and bold") {
   CHECK(buffer.get(0, 0).fg_color == cpptui::Theme::current().error);
 }
 
-TEST_CASE("render applies thinking color") {
+TEST_CASE("render applies thinking color")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -449,7 +479,8 @@ TEST_CASE("render applies thinking color") {
   CHECK(buffer.get(2, 0).bold == false);
 }
 
-TEST_CASE("render text block uses foreground color") {
+TEST_CASE("render text block uses foreground color")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -466,7 +497,8 @@ TEST_CASE("render text block uses foreground color") {
   CHECK(buffer.get(0, 0).bold == false);
 }
 
-TEST_CASE("render fills remaining width with background") {
+TEST_CASE("render fills remaining width with background")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -486,7 +518,8 @@ TEST_CASE("render fills remaining width with background") {
   CHECK(buffer.get(19, 0).content == " ");
 }
 
-TEST_CASE("render wrapped lines appear on separate rows") {
+TEST_CASE("render wrapped lines appear on separate rows")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -507,7 +540,8 @@ TEST_CASE("render wrapped lines appear on separate rows") {
   CHECK(buffer.get(0, 1).content == "w");
 }
 
-TEST_CASE("render with no blocks produces no output") {
+TEST_CASE("render with no blocks produces no output")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -521,7 +555,8 @@ TEST_CASE("render with no blocks produces no output") {
   CHECK(buffer.get(0, 0).content == " ");
 }
 
-TEST_CASE("render with unwrapped blocks skips them") {
+TEST_CASE("render with unwrapped blocks skips them")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -542,7 +577,8 @@ TEST_CASE("render with unwrapped blocks skips them") {
 // clear()
 // ---------------------------------------------------------------------------
 
-TEST_CASE("clear resets all state") {
+TEST_CASE("clear resets all state")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -558,7 +594,8 @@ TEST_CASE("clear resets all state") {
   CHECK(log.fixed_height == 0);
 }
 
-TEST_CASE("clear allows appending after clear") {
+TEST_CASE("clear allows appending after clear")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -579,7 +616,8 @@ TEST_CASE("clear allows appending after clear") {
 // force_new parameter
 // ---------------------------------------------------------------------------
 
-TEST_CASE("force_new creates separate block for same kind") {
+TEST_CASE("force_new creates separate block for same kind")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("tool call 1", content_type::tool_call, true);
   log.append_fragment("tool call 2", content_type::tool_call, true);
@@ -594,7 +632,8 @@ TEST_CASE("force_new creates separate block for same kind") {
   CHECK(log.block_at(2).kind == BlockKind::tool);
 }
 
-TEST_CASE("tool_result without tool_call creates tool block") {
+TEST_CASE("tool_result without tool_call creates tool block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("result part 1", content_type::tool_result, true);
   log.append_fragment(" part 2", content_type::tool_result, false);
@@ -605,22 +644,22 @@ TEST_CASE("tool_result without tool_call creates tool block") {
   CHECK(log.block_at(0).result_text == "result part 1 part 2 part 3");
 }
 
-TEST_CASE("tool_result without tool_call merges into one block") {
+TEST_CASE("tool_result without tool_call merges into one block")
+{
   mistral::tui::ContentLog log;
   // tool_result without a preceding tool_call creates a tool block.
   // Subsequent tool_result fragments append to the last tool block
   // (streaming continuation of the same result).
-  log.append_fragment("result A line 1\nresult A line 2",
-                      content_type::tool_result, true);
+  log.append_fragment("result A line 1\nresult A line 2", content_type::tool_result, true);
   log.append_fragment("result B", content_type::tool_result, true);
 
   REQUIRE(log.block_count() == 1);
   CHECK(log.block_at(0).kind == BlockKind::tool);
-  CHECK(log.block_at(0).result_text ==
-        "result A line 1\nresult A line 2result B");
+  CHECK(log.block_at(0).result_text == "result A line 1\nresult A line 2result B");
 }
 
-TEST_CASE("interleaved tool calls and results pair correctly") {
+TEST_CASE("interleaved tool calls and results pair correctly")
+{
   mistral::tui::ContentLog log;
   // Real streaming flow: call→result→call→result→call→result
   log.append_fragment("[tool] call1()", content_type::tool_call, true);
@@ -645,7 +684,8 @@ TEST_CASE("interleaved tool calls and results pair correctly") {
   CHECK(log.block_at(2).collapsed == true);
 }
 
-TEST_CASE("force_new=false still merges same kind by default") {
+TEST_CASE("force_new=false still merges same kind by default")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("a", content_type::normal);
   log.append_fragment("b", content_type::normal);
@@ -654,7 +694,8 @@ TEST_CASE("force_new=false still merges same kind by default") {
   CHECK(log.block_at(0).text == "ab");
 }
 
-TEST_CASE("force_new creates new block even when last is same kind") {
+TEST_CASE("force_new creates new block even when last is same kind")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("first", content_type::normal);
   log.append_fragment("second", content_type::normal, true);
@@ -668,7 +709,8 @@ TEST_CASE("force_new creates new block even when last is same kind") {
 // Auto-collapse on new block creation
 // ---------------------------------------------------------------------------
 
-TEST_CASE("thinking block auto-collapses when next block is created") {
+TEST_CASE("thinking block auto-collapses when next block is created")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("thinking content", content_type::thinking);
   CHECK(log.block_at(0).collapsed == false);
@@ -679,7 +721,8 @@ TEST_CASE("thinking block auto-collapses when next block is created") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("tool block is always collapsed") {
+TEST_CASE("tool block is always collapsed")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] read()", content_type::tool_call);
   log.append_fragment("result", content_type::tool_result);
@@ -692,7 +735,8 @@ TEST_CASE("tool block is always collapsed") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("text block does not auto-collapse when next block is created") {
+TEST_CASE("text block does not auto-collapse when next block is created")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("text content", content_type::normal);
   log.append_fragment("thinking", content_type::thinking);
@@ -701,7 +745,8 @@ TEST_CASE("text block does not auto-collapse when next block is created") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("force_new creates collapsed tool blocks") {
+TEST_CASE("force_new creates collapsed tool blocks")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[tool] call1()", content_type::tool_call, true);
   log.append_fragment("result A", content_type::tool_result);
@@ -716,14 +761,13 @@ TEST_CASE("force_new creates collapsed tool blocks") {
 // Tool call status
 // ---------------------------------------------------------------------------
 
-TEST_CASE("tool status set when tool_result arrives") {
+TEST_CASE("tool status set when tool_result arrives")
+{
   mistral::tui::ContentLog log;
-  log.append_fragment("\n[tool] read(path=\"test.txt\")",
-                      content_type::tool_call, true);
+  log.append_fragment("\n[tool] read(path=\"test.txt\")", content_type::tool_call, true);
   CHECK(log.block_at(0).tool_status.empty());
 
-  log.append_fragment(" \xe2\x86\x92 result content",
-                      content_type::tool_result, true);
+  log.append_fragment(" \xe2\x86\x92 result content", content_type::tool_result, true);
   REQUIRE(log.block_count() == 1);
   CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
   // Status is stored separately, not appended to text
@@ -731,19 +775,18 @@ TEST_CASE("tool status set when tool_result arrives") {
   CHECK(log.block_at(0).text == "[tool] read(path=\"test.txt\")");
 }
 
-TEST_CASE("multiple tool calls get status in order") {
+TEST_CASE("multiple tool calls get status in order")
+{
   mistral::tui::ContentLog log;
   // Real flow: call→result→call→result (each result follows its call)
   log.append_fragment("[tool] call1()", content_type::tool_call, true);
-  log.append_fragment(" \xe2\x86\x92 result1",
-                      content_type::tool_result, true);
+  log.append_fragment(" \xe2\x86\x92 result1", content_type::tool_result, true);
   CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
 
   log.append_fragment("[tool] call2()", content_type::tool_call, true);
   CHECK(log.block_at(1).tool_status.empty());
 
-  log.append_fragment(" \xe2\x86\x92 result2",
-                      content_type::tool_result, true);
+  log.append_fragment(" \xe2\x86\x92 result2", content_type::tool_result, true);
   CHECK(log.block_at(1).tool_status == "\xe2\x9c\x93");
 }
 
@@ -751,7 +794,8 @@ TEST_CASE("multiple tool calls get status in order") {
 // complete_turn()
 // ---------------------------------------------------------------------------
 
-TEST_CASE("complete_turn does not collapse text blocks") {
+TEST_CASE("complete_turn does not collapse text blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -764,7 +808,8 @@ TEST_CASE("complete_turn does not collapse text blocks") {
   CHECK(log.block_at(0).collapsed == false);
 }
 
-TEST_CASE("complete_turn does not collapse error blocks") {
+TEST_CASE("complete_turn does not collapse error blocks")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("[error] oops", content_type::error);
   log.append_fragment("answer", content_type::normal);
@@ -774,7 +819,8 @@ TEST_CASE("complete_turn does not collapse error blocks") {
   CHECK(log.block_at(1).collapsed == false);
 }
 
-TEST_CASE("complete_turn collapses last thinking block") {
+TEST_CASE("complete_turn collapses last thinking block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -787,7 +833,8 @@ TEST_CASE("complete_turn collapses last thinking block") {
   CHECK(log.block_at(0).collapsed == true);
 }
 
-TEST_CASE("complete_turn cleans up trailing empty text block") {
+TEST_CASE("complete_turn cleans up trailing empty text block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -802,7 +849,8 @@ TEST_CASE("complete_turn cleans up trailing empty text block") {
   CHECK(log.block_at(0).collapsed == true);
 }
 
-TEST_CASE("complete_turn does not collapse already-collapsed tool blocks") {
+TEST_CASE("complete_turn does not collapse already-collapsed tool blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -819,7 +867,8 @@ TEST_CASE("complete_turn does not collapse already-collapsed tool blocks") {
 // toggle_collapse()
 // ---------------------------------------------------------------------------
 
-TEST_CASE("toggle_collapse expands collapsed thinking block") {
+TEST_CASE("toggle_collapse expands collapsed thinking block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -834,7 +883,8 @@ TEST_CASE("toggle_collapse expands collapsed thinking block") {
   CHECK(log.block_at(0).collapsed == false);
 }
 
-TEST_CASE("toggle_collapse collapses expanded thinking block") {
+TEST_CASE("toggle_collapse collapses expanded thinking block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -848,7 +898,8 @@ TEST_CASE("toggle_collapse collapses expanded thinking block") {
   CHECK(log.block_at(0).collapsed == true);
 }
 
-TEST_CASE("toggle_collapse fails for non-collapsible block") {
+TEST_CASE("toggle_collapse fails for non-collapsible block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("> user message", content_type::user);
 
@@ -857,7 +908,8 @@ TEST_CASE("toggle_collapse fails for non-collapsible block") {
   CHECK(log.block_at(0).collapsed == false);
 }
 
-TEST_CASE("toggle_collapse fails for text block") {
+TEST_CASE("toggle_collapse fails for text block")
+{
   mistral::tui::ContentLog log;
   log.append_fragment("text content", content_type::normal);
 
@@ -866,14 +918,16 @@ TEST_CASE("toggle_collapse fails for text block") {
   CHECK(log.block_at(0).collapsed == false);
 }
 
-TEST_CASE("toggle_collapse fails for invalid index") {
+TEST_CASE("toggle_collapse fails for invalid index")
+{
   mistral::tui::ContentLog log;
   CHECK(log.toggle_collapse(-1) == false);
   CHECK(log.toggle_collapse(0) == false);
   CHECK(log.toggle_collapse(999) == false);
 }
 
-TEST_CASE("toggle_collapse updates total_lines") {
+TEST_CASE("toggle_collapse updates total_lines")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -893,7 +947,8 @@ TEST_CASE("toggle_collapse updates total_lines") {
 // block_at_line()
 // ---------------------------------------------------------------------------
 
-TEST_CASE("block_at_line finds correct block") {
+TEST_CASE("block_at_line finds correct block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -917,7 +972,8 @@ TEST_CASE("block_at_line finds correct block") {
   CHECK(log.block_at_line(6) == -1);
 }
 
-TEST_CASE("block_at_line with collapsed blocks") {
+TEST_CASE("block_at_line with collapsed blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -934,7 +990,8 @@ TEST_CASE("block_at_line with collapsed blocks") {
 // Collapsed block rendering
 // ---------------------------------------------------------------------------
 
-TEST_CASE("render collapsed thinking shows [think] prefix") {
+TEST_CASE("render collapsed thinking shows [think] prefix")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -958,7 +1015,8 @@ TEST_CASE("render collapsed thinking shows [think] prefix") {
   CHECK(buffer.get(2, 0).content == "\xe2\x96\xb6");
 }
 
-TEST_CASE("render collapsed tool shows call text and status") {
+TEST_CASE("render collapsed tool shows call text and status")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -977,14 +1035,16 @@ TEST_CASE("render collapsed tool shows call text and status") {
 
   // Collapsed: "  ▶ [tool] read(path="test") ✓"
   std::string line_content;
-  for (int i = 0; i < 80; ++i) {
+  for (int i = 0; i < 80; ++i)
+  {
     line_content += buffer.get(i, 0).content;
   }
   CHECK(line_content.find("[tool] read(path=\"test\")") != std::string::npos);
   CHECK(line_content.find("\xe2\x9c\x93") != std::string::npos);
 }
 
-TEST_CASE("render expanded thinking shows indicator and content") {
+TEST_CASE("render expanded thinking shows indicator and content")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1002,10 +1062,11 @@ TEST_CASE("render expanded thinking shows indicator and content") {
   CHECK(buffer.get(0, 0).content == " ");
   CHECK(buffer.get(1, 0).content == " ");
   CHECK(buffer.get(2, 0).content == "\xe2\x96\xbc"); // ▼
-  CHECK(buffer.get(4, 0).content == "t"); // "thinking"
+  CHECK(buffer.get(4, 0).content == "t");            // "thinking"
 }
 
-TEST_CASE("render expanded tool shows call and result") {
+TEST_CASE("render expanded tool shows call and result")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1024,7 +1085,8 @@ TEST_CASE("render expanded tool shows call and result") {
   // First line: "  ▼ [tool] read()"
   CHECK(buffer.get(2, 0).content == "\xe2\x96\xbc"); // ▼
   std::string line0;
-  for (int i = 4; i < 80; ++i) line0 += buffer.get(i, 0).content;
+  for (int i = 4; i < 80; ++i)
+    line0 += buffer.get(i, 0).content;
   CHECK(line0.find("[tool] read()") != std::string::npos);
 
   // Second line: "    → result line" (4-space indent + result)
@@ -1033,7 +1095,8 @@ TEST_CASE("render expanded tool shows call and result") {
   CHECK(buffer.get(2, 1).content == " ");
   CHECK(buffer.get(3, 1).content == " ");
   std::string line1;
-  for (int i = 4; i < 80; ++i) line1 += buffer.get(i, 1).content;
+  for (int i = 4; i < 80; ++i)
+    line1 += buffer.get(i, 1).content;
   CHECK(line1.find("\xe2\x86\x92 result line") != std::string::npos);
 }
 
@@ -1041,7 +1104,8 @@ TEST_CASE("render expanded tool shows call and result") {
 // Turn separators and final answer markers
 // ---------------------------------------------------------------------------
 
-TEST_CASE("append_turn_separator creates separator block") {
+TEST_CASE("append_turn_separator creates separator block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1053,7 +1117,8 @@ TEST_CASE("append_turn_separator creates separator block") {
   CHECK(log.total_lines() == 1);
 }
 
-TEST_CASE("render turn separator fills with dashes") {
+TEST_CASE("render turn separator fills with dashes")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1079,7 +1144,8 @@ TEST_CASE("render turn separator fills with dashes") {
 // total_lines with collapsed blocks
 // ---------------------------------------------------------------------------
 
-TEST_CASE("total_lines accounts for collapsed blocks") {
+TEST_CASE("total_lines accounts for collapsed blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1093,7 +1159,8 @@ TEST_CASE("total_lines accounts for collapsed blocks") {
   CHECK(log.fixed_height == 3);
 }
 
-TEST_CASE("total_lines with mixed collapsed and expanded blocks") {
+TEST_CASE("total_lines with mixed collapsed and expanded blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1115,7 +1182,8 @@ TEST_CASE("total_lines with mixed collapsed and expanded blocks") {
   CHECK(log.total_lines() == 8);
 }
 
-TEST_CASE("total_lines with expanded tool block includes result lines") {
+TEST_CASE("total_lines with expanded tool block includes result lines")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1136,7 +1204,8 @@ TEST_CASE("total_lines with expanded tool block includes result lines") {
 // Render-time separator lines between block-type transitions
 // ---------------------------------------------------------------------------
 
-TEST_CASE("separator line between text and tool call") {
+TEST_CASE("separator line between text and tool call")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1155,7 +1224,8 @@ TEST_CASE("separator line between text and tool call") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("separator line between text and turn separator") {
+TEST_CASE("separator line between text and turn separator")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1174,7 +1244,8 @@ TEST_CASE("separator line between text and turn separator") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("no separator between consecutive thinking and tool blocks") {
+TEST_CASE("no separator between consecutive thinking and tool blocks")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1191,7 +1262,8 @@ TEST_CASE("no separator between consecutive thinking and tool blocks") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("separator between user and thinking") {
+TEST_CASE("separator between user and thinking")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1204,7 +1276,8 @@ TEST_CASE("separator between user and thinking") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("separator between thinking and text") {
+TEST_CASE("separator between thinking and text")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1217,7 +1290,8 @@ TEST_CASE("separator between thinking and text") {
   CHECK(log.total_lines() == 3);
 }
 
-TEST_CASE("render shows separator blank line between text and thinking") {
+TEST_CASE("render shows separator blank line between text and thinking")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1247,7 +1321,8 @@ TEST_CASE("render shows separator blank line between text and thinking") {
   CHECK(buffer.get(0, 4).content == "a");
 }
 
-TEST_CASE("render shows no separator between thinking and tool") {
+TEST_CASE("render shows no separator between thinking and tool")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1277,7 +1352,8 @@ TEST_CASE("render shows no separator between thinking and tool") {
   CHECK(buffer.get(0, 3).content == "a");
 }
 
-TEST_CASE("trailing newlines stripped from text before tool call") {
+TEST_CASE("trailing newlines stripped from text before tool call")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1292,7 +1368,8 @@ TEST_CASE("trailing newlines stripped from text before tool call") {
   CHECK(log.block_at(0).cached_lines.size() == 1);
 }
 
-TEST_CASE("empty text block removed before tool call") {
+TEST_CASE("empty text block removed before tool call")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1308,7 +1385,8 @@ TEST_CASE("empty text block removed before tool call") {
   CHECK(log.block_at(0).kind == BlockKind::tool);
 }
 
-TEST_CASE("leading newlines not stripped for first text block") {
+TEST_CASE("leading newlines not stripped for first text block")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1325,7 +1403,8 @@ TEST_CASE("leading newlines not stripped for first text block") {
   CHECK(log.block_at(0).cached_lines[3] == "answer text");
 }
 
-TEST_CASE("leading newlines stripped at block-type boundary") {
+TEST_CASE("leading newlines stripped at block-type boundary")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1341,7 +1420,8 @@ TEST_CASE("leading newlines stripped at block-type boundary") {
   CHECK(log.block_at(1).cached_lines[0] == "answer text");
 }
 
-TEST_CASE("leading newlines not stripped with force_new same kind") {
+TEST_CASE("leading newlines not stripped with force_new same kind")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1361,7 +1441,8 @@ TEST_CASE("leading newlines not stripped with force_new same kind") {
   CHECK(log.block_at(1).cached_lines[2] == "second");
 }
 
-TEST_CASE("leading newlines preserved when merging text fragments") {
+TEST_CASE("leading newlines preserved when merging text fragments")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1380,7 +1461,8 @@ TEST_CASE("leading newlines preserved when merging text fragments") {
   CHECK(log.block_at(0).cached_lines[2] == "answer");
 }
 
-TEST_CASE("blank lines preserved between paragraphs when streaming") {
+TEST_CASE("blank lines preserved between paragraphs when streaming")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1403,7 +1485,8 @@ TEST_CASE("blank lines preserved between paragraphs when streaming") {
   CHECK(log.block_at(0).cached_lines[4] == "second paragraph");
 }
 
-TEST_CASE("normalization gives consistent one blank line via separators") {
+TEST_CASE("normalization gives consistent one blank line via separators")
+{
   mistral::tui::ContentLog log;
   log.width = 80;
   log.height = 24;
@@ -1430,7 +1513,8 @@ TEST_CASE("normalization gives consistent one blank line via separators") {
 // Text selection
 // ---------------------------------------------------------------------------
 
-TEST_CASE("selection: single text block with blank line") {
+TEST_CASE("selection: single text block with blank line")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1438,8 +1522,7 @@ TEST_CASE("selection: single text block with blank line") {
   log.height = 24;
 
   std::string line1 = "There are currently **no open tasks** in the system.";
-  std::string line2 =
-    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  std::string line2 = "Both \"todo\" and \"in-progress\" statuses returned empty results.";
   log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
   log.flush();
 
@@ -1451,7 +1534,7 @@ TEST_CASE("selection: single text block with blank line") {
   press.type = cpptui::EventType::Mouse;
   press.x = 0;
   press.y = 0;
-  press.button = 0;  // left click
+  press.button = 0; // left click
   press.click_count = 1;
   log.on_event(press);
 
@@ -1460,7 +1543,7 @@ TEST_CASE("selection: single text block with blank line") {
   drag.type = cpptui::EventType::Mouse;
   drag.x = (int)line1.size() - 1;
   drag.y = 0;
-  drag.button = 32;  // motion with left button
+  drag.button = 32; // motion with left button
   log.on_event(drag);
 
   // Mouse release
@@ -1468,14 +1551,15 @@ TEST_CASE("selection: single text block with blank line") {
   release.type = cpptui::EventType::Mouse;
   release.x = (int)line1.size() - 1;
   release.y = 0;
-  release.button = 3;  // release
+  release.button = 3; // release
   log.on_event(release);
 
   REQUIRE(log.has_selection());
   CHECK(log.get_selected_text() == line1);
 }
 
-TEST_CASE("selection: text block after turn separator") {
+TEST_CASE("selection: text block after turn separator")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1484,8 +1568,7 @@ TEST_CASE("selection: text block after turn separator") {
 
   log.append_turn_separator(1);
   std::string line1 = "There are currently **no open tasks** in the system.";
-  std::string line2 =
-    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  std::string line2 = "Both \"todo\" and \"in-progress\" statuses returned empty results.";
   log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
   log.flush();
 
@@ -1525,7 +1608,8 @@ TEST_CASE("selection: text block after turn separator") {
   CHECK(log.get_selected_text() == line1);
 }
 
-TEST_CASE("selection: select across blank line in multi-line block") {
+TEST_CASE("selection: select across blank line in multi-line block")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1533,8 +1617,7 @@ TEST_CASE("selection: select across blank line in multi-line block") {
   log.height = 24;
 
   std::string line1 = "There are currently **no open tasks** in the system.";
-  std::string line2 =
-    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  std::string line2 = "Both \"todo\" and \"in-progress\" statuses returned empty results.";
   log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
   log.flush();
 
@@ -1566,7 +1649,8 @@ TEST_CASE("selection: select across blank line in multi-line block") {
   CHECK(log.get_selected_text() == line1 + "\n\nB");
 }
 
-TEST_CASE("selection: text after collapsed tool block with UTF-8 status") {
+TEST_CASE("selection: text after collapsed tool block with UTF-8 status")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1582,8 +1666,7 @@ TEST_CASE("selection: text after collapsed tool block with UTF-8 status") {
 
   // AI text response
   std::string line1 = "There are currently **no open tasks** in the system.";
-  std::string line2 =
-    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  std::string line2 = "Both \"todo\" and \"in-progress\" statuses returned empty results.";
   log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
   log.flush();
 
@@ -1632,7 +1715,8 @@ TEST_CASE("selection: text after collapsed tool block with UTF-8 status") {
   CHECK(log.get_selected_text() == line1);
 }
 
-TEST_CASE("selection: select all via triple-click") {
+TEST_CASE("selection: select all via triple-click")
+{
   mistral::tui::ContentLog log;
   log.x = 0;
   log.y = 0;
@@ -1640,8 +1724,7 @@ TEST_CASE("selection: select all via triple-click") {
   log.height = 24;
 
   std::string line1 = "There are currently **no open tasks** in the system.";
-  std::string line2 =
-    "Both \"todo\" and \"in-progress\" statuses returned empty results.";
+  std::string line2 = "Both \"todo\" and \"in-progress\" statuses returned empty results.";
   log.append_fragment(line1 + "\n\n" + line2, content_type::normal);
   log.flush();
 
@@ -1664,7 +1747,8 @@ TEST_CASE("selection: select all via triple-click") {
 // content_area newline preservation (regression tests)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("content_area preserves newlines in streaming text fragments") {
+TEST_CASE("content_area preserves newlines in streaming text fragments")
+{
   mistral::tui::content_area area;
   auto scroll = area.build();
   scroll->width = 80;
@@ -1694,7 +1778,8 @@ TEST_CASE("content_area preserves newlines in streaming text fragments") {
   CHECK(log->block_at(0).cached_lines[1] == "line2");
 }
 
-TEST_CASE("content_area preserves newlines in multi-line content streaming") {
+TEST_CASE("content_area preserves newlines in multi-line content streaming")
+{
   mistral::tui::content_area area;
   auto scroll = area.build();
   scroll->width = 80;

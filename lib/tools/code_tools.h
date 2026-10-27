@@ -52,8 +52,7 @@ namespace mistral::tools
     // to the scheduler periodically; unreadable entries are skipped.
     dripcore::awaitable<void> for_each_source_file(
       const std::filesystem::path& root,
-      const std::function<bool(
-        const std::filesystem::path& file, std::string&& source)>& visit
+      const std::function<bool(const std::filesystem::path& file, std::string&& source)>& visit
     );
 
     code_index_settings settings_;

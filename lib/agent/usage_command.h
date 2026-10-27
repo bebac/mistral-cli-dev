@@ -2,8 +2,8 @@
 #define MISTRAL_USAGE_COMMAND_H
 
 #include "slash_command/slash_command.h"
-#include <dripcore/task.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/task.h>
 
 namespace mistral::agent
 {

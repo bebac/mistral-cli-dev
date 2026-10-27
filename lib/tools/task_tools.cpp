@@ -15,31 +15,24 @@ namespace mistral::tools
 {
   // ---- Valid enum values ----
 
-  static const std::vector<std::string> VALID_STATUSES = {
-    "todo", "in-progress", "done", "blocked", "cancelled"
-  };
+  static const std::vector<std::string> VALID_STATUSES = {"todo", "in-progress", "done", "blocked", "cancelled"};
 
-  static const std::vector<std::string> VALID_PRIORITIES = {
-    "low", "medium", "high", "critical"
-  };
+  static const std::vector<std::string> VALID_PRIORITIES = {"low", "medium", "high", "critical"};
 
   static bool is_valid_status(const std::string& s)
   {
-    return std::find(VALID_STATUSES.begin(), VALID_STATUSES.end(), s)
-      != VALID_STATUSES.end();
+    return std::find(VALID_STATUSES.begin(), VALID_STATUSES.end(), s) != VALID_STATUSES.end();
   }
 
   static bool is_valid_priority(const std::string& p)
   {
-    return std::find(VALID_PRIORITIES.begin(), VALID_PRIORITIES.end(), p)
-      != VALID_PRIORITIES.end();
+    return std::find(VALID_PRIORITIES.begin(), VALID_PRIORITIES.end(), p) != VALID_PRIORITIES.end();
   }
 
   // ---- task_tools ----
 
   task_tools::task_tools(std::string notes_dir)
-    : notes_dir_(std::move(notes_dir))
-    , tasks_file_((fs::path(notes_dir_) / "_tasks" / "tasks.json").string())
+    : notes_dir_(std::move(notes_dir)), tasks_file_((fs::path(notes_dir_) / "_tasks" / "tasks.json").string())
   {
     // Ensure the _tasks directory exists.
     fs::create_directories(fs::path(notes_dir_) / "_tasks");
@@ -57,15 +50,23 @@ namespace mistral::tools
   std::string task_tools::generate_id(const json& tasks) const
   {
     int max_num = 0;
-    for (const auto& task : tasks) {
-      if (task.contains("id")) {
+    for (const auto& task : tasks)
+    {
+      if (task.contains("id"))
+      {
         std::string id = task["id"].get<std::string>();
         // Parse "task-NNN" format.
-        if (id.starts_with("task-")) {
-          try {
+        if (id.starts_with("task-"))
+        {
+          try
+          {
             int num = std::stoi(id.substr(5));
-            if (num > max_num) max_num = num;
-          } catch (...) {}
+            if (num > max_num)
+              max_num = num;
+          }
+          catch (...)
+          {
+          }
         }
       }
     }
@@ -75,21 +76,28 @@ namespace mistral::tools
   json task_tools::load_tasks() const
   {
     fs::path file_path(tasks_file_);
-    if (!fs::exists(file_path)) {
+    if (!fs::exists(file_path))
+    {
       return json::array();
     }
 
     std::ifstream f(file_path);
-    if (!f) {
+    if (!f)
+    {
       return json::array();
     }
 
-    try {
+    try
+    {
       json data = json::parse(f);
-      if (data.is_array()) {
+      if (data.is_array())
+      {
         return data;
       }
-    } catch (...) {}
+    }
+    catch (...)
+    {
+    }
 
     return json::array();
   }
@@ -100,9 +108,9 @@ namespace mistral::tools
     fs::create_directories(file_path.parent_path());
 
     std::ofstream f(file_path);
-    if (!f) {
-      std::cerr << "warning: could not write tasks file: " << tasks_file_
-                << std::endl;
+    if (!f)
+    {
+      std::cerr << "warning: could not write tasks file: " << tasks_file_ << std::endl;
       return;
     }
 
@@ -117,7 +125,8 @@ namespace mistral::tools
     summary["title"] = task["title"];
     summary["status"] = task["status"];
     summary["priority"] = task["priority"];
-    if (task.contains("tags") && !task["tags"].empty()) {
+    if (task.contains("tags") && !task["tags"].empty())
+    {
       summary["tags"] = task["tags"];
     }
     return summary;
@@ -132,17 +141,18 @@ namespace mistral::tools
     std::vector<std::string> tags
   )
   {
-    if (title.empty()) {
+    if (title.empty())
+    {
       co_return {{"error", "title is required"}};
     }
 
     // Validate priority.
-    if (!priority.empty() && !is_valid_priority(priority)) {
-      co_return {{"error", std::format(
-        "invalid priority '{}'. Valid values: low, medium, high, critical",
-        priority)}};
+    if (!priority.empty() && !is_valid_priority(priority))
+    {
+      co_return {{"error", std::format("invalid priority '{}'. Valid values: low, medium, high, critical", priority)}};
     }
-    if (priority.empty()) {
+    if (priority.empty())
+    {
       priority = "medium";
     }
 
@@ -156,9 +166,12 @@ namespace mistral::tools
     task["description"] = description;
     task["status"] = "todo";
     task["priority"] = priority;
-    if (!tags.empty()) {
+    if (!tags.empty())
+    {
       task["tags"] = tags;
-    } else {
+    }
+    else
+    {
       task["tags"] = json::array();
     }
     task["created_at"] = ts;
@@ -170,22 +183,18 @@ namespace mistral::tools
     co_return task;
   }
 
-  dripcore::awaitable<json> task_tools::list_tasks(
-    std::string status,
-    std::string tag,
-    std::string priority
-  )
+  dripcore::awaitable<json> task_tools::list_tasks(std::string status, std::string tag, std::string priority)
   {
     // Validate filters if provided.
-    if (!status.empty() && !is_valid_status(status)) {
-      co_return {{"error", std::format(
-        "invalid status '{}'. Valid values: todo, in-progress, done, blocked, cancelled",
-        status)}};
+    if (!status.empty() && !is_valid_status(status))
+    {
+      co_return {
+        {"error", std::format("invalid status '{}'. Valid values: todo, in-progress, done, blocked, cancelled", status)}
+      };
     }
-    if (!priority.empty() && !is_valid_priority(priority)) {
-      co_return {{"error", std::format(
-        "invalid priority '{}'. Valid values: low, medium, high, critical",
-        priority)}};
+    if (!priority.empty() && !is_valid_priority(priority))
+    {
+      co_return {{"error", std::format("invalid priority '{}'. Valid values: low, medium, high, critical", priority)}};
     }
 
     // Lowercase filters for case-insensitive matching.
@@ -197,32 +206,44 @@ namespace mistral::tools
     json tasks = load_tasks();
     json results = json::array();
 
-    for (const auto& task : tasks) {
+    for (const auto& task : tasks)
+    {
       // Filter by status.
-      if (!status_l.empty()) {
+      if (!status_l.empty())
+      {
         std::string s = task.value("status", "");
         std::string s_l = s;
         std::transform(s_l.begin(), s_l.end(), s_l.begin(), ::tolower);
-        if (s_l != status_l) continue;
+        if (s_l != status_l)
+          continue;
       }
 
       // Filter by priority.
-      if (!priority_l.empty()) {
+      if (!priority_l.empty())
+      {
         std::string p = task.value("priority", "");
         std::string p_l = p;
         std::transform(p_l.begin(), p_l.end(), p_l.begin(), ::tolower);
-        if (p_l != priority_l) continue;
+        if (p_l != priority_l)
+          continue;
       }
 
       // Filter by tag.
-      if (!tag_l.empty() && task.contains("tags")) {
+      if (!tag_l.empty() && task.contains("tags"))
+      {
         bool found = false;
-        for (const auto& t : task["tags"]) {
+        for (const auto& t : task["tags"])
+        {
           std::string t_l = t.get<std::string>();
           std::transform(t_l.begin(), t_l.end(), t_l.begin(), ::tolower);
-          if (t_l == tag_l) { found = true; break; }
+          if (t_l == tag_l)
+          {
+            found = true;
+            break;
+          }
         }
-        if (!found) continue;
+        if (!found)
+          continue;
       }
 
       results.push_back(task_summary(task));
@@ -235,8 +256,10 @@ namespace mistral::tools
   {
     json tasks = load_tasks();
 
-    for (const auto& task : tasks) {
-      if (task.value("id", "") == task_id) {
+    for (const auto& task : tasks)
+    {
+      if (task.value("id", "") == task_id)
+      {
         co_return task;
       }
     }
@@ -253,26 +276,32 @@ namespace mistral::tools
   )
   {
     // Validate status if provided.
-    if (!status.empty() && !is_valid_status(status)) {
-      co_return {{"error", std::format(
-        "invalid status '{}'. Valid values: todo, in-progress, done, blocked, cancelled",
-        status)}};
+    if (!status.empty() && !is_valid_status(status))
+    {
+      co_return {
+        {"error", std::format("invalid status '{}'. Valid values: todo, in-progress, done, blocked, cancelled", status)}
+      };
     }
     // Validate priority if provided.
-    if (!priority.empty() && !is_valid_priority(priority)) {
-      co_return {{"error", std::format(
-        "invalid priority '{}'. Valid values: low, medium, high, critical",
-        priority)}};
+    if (!priority.empty() && !is_valid_priority(priority))
+    {
+      co_return {{"error", std::format("invalid priority '{}'. Valid values: low, medium, high, critical", priority)}};
     }
 
     json tasks = load_tasks();
 
-    for (auto& task : tasks) {
-      if (task.value("id", "") == task_id) {
-        if (!status.empty()) task["status"] = status;
-        if (!priority.empty()) task["priority"] = priority;
-        if (!title.empty()) task["title"] = title;
-        if (!description.empty()) task["description"] = description;
+    for (auto& task : tasks)
+    {
+      if (task.value("id", "") == task_id)
+      {
+        if (!status.empty())
+          task["status"] = status;
+        if (!priority.empty())
+          task["priority"] = priority;
+        if (!title.empty())
+          task["title"] = title;
+        if (!description.empty())
+          task["description"] = description;
         task["updated_at"] = current_timestamp();
 
         save_tasks(tasks);
@@ -285,7 +314,8 @@ namespace mistral::tools
 
   dripcore::awaitable<json> task_tools::search_tasks(std::string query)
   {
-    if (query.empty()) {
+    if (query.empty())
+    {
       co_return {{"error", "query is required"}};
     }
 
@@ -295,7 +325,8 @@ namespace mistral::tools
     json tasks = load_tasks();
     json results = json::array();
 
-    for (const auto& task : tasks) {
+    for (const auto& task : tasks)
+    {
       std::string title = task.value("title", "");
       std::string desc = task.value("description", "");
 
@@ -304,13 +335,16 @@ namespace mistral::tools
       std::transform(title_l.begin(), title_l.end(), title_l.begin(), ::tolower);
       std::transform(desc_l.begin(), desc_l.end(), desc_l.begin(), ::tolower);
 
-      if (title_l.find(query_l) != std::string::npos ||
-          desc_l.find(query_l) != std::string::npos) {
+      if (title_l.find(query_l) != std::string::npos || desc_l.find(query_l) != std::string::npos)
+      {
         json match = task_summary(task);
         // Include matching snippet for context.
-        if (desc_l.find(query_l) != std::string::npos) {
+        if (desc_l.find(query_l) != std::string::npos)
+        {
           match["matched_in"] = "description";
-        } else {
+        }
+        else
+        {
           match["matched_in"] = "title";
         }
         results.push_back(std::move(match));

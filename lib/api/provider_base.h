@@ -24,7 +24,8 @@ namespace mistral::api
       const json& tools_schema,
       bool stream,
       const std::optional<std::string>& prompt_cache_key,
-      const sampling_params& params) const final;
+      const sampling_params& params
+    ) const final;
 
     // Common SSE delta parsing: finish_reason, content (string or
     // content-array), and tool_calls. Provider-specific delta fields
@@ -33,23 +34,23 @@ namespace mistral::api
 
   protected:
     // Serialize messages using the provider-specific format.
-    void apply_messages(
-      json& body,
-      const std::vector<message>& messages) const;
+    void apply_messages(json& body, const std::vector<message>& messages) const;
 
     // Serialize messages and apply the standard sampling parameters.
     // Used by build_chat_request.
     void apply_messages_and_sampling(
       json& body,
       const std::vector<message>& messages,
-      const sampling_params& params) const;
+      const sampling_params& params
+    ) const;
     // Hook: add provider-specific fields to the request body.
     // Default: no additional fields.
     virtual void apply_request_fields(
       json& /*body*/,
       bool /*stream*/,
       const std::optional<std::string>& /*prompt_cache_key*/,
-      const sampling_params& /*params*/) const
+      const sampling_params& /*params*/
+    ) const
     {
     }
 

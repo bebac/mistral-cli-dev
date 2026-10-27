@@ -27,8 +27,7 @@ namespace mistral::tmpl
     return process_impl(content, include_stack);
   }
 
-  std::string template_engine::process_impl(const std::string& input,
-                                             std::set<std::string>& include_stack) const
+  std::string template_engine::process_impl(const std::string& input, std::set<std::string>& include_stack) const
   {
     std::string result;
     result.reserve(input.size());
@@ -44,7 +43,8 @@ namespace mistral::tmpl
       if (pos + 3 < len && input.compare(pos, 4, "{{> ") == 0)
       {
         size_t end = input.find("}}", pos + 4);
-        if (end == std::string::npos) {
+        if (end == std::string::npos)
+        {
           throw std::runtime_error("unclosed include directive: {{> ...");
         }
 
@@ -72,10 +72,14 @@ namespace mistral::tmpl
         }
 
         // Trim whitespace from path and condition_var.
-        while (!path.empty() && path.back() == ' ') path.pop_back();
-        while (!path.empty() && path.front() == ' ') path.erase(path.begin());
-        while (!condition_var.empty() && condition_var.back() == ' ') condition_var.pop_back();
-        while (!condition_var.empty() && condition_var.front() == ' ') condition_var.erase(condition_var.begin());
+        while (!path.empty() && path.back() == ' ')
+          path.pop_back();
+        while (!path.empty() && path.front() == ' ')
+          path.erase(path.begin());
+        while (!condition_var.empty() && condition_var.back() == ' ')
+          condition_var.pop_back();
+        while (!condition_var.empty() && condition_var.front() == ' ')
+          condition_var.erase(condition_var.begin());
 
         // Evaluate condition.
         bool should_include = true;
@@ -98,7 +102,8 @@ namespace mistral::tmpl
       else if (pos + 2 < len && input.compare(pos, 3, "${{") == 0)
       {
         size_t end = input.find("}}", pos + 3);
-        if (end == std::string::npos) {
+        if (end == std::string::npos)
+        {
           throw std::runtime_error("unclosed command expansion: ${{...");
         }
 
@@ -110,7 +115,8 @@ namespace mistral::tmpl
       else if (pos + 1 < len && input[pos] == '$' && input[pos + 1] == '{')
       {
         size_t end = input.find('}', pos + 2);
-        if (end == std::string::npos) {
+        if (end == std::string::npos)
+        {
           throw std::runtime_error("unclosed variable: ${...");
         }
 
@@ -132,7 +138,8 @@ namespace mistral::tmpl
   std::string template_engine::expand_variable(const std::string& name) const
   {
     auto it = variables_.find(name);
-    if (it != variables_.end()) {
+    if (it != variables_.end())
+    {
       return it->second;
     }
     // Fall back to environment variable.
@@ -145,21 +152,27 @@ namespace mistral::tmpl
     // Check template variables first.
     auto it = variables_.find(name);
     std::string value;
-    if (it != variables_.end()) {
+    if (it != variables_.end())
+    {
       value = it->second;
-    } else {
+    }
+    else
+    {
       // Fall back to environment variable.
       const char* env = std::getenv(name.c_str());
-      if (env) value = env;
+      if (env)
+        value = env;
     }
 
     // Empty or unset is falsy.
-    if (value.empty()) return false;
+    if (value.empty())
+      return false;
 
     // Lowercase for comparison.
     std::string lower;
     lower.reserve(value.size());
-    for (char c : value) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char c : value)
+      lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     // Truthy values.
     return lower == "true" || lower == "1" || lower == "yes" || lower == "on";
@@ -167,55 +180,66 @@ namespace mistral::tmpl
 
   std::string template_engine::expand_command(const std::string& command) const
   {
-    if (!command_expansion_) {
-      return std::format("${{{{ {} }}}}", command);  // Return unexpanded.
+    if (!command_expansion_)
+    {
+      return std::format("${{{{ {} }}}}", command); // Return unexpanded.
     }
 
     std::array<char, 256> buffer;
     std::string output;
 
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
-    if (!pipe) {
+    if (!pipe)
+    {
       throw std::runtime_error(std::format("failed to execute: {}", command));
     }
 
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+    {
       output += buffer.data();
     }
 
     // Trim trailing newline.
-    if (!output.empty() && output.back() == '\n') {
+    if (!output.empty() && output.back() == '\n')
+    {
       output.pop_back();
     }
 
     return output;
   }
 
-  std::string template_engine::expand_include(const std::string& path_str,
-                                               std::set<std::string>& include_stack,
-                                               bool optional) const
+  std::string template_engine::expand_include(
+    const std::string& path_str,
+    std::set<std::string>& include_stack,
+    bool optional
+  ) const
   {
-    if (include_base_.empty()) {
+    if (include_base_.empty())
+    {
       throw std::runtime_error("include base directory not set");
     }
 
     fs::path target = include_base_ / path_str;
 
     // Append .md if the path has no extension.
-    if (!target.has_extension()) {
+    if (!target.has_extension())
+    {
       target += ".md";
     }
 
-    if (!fs::exists(target)) {
-      if (optional) {
-        return "";  // Silently skip optional includes that don't exist.
+    if (!fs::exists(target))
+    {
+      if (optional)
+      {
+        return ""; // Silently skip optional includes that don't exist.
       }
       throw std::runtime_error(std::format("include not found: {}", target.string()));
     }
 
     std::string canonical = fs::canonical(target).string();
 
-    if (include_stack.contains(canonical)) {
+    if (include_stack.contains(canonical))
+    {
       throw std::runtime_error(std::format("circular include detected: {}", path_str));
     }
 
@@ -230,7 +254,8 @@ namespace mistral::tmpl
   std::string template_engine::read_file(const fs::path& path)
   {
     std::ifstream f(path);
-    if (!f) {
+    if (!f)
+    {
       throw std::runtime_error(std::format("cannot read file: {}", path.string()));
     }
     std::ostringstream ss;

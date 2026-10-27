@@ -13,8 +13,7 @@ namespace mistral::tui
   //
   // This replaces the former input_queue and slash_command_queue structs
   // which were identical except for the element type.
-  template<typename T>
-  class thread_safe_queue
+  template <typename T> class thread_safe_queue
   {
   public:
     void push(T item)

@@ -21,8 +21,7 @@ namespace mistral::common
   class signal_watcher_task : public dripcore::task
   {
   public:
-    explicit signal_watcher_task(int pipe_read_fd)
-      : pipe_read_fd_(pipe_read_fd)
+    explicit signal_watcher_task(int pipe_read_fd) : pipe_read_fd_(pipe_read_fd)
     {
     }
 
@@ -35,21 +34,25 @@ namespace mistral::common
         char buf[16];
         ssize_t n = ::read(pipe_read_fd_, buf, sizeof(buf));
 
-        if (n <= 0) {
+        if (n <= 0)
+        {
           // EOF or error -- shutdown.
           break;
         }
 
         for (ssize_t i = 0; i < n; i++)
         {
-          if (buf[i] == '0') {
+          if (buf[i] == '0')
+          {
             // Shutdown signal.
             co_return;
           }
-          if (buf[i] == '1') {
+          if (buf[i] == '1')
+          {
             // SIGINT -- cancel current request.
             auto ch = agent::agent_system::instance().get_current_response_ch();
-            if (ch) {
+            if (ch)
+            {
               ch->close();
             }
           }

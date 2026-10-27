@@ -65,11 +65,14 @@ namespace mistral::agent
     std::string text;
     for (const auto& msg : chat_.messages())
     {
-      if (msg.role == "system") continue;  // instructions live server-side
+      if (msg.role == "system")
+        continue; // instructions live server-side
       for (const auto& mc : msg.content)
       {
-        if (mc.type != "text" || mc.content.empty()) continue;
-        if (!text.empty()) text += "\n\n";
+        if (mc.type != "text" || mc.content.empty())
+          continue;
+        if (!text.empty())
+          text += "\n\n";
         text += mc.content;
       }
     }
@@ -81,19 +84,21 @@ namespace mistral::agent
     // ConversationResponse: outputs[] entries. message.output entries
     // carry the answer text plus tool_reference citation chunks.
     api::stream_delta delta;
-    if (!j.contains("outputs") || !j["outputs"].is_array()) {
+    if (!j.contains("outputs") || !j["outputs"].is_array())
+    {
       return delta;
     }
 
     std::string text;
-    std::vector<std::pair<std::string, std::string>> sources;  // (title, url)
+    std::vector<std::pair<std::string, std::string>> sources; // (title, url)
     for (const auto& entry : j["outputs"])
     {
       const auto entry_type =
-        entry.contains("type") && entry["type"].is_string()
-          ? entry["type"].get<std::string>() : std::string();
-      if (entry_type != "message.output") continue;
-      if (!entry.contains("content")) continue;
+        entry.contains("type") && entry["type"].is_string() ? entry["type"].get<std::string>() : std::string();
+      if (entry_type != "message.output")
+        continue;
+      if (!entry.contains("content"))
+        continue;
 
       const auto& content = entry["content"];
       if (content.is_string())
@@ -105,11 +110,11 @@ namespace mistral::agent
         for (const auto& chunk : content)
         {
           const auto chunk_type =
-            chunk.contains("type") && chunk["type"].is_string()
-              ? chunk["type"].get<std::string>() : std::string();
+            chunk.contains("type") && chunk["type"].is_string() ? chunk["type"].get<std::string>() : std::string();
           if (chunk_type == "text")
           {
-            if (chunk.contains("text") && chunk["text"].is_string()) {
+            if (chunk.contains("text") && chunk["text"].is_string())
+            {
               text += chunk["text"].get<std::string>();
             }
           }
@@ -117,24 +122,30 @@ namespace mistral::agent
           {
             std::string title;
             std::string url;
-            if (chunk.contains("title") && chunk["title"].is_string()) {
+            if (chunk.contains("title") && chunk["title"].is_string())
+            {
               title = chunk["title"].get<std::string>();
             }
-            if (chunk.contains("url") && chunk["url"].is_string()) {
+            if (chunk.contains("url") && chunk["url"].is_string())
+            {
               url = chunk["url"].get<std::string>();
             }
-            if (!title.empty()) {
+            if (!title.empty())
+            {
               // The remote agent emits one tool_reference chunk per
               // citation occurrence, so the same source can appear
               // several times; keep the first occurrence only.
               bool seen = false;
-              for (const auto& [t, u] : sources) {
-                if (t == title && u == url) {
+              for (const auto& [t, u] : sources)
+              {
+                if (t == title && u == url)
+                {
                   seen = true;
                   break;
                 }
               }
-              if (!seen) {
+              if (!seen)
+              {
                 sources.emplace_back(std::move(title), std::move(url));
               }
             }
@@ -149,9 +160,12 @@ namespace mistral::agent
       text += "\n\nSources:";
       for (const auto& [title, url] : sources)
       {
-        if (!url.empty()) {
+        if (!url.empty())
+        {
           text += "\n- [" + title + "](" + url + ")";
-        } else {
+        }
+        else
+        {
           text += "\n- " + title;
         }
       }
@@ -159,10 +173,7 @@ namespace mistral::agent
 
     if (!text.empty())
     {
-      delta.content.push_back(api::message_content{
-        .type = "text",
-        .content = std::move(text)
-      });
+      delta.content.push_back(api::message_content{.type = "text", .content = std::move(text)});
     }
     delta.finish_reason = "stop";
     return delta;
@@ -177,9 +188,9 @@ namespace mistral::agent
         // Surface the setup failure through the standard subagent error
         // path: agent_loop_on_error records it, agent_loop_on_completed
         // sends it to the caller (run_subagent).
-        std::string error =
-          "could not set up server-side agent for '" + agent_id_ + "'";
-        if (!setup_error_.empty()) {
+        std::string error = "could not set up server-side agent for '" + agent_id_ + "'";
+        if (!setup_error_.empty())
+        {
           error += ": " + setup_error_;
         }
         agent_loop_on_error(error);
@@ -197,9 +208,8 @@ namespace mistral::agent
     auto& sys = agent_system::instance();
     const auto& agent_cfg = sys.get_agent_config(agent_id_);
     return server_agent_config_fingerprint(
-      *agent_cfg.server_agent,
-      sys.resolve_server_agent_instructions(agent_cfg),
-      model_);
+      *agent_cfg.server_agent, sys.resolve_server_agent_instructions(agent_cfg), model_
+    );
   }
 
   auto server_agent_task::ensure_server_agent() -> dripcore::awaitable<bool>
@@ -223,8 +233,7 @@ namespace mistral::agent
     const auto& model_cfg = sys.get_model_config(agent_cfg.model);
     if (model_cfg.provider != "mistral")
     {
-      setup_error_ = "provider '" + model_cfg.provider +
-        "' does not support the Mistral Agents API";
+      setup_error_ = "provider '" + model_cfg.provider + "' does not support the Mistral Agents API";
       co_return false;
     }
 
@@ -240,8 +249,10 @@ namespace mistral::agent
       // (e.g. the builtin tool type or the model) — update the agent so
       // the change takes effect without deleting anything server-side.
       std::string found_fp;
-      if (found->metadata && found->metadata->contains(server_agent_config_hash_key) &&
-          (*found->metadata)[server_agent_config_hash_key].is_string())
+      if (
+        found->metadata && found->metadata->contains(server_agent_config_hash_key) &&
+        (*found->metadata)[server_agent_config_hash_key].is_string()
+      )
       {
         found_fp = (*found->metadata)[server_agent_config_hash_key].get<std::string>();
       }
@@ -272,17 +283,17 @@ namespace mistral::agent
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
     agent_system::instance().set_current_response_ch(response_ch);
 
-    std::string path =
-      "/" + api_version_ + "/agents/pages?name=" + url_encode_query(name);
-    request_ch_->try_send(
-      {.method = "GET", .path = path, .body = "", .stream = false, .response_ch = response_ch});
+    std::string path = "/" + api_version_ + "/agents/pages?name=" + url_encode_query(name);
+    request_ch_->try_send({.method = "GET", .path = path, .body = "", .stream = false, .response_ch = response_ch});
 
     std::optional<api::agent_entity> result;
     while (true)
     {
       auto evt = co_await response_ch->recv(this);
-      if (!evt) break;  // Channel closed (cancelled).
-      if (evt->type == api::event_type::done) break;
+      if (!evt)
+        break; // Channel closed (cancelled).
+      if (evt->type == api::event_type::done)
+        break;
       if (evt->type == api::event_type::error)
       {
         // A failed lookup is treated as "not found" — creation is tried
@@ -317,8 +328,7 @@ namespace mistral::agent
     co_return result;
   }
 
-  auto server_agent_task::create_server_agent()
-    -> dripcore::awaitable<std::optional<std::string>>
+  auto server_agent_task::create_server_agent() -> dripcore::awaitable<std::optional<std::string>>
   {
     auto& sys = agent_system::instance();
     const auto& agent_cfg = sys.get_agent_config(agent_id_);
@@ -331,23 +341,24 @@ namespace mistral::agent
     req.instructions = sys.resolve_server_agent_instructions(agent_cfg);
     req.tools = server_cfg.tools;
     req.completion_args = server_cfg.completion_args;
-    req.metadata = api::json{
-      {std::string(server_agent_config_hash_key), config_fingerprint()}
-    };
+    req.metadata = api::json{{std::string(server_agent_config_hash_key), config_fingerprint()}};
 
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
     agent_system::instance().set_current_response_ch(response_ch);
 
     std::string path = "/" + api_version_ + "/agents";
     request_ch_->try_send(
-      {.method = "POST", .path = path, .body = api::json(req).dump(), .stream = false, .response_ch = response_ch});
+      {.method = "POST", .path = path, .body = api::json(req).dump(), .stream = false, .response_ch = response_ch}
+    );
 
     std::optional<std::string> result;
     while (true)
     {
       auto evt = co_await response_ch->recv(this);
-      if (!evt) break;  // Channel closed (cancelled).
-      if (evt->type == api::event_type::done) break;
+      if (!evt)
+        break; // Channel closed (cancelled).
+      if (evt->type == api::event_type::done)
+        break;
       if (evt->type == api::event_type::error)
       {
         setup_error_ = evt->payload;
@@ -372,8 +383,7 @@ namespace mistral::agent
     co_return result;
   }
 
-  auto server_agent_task::update_server_agent(const std::string& agent_id)
-    -> dripcore::awaitable<bool>
+  auto server_agent_task::update_server_agent(const std::string& agent_id) -> dripcore::awaitable<bool>
   {
     auto& sys = agent_system::instance();
     const auto& agent_cfg = sys.get_agent_config(agent_id_);
@@ -388,26 +398,28 @@ namespace mistral::agent
     body["instructions"] = sys.resolve_server_agent_instructions(agent_cfg);
     body["description"] = server_cfg.description;
     body["tools"] = server_cfg.tools;
-    if (server_cfg.completion_args) {
+    if (server_cfg.completion_args)
+    {
       body["completion_args"] = *server_cfg.completion_args;
     }
-    body["metadata"] = api::json{
-      {std::string(server_agent_config_hash_key), config_fingerprint()}
-    };
+    body["metadata"] = api::json{{std::string(server_agent_config_hash_key), config_fingerprint()}};
 
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
     agent_system::instance().set_current_response_ch(response_ch);
 
     std::string path = "/" + api_version_ + "/agents/" + agent_id;
     request_ch_->try_send(
-      {.method = "PATCH", .path = path, .body = body.dump(), .stream = false, .response_ch = response_ch});
+      {.method = "PATCH", .path = path, .body = body.dump(), .stream = false, .response_ch = response_ch}
+    );
 
     bool ok = false;
     while (true)
     {
       auto evt = co_await response_ch->recv(this);
-      if (!evt) break;  // Channel closed (cancelled).
-      if (evt->type == api::event_type::done) break;
+      if (!evt)
+        break; // Channel closed (cancelled).
+      if (evt->type == api::event_type::done)
+        break;
       if (evt->type == api::event_type::error)
       {
         setup_error_ = evt->payload;

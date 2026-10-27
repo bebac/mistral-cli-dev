@@ -4,13 +4,13 @@
 
 #include <isocline.h>
 
-#include <unistd.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <sys/select.h>
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
-#include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <cstdlib>
@@ -37,11 +37,11 @@ namespace mistral::console
     static constexpr char prompt_shutdown_id = 0;
 
     // Pipe: thread writes to notify_write, coroutine reads from notify_read.
-    int notify_read  = -1;
+    int notify_read = -1;
     int notify_write = -1;
 
     // Pipe: coroutine writes to prompt_write, thread reads from prompt_read.
-    int prompt_read  = -1;
+    int prompt_read = -1;
     int prompt_write = -1;
 
     // Thread-safe queue for input strings.
@@ -147,50 +147,52 @@ namespace mistral::console
   {
     auto* state = static_cast<console_state*>(ic_completion_arg(cenv));
     // Check if we're completing a slash command
-    if (ic_starts_with(prefix, "/")) {
+    if (ic_starts_with(prefix, "/"))
+    {
       // Get the part after the /
       const char* cmd_prefix = prefix + 1;
-      if (state && state->slash_cmd_registry) {
-        ic_complete_word(cenv, cmd_prefix,
+      if (state && state->slash_cmd_registry)
+      {
+        ic_complete_word(
+          cenv,
+          cmd_prefix,
           [](ic_completion_env_t* cenv, const char* prefix) {
             auto* s = static_cast<console_state*>(ic_completion_arg(cenv));
-            if (s && s->slash_cmd_registry) {
+            if (s && s->slash_cmd_registry)
+            {
               auto commands = s->slash_cmd_registry->get_command_names();
               std::vector<const char*> cmd_list;
-              for (const auto& cmd : commands) {
+              for (const auto& cmd : commands)
+              {
                 cmd_list.push_back(cmd.c_str());
               }
               cmd_list.push_back(nullptr);
               ic_add_completions(cenv, prefix, cmd_list.data());
             }
           },
-          &ic_char_is_nonseparator);
+          &ic_char_is_nonseparator
+        );
       }
     }
     // For non-slash input, fall back to default filename completion
-    else {
+    else
+    {
       ic_complete_filename(cenv, prefix, '/', nullptr, nullptr);
     }
   }
 
   // Handle execution of slash commands
-  static void handle_slash_command(
-    const std::string& input,
-    console_state* state
-  )
+  static void handle_slash_command(const std::string& input, console_state* state)
   {
-    std::string cmd_input = input.substr(1);  // Remove leading '/'
+    std::string cmd_input = input.substr(1); // Remove leading '/'
 
     // Tokenize: find first space
     size_t space_pos = cmd_input.find(' ');
-    std::string command = (space_pos == std::string::npos)
-        ? cmd_input
-        : cmd_input.substr(0, space_pos);
-    std::string args = (space_pos == std::string::npos)
-        ? ""
-        : cmd_input.substr(space_pos + 1);
+    std::string command = (space_pos == std::string::npos) ? cmd_input : cmd_input.substr(0, space_pos);
+    std::string args = (space_pos == std::string::npos) ? "" : cmd_input.substr(space_pos + 1);
 
-    if (!state->slash_cmd_registry) return;
+    if (!state->slash_cmd_registry)
+      return;
     auto cmd = state->slash_cmd_registry->get_command(command);
     if (!cmd)
     {
@@ -221,7 +223,7 @@ namespace mistral::console
     struct termios oldtio, newtio;
     tcgetattr(STDIN_FILENO, &oldtio);
     newtio = oldtio;
-    newtio.c_lflag &= ~ICANON;  // Disable canonical mode (keep ECHO so user sees input)
+    newtio.c_lflag &= ~ICANON; // Disable canonical mode (keep ECHO so user sees input)
     newtio.c_cc[VMIN] = 1;
     newtio.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSANOW, &newtio);
@@ -231,7 +233,8 @@ namespace mistral::console
     // Restore terminal attributes
     tcsetattr(STDIN_FILENO, TCSANOW, &oldtio);
 
-    if (ch == EOF) {
+    if (ch == EOF)
+    {
       state->eof.store(true);
       state->notify_eof();
       return "";
@@ -271,7 +274,8 @@ namespace mistral::console
       // Wait for prompt signal from the coroutine
       char sig;
       ssize_t n = ::read(prompt_read_fd, &sig, 1);
-      if (n <= 0 || state->shutdown.load()) break;
+      if (n <= 0 || state->shutdown.load())
+        break;
 
       std::string input;
       auto [prompt_to_display, approval_mode, ask_mode] = state->get_prompt();
@@ -279,7 +283,8 @@ namespace mistral::console
       if (approval_mode)
       {
         input = read_approval_input(prompt_to_display, state);
-        if (input.empty()) {
+        if (input.empty())
+        {
           // EOF or error already handled by read_approval_input
           continue;
         }
@@ -289,13 +294,15 @@ namespace mistral::console
         // Ask mode (ask_user tool): print the question block, then read
         // a full answer line with a short prompt.
         const char* readline_prompt = prompt_to_display.c_str();
-        if (ask_mode) {
+        if (ask_mode)
+        {
           std::cout << prompt_to_display << std::flush;
           readline_prompt = "Your answer: ";
         }
         // Chat mode: read full line
         char* raw = ic_readline(readline_prompt);
-        if (!raw) {
+        if (!raw)
+        {
           // EOF (Ctrl-D).
           state->eof.store(true);
           state->notify_eof();
@@ -306,12 +313,14 @@ namespace mistral::console
         std::free(raw);
 
         // Check for slash command
-        if (!input.empty() && input[0] == '/') {
+        if (!input.empty() && input[0] == '/')
+        {
           handle_slash_command(input, state);
           continue;
         }
 
-        if (!input.empty()) {
+        if (!input.empty())
+        {
           ic_history_add(input.c_str());
         }
       }
@@ -328,13 +337,11 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch,
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
-    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry)
-    :
-    prompt_ch_(std::move(prompt_ch)),
-    input_ch_(std::move(input_ch)),
-    slash_cmd_request_ch_(std::move(slash_cmd_request_ch)),
-    slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
-    slash_cmd_registry_(std::move(slash_cmd_registry))
+    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry
+  )
+    : prompt_ch_(std::move(prompt_ch)), input_ch_(std::move(input_ch)),
+      slash_cmd_request_ch_(std::move(slash_cmd_request_ch)), slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
+      slash_cmd_registry_(std::move(slash_cmd_registry))
   {
   }
 
@@ -346,19 +353,19 @@ namespace mistral::console
 
     // Create pipes.
     int notify_fds[2], prompt_fds[2];
-    if (::pipe(notify_fds) != 0 || ::pipe(prompt_fds) != 0) {
+    if (::pipe(notify_fds) != 0 || ::pipe(prompt_fds) != 0)
+    {
       input_ch_->close();
       co_return;
     }
 
-    state_->notify_read  = notify_fds[0];
+    state_->notify_read = notify_fds[0];
     state_->notify_write = notify_fds[1];
-    state_->prompt_read  = prompt_fds[0];
+    state_->prompt_read = prompt_fds[0];
     state_->prompt_write = prompt_fds[1];
 
     // Make the notify read end non-blocking for dripcore.
-    fcntl(state_->notify_read, F_SETFL,
-          fcntl(state_->notify_read, F_GETFL) | O_NONBLOCK);
+    fcntl(state_->notify_read, F_SETFL, fcntl(state_->notify_read, F_GETFL) | O_NONBLOCK);
 
     // Pass the registry to the state for the input thread
     state_->slash_cmd_registry = slash_cmd_registry_;
@@ -370,7 +377,8 @@ namespace mistral::console
     while (true)
     {
       auto prompt = co_await prompt_ch_->recv(this);
-      if (!prompt) break;  // Agent closed the prompt channel.
+      if (!prompt)
+        break; // Agent closed the prompt channel.
 
       // Check for approval/ask markers
       const std::string approval_prefix = "[APPROVAL_PROMPT]";
@@ -379,15 +387,18 @@ namespace mistral::console
       bool is_ask = false;
       std::string display_prompt;
 
-      if (prompt->find(approval_prefix) == 0) {
+      if (prompt->find(approval_prefix) == 0)
+      {
         is_approval = true;
         display_prompt = prompt->substr(approval_prefix.length());
       }
-      else if (prompt->find(ask_prefix) == 0) {
+      else if (prompt->find(ask_prefix) == 0)
+      {
         is_ask = true;
         display_prompt = prompt->substr(ask_prefix.length());
       }
-      else {
+      else
+      {
         display_prompt = *prompt;
       }
 
@@ -404,7 +415,8 @@ namespace mistral::console
       char buf;
       ::read(state_->notify_read, &buf, 1);
 
-      if (state_->eof.load()) {
+      if (state_->eof.load())
+      {
         break;
       }
 
@@ -413,14 +425,17 @@ namespace mistral::console
       {
         // Slash command: forward to executor task
         auto request = state_->take_pending_slash_command();
-        if (request && slash_cmd_request_ch_) {
+        if (request && slash_cmd_request_ch_)
+        {
           slash_cmd_request_ch_->try_send(std::move(*request));
         }
 
         // Wait for response from executor task
-        if (slash_cmd_response_ch_) {
+        if (slash_cmd_response_ch_)
+        {
           auto response = co_await slash_cmd_response_ch_->recv(this);
-          if (response) {
+          if (response)
+          {
             std::cout << *response << std::endl;
           }
         }
@@ -442,25 +457,30 @@ namespace mistral::console
 
   dripcore::awaitable<> console_task::teardown()
   {
-    if ( input_ch_ ) {
+    if (input_ch_)
+    {
       input_ch_->close();
     }
 
-    if ( slash_cmd_request_ch_ ) {
+    if (slash_cmd_request_ch_)
+    {
       slash_cmd_request_ch_->close();
     }
 
-    if ( slash_cmd_response_ch_ ) {
+    if (slash_cmd_response_ch_)
+    {
       slash_cmd_response_ch_->close();
     }
 
-    if (state_) {
+    if (state_)
+    {
       state_->shutdown.store(true);
 
       // Wake the thread if it's blocked on prompt_read.
       state_->signal_prompt_shutdown();
 
-      if (state_->thread.joinable()) {
+      if (state_->thread.joinable())
+      {
         state_->thread.join();
       }
 

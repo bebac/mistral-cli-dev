@@ -30,10 +30,7 @@ namespace mistral::tools
     // syntax (execvp() is called directly with no shell), or does not
     // exist (PATH lookup, or - for explicit paths - is not an executable
     // file). Returns std::nullopt when the call looks valid.
-    static std::optional<std::string> validate(
-      const std::string& command,
-      const std::vector<std::string>& args
-    );
+    static std::optional<std::string> validate(const std::string& command, const std::vector<std::string>& args);
   };
 
 } // namespace mistral::tools

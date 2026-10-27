@@ -1,14 +1,14 @@
 #include "common/string_utils.h"
 
 #include <algorithm>
-#include <sstream>
 #include <cctype>
 #include <chrono>
 #include <format>
-#include <regex>
-#include <ranges>
-#include <random>
 #include <fstream>
+#include <random>
+#include <ranges>
+#include <regex>
+#include <sstream>
 
 namespace mistral::utils
 {
@@ -27,9 +27,11 @@ namespace mistral::utils
     std::vector<std::string> tokens;
     std::string token;
     std::istringstream token_stream(s);
-    while (std::getline(token_stream, token, delimiter)) {
+    while (std::getline(token_stream, token, delimiter))
+    {
       token = trim(token);
-      if (!token.empty()) tokens.push_back(token);
+      if (!token.empty())
+        tokens.push_back(token);
     }
     return tokens;
   }
@@ -44,19 +46,19 @@ namespace mistral::utils
   std::string to_lower(const std::string& s)
   {
     std::string result = s;
-    std::transform(result.begin(), result.end(), result.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
     return result;
   }
-
 
   // Escape special regex characters
   std::string escape_regex(const std::string& s)
   {
     static const std::string special_chars = "\\.*+?^$()[]{}|";
     std::string result;
-    for (char c : s) {
-      if (special_chars.find(c) != std::string::npos) {
+    for (char c : s)
+    {
+      if (special_chars.find(c) != std::string::npos)
+      {
         result += '\\';
       }
       result += c;
@@ -68,40 +70,45 @@ namespace mistral::utils
   std::string glob_to_regex(const std::string& pattern)
   {
     std::string regex;
-    for (size_t i = 0; i < pattern.size(); ++i) {
+    for (size_t i = 0; i < pattern.size(); ++i)
+    {
       char c = pattern[i];
-      switch (c) {
-        case '*':
-          if (i + 1 < pattern.size() && pattern[i + 1] == '*') {
-            // ** matches any path including slashes
-            regex += ".*";
-            ++i;
-          } else {
-            // * matches anything except slash
-            regex += "[^/]*";
-          }
-          break;
-        case '?':
-          regex += '.';
-          break;
-        case '.':
-        case '\\':
-        case '^':
-        case '$':
-        case '+':
-        case '(':
-        case ')':
-        case '[':
-        case ']':
-        case '{':
-        case '}':
-        case '|':
-          regex += '\\';
-          regex += c;
-          break;
-        default:
-          regex += escape_regex(std::string(1, c));
-          break;
+      switch (c)
+      {
+      case '*':
+        if (i + 1 < pattern.size() && pattern[i + 1] == '*')
+        {
+          // ** matches any path including slashes
+          regex += ".*";
+          ++i;
+        }
+        else
+        {
+          // * matches anything except slash
+          regex += "[^/]*";
+        }
+        break;
+      case '?':
+        regex += '.';
+        break;
+      case '.':
+      case '\\':
+      case '^':
+      case '$':
+      case '+':
+      case '(':
+      case ')':
+      case '[':
+      case ']':
+      case '{':
+      case '}':
+      case '|':
+        regex += '\\';
+        regex += c;
+        break;
+      default:
+        regex += escape_regex(std::string(1, c));
+        break;
       }
     }
     return "^" + regex + "$";
@@ -111,8 +118,7 @@ namespace mistral::utils
   std::string generate_session_id()
   {
     auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-      now.time_since_epoch()).count();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
     // Simple random number (not crypto-secure, but sufficient for session IDs)
     static std::random_device rd;
@@ -125,7 +131,8 @@ namespace mistral::utils
   bool is_text_file(const std::string& filepath)
   {
     std::ifstream file(filepath, std::ios::binary);
-    if (!file) return false;
+    if (!file)
+      return false;
 
     // Read first 4KB to check - enough to detect binary signatures
     constexpr size_t buffer_size = 4096;
@@ -134,17 +141,21 @@ namespace mistral::utils
     size_t bytes_read = file.gcount();
 
     // Check for null bytes (strong indicator of binary)
-    for (size_t i = 0; i < bytes_read; ++i) {
-      if (buffer[i] == '\0') {
+    for (size_t i = 0; i < bytes_read; ++i)
+    {
+      if (buffer[i] == '\0')
+      {
         return false;
       }
     }
 
     // Check ratio of printable/whitespace characters
     int printable = 0;
-    for (size_t i = 0; i < bytes_read; ++i) {
+    for (size_t i = 0; i < bytes_read; ++i)
+    {
       unsigned char c = static_cast<unsigned char>(buffer[i]);
-      if (c >= 32 || c == '\n' || c == '\r' || c == '\t') {
+      if (c >= 32 || c == '\n' || c == '\r' || c == '\t')
+      {
         printable++;
       }
     }

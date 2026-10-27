@@ -4,9 +4,9 @@
 #include <slash_command/slash_command.h>
 #include <slash_command/slash_command_registry.h>
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
 
 #include <memory>
 #include <string>

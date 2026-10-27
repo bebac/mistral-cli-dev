@@ -1,8 +1,8 @@
-#include "doctest/doctest.h"
 #include "agent/conversation.h"
 #include "agent/tool_registry.h"
 #include "api/provider.h"
 #include "api/provider_registry.h"
+#include "doctest/doctest.h"
 
 TEST_CASE("conversation: basic message flow")
 {
@@ -23,11 +23,9 @@ TEST_CASE("conversation: tool result messages")
   mistral::agent::conversation chat;
   chat.add_user_message("list files");
 
-  std::vector<mistral::api::tool_call> calls = {{
-    .id = "call_123",
-    .type = "function",
-    .function = {.name = "ls", .arguments = R"({"path":"."})"}
-  }};
+  std::vector<mistral::api::tool_call> calls = {
+    {.id = "call_123", .type = "function", .function = {.name = "ls", .arguments = R"({"path":"."})"}}
+  };
   chat.add_assistant_message("", std::move(calls));
   chat.add_tool_result("ls", "call_123", R"({"files":["a.txt"]})");
 
@@ -57,11 +55,9 @@ TEST_CASE("conversation: empty tool result serializes with content field")
   mistral::agent::conversation chat;
   chat.add_user_message("list files");
 
-  std::vector<mistral::api::tool_call> calls = {{
-    .id = "call_123",
-    .type = "function",
-    .function = {.name = "ls", .arguments = R"({"path":"."})"}
-  }};
+  std::vector<mistral::api::tool_call> calls = {
+    {.id = "call_123", .type = "function", .function = {.name = "ls", .arguments = R"({"path":"."})"}}
+  };
   chat.add_assistant_message("", std::move(calls));
   chat.add_tool_result("ls", "call_123", "");
 
@@ -77,7 +73,8 @@ TEST_CASE("conversation: sliding window")
   mistral::agent::conversation chat(3);
   chat.set_system_message("system");
 
-  for (int i = 0; i < 10; ++i) {
+  for (int i = 0; i < 10; ++i)
+  {
     chat.add_user_message("user " + std::to_string(i));
     chat.add_assistant_message("assistant " + std::to_string(i));
   }
@@ -133,11 +130,9 @@ TEST_CASE("conversation: sliding window with tool calls preserves tool results")
   chat.add_user_message("list files in current directory");
 
   // Assistant decides to use tool
-  std::vector<mistral::api::tool_call> calls1 = {{
-    .id = "call_1",
-    .type = "function",
-    .function = {.name = "ls", .arguments = R"({"path":"."})"}
-  }};
+  std::vector<mistral::api::tool_call> calls1 = {
+    {.id = "call_1", .type = "function", .function = {.name = "ls", .arguments = R"({"path":"."})"}}
+  };
   chat.add_assistant_message("", std::move(calls1));
 
   // Tool executes and returns result
@@ -147,11 +142,11 @@ TEST_CASE("conversation: sliding window with tool calls preserves tool results")
   chat.add_user_message("read file1.txt");
 
   // Assistant decides to use tool again
-  std::vector<mistral::api::tool_call> calls2 = {{
-    .id = "call_2",
-    .type = "function",
-    .function = {.name = "read", .arguments = R"({"path":"file1.txt", "line_from":1, "line_to":10})"}
-  }};
+  std::vector<mistral::api::tool_call> calls2 = {
+    {.id = "call_2",
+     .type = "function",
+     .function = {.name = "read", .arguments = R"({"path":"file1.txt", "line_from":1, "line_to":10})"}}
+  };
   chat.add_assistant_message("", std::move(calls2));
 
   // Tool executes and returns result
@@ -168,8 +163,10 @@ TEST_CASE("conversation: sliding window with tool calls preserves tool results")
 
   // Count tool result messages
   size_t tool_result_count = 0;
-  for (const auto& msg : chat.messages()) {
-    if (msg.role == "tool") {
+  for (const auto& msg : chat.messages())
+  {
+    if (msg.role == "tool")
+    {
       tool_result_count++;
     }
   }
@@ -181,9 +178,11 @@ TEST_CASE("conversation: sliding window with tool calls preserves tool results")
   // rather than trimming them in favor of regular messages.
 
   // The important thing is that we don't lose tool results entirely
-  CHECK_MESSAGE(tool_result_count > 0,
+  CHECK_MESSAGE(
+    tool_result_count > 0,
     "At least one tool result should be preserved after ensure_window_size(). "
-    "Tool results are essential for the assistant to reference when making subsequent tool calls.");
+    "Tool results are essential for the assistant to reference when making subsequent tool calls."
+  );
 }
 
 TEST_CASE("conversation: sliding window without system message")
@@ -218,9 +217,7 @@ TEST_CASE("mistral_provider: build_chat_request")
 
   auto prov = provider_registry::create("mistral");
 
-  std::vector<message> msgs = {
-    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
-  };
+  std::vector<message> msgs = {{.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}};
 
   auto body = prov->build_chat_request("test-model", msgs, json::array(), true, std::nullopt, {});
   auto j = json::parse(body);
@@ -236,12 +233,7 @@ TEST_CASE("mistral_provider: parse_stream_delta")
 
   auto prov = provider_registry::create("mistral");
 
-  json j = {
-    {"choices", {{
-      {"delta", {{"content", "Hello"}}},
-      {"finish_reason", nullptr}
-    }}}
-  };
+  json j = {{"choices", {{{"delta", {{"content", "Hello"}}}, {"finish_reason", nullptr}}}}};
 
   auto delta = prov->parse_stream_delta(j);
   REQUIRE(delta.content.size() == 1);
@@ -256,9 +248,7 @@ TEST_CASE("openai_provider: build_chat_request includes stream_options")
 
   auto prov = provider_registry::create("openai");
 
-  std::vector<message> msgs = {
-    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
-  };
+  std::vector<message> msgs = {{.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}};
 
   auto body = prov->build_chat_request("test-model", msgs, json::array(), true, std::nullopt, {});
   auto j = json::parse(body);
@@ -280,9 +270,7 @@ TEST_CASE("openai_provider: build_chat_request omits stream_options for non-stre
 
   auto prov = provider_registry::create("openai");
 
-  std::vector<message> msgs = {
-    {.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}
-  };
+  std::vector<message> msgs = {{.role = "user", .content = {message_content{.type = "text", .content = "hello"}}}};
 
   auto body = prov->build_chat_request("test-model", msgs, json::array(), false, std::nullopt, {});
   auto j = json::parse(body);
@@ -297,12 +285,7 @@ TEST_CASE("openai_provider: parse_stream_delta handles reasoning_content")
 
   auto prov = provider_registry::create("openai");
 
-  json j = {
-    {"choices", {{
-      {"delta", {{"reasoning_content", "thinking about this"}}},
-      {"finish_reason", nullptr}
-    }}}
-  };
+  json j = {{"choices", {{{"delta", {{"reasoning_content", "thinking about this"}}}, {"finish_reason", nullptr}}}}};
 
   auto delta = prov->parse_stream_delta(j);
   REQUIRE(delta.content.size() == 1);
@@ -316,12 +299,7 @@ TEST_CASE("openai_provider: parse_stream_delta handles string content")
 
   auto prov = provider_registry::create("openai");
 
-  json j = {
-    {"choices", {{
-      {"delta", {{"content", "Hello"}}},
-      {"finish_reason", nullptr}
-    }}}
-  };
+  json j = {{"choices", {{{"delta", {{"content", "Hello"}}}, {"finish_reason", nullptr}}}}};
 
   auto delta = prov->parse_stream_delta(j);
   REQUIRE(delta.content.size() == 1);
@@ -350,11 +328,9 @@ TEST_CASE("conversation: turn counting for compaction")
   CHECK(chat.turn_count() == 2);
 
   // Tool results belong to the turn that produced them.
-  std::vector<mistral::api::tool_call> calls = {{
-    .id = "call_1",
-    .type = "function",
-    .function = {.name = "ls", .arguments = "{}"}
-  }};
+  std::vector<mistral::api::tool_call> calls = {
+    {.id = "call_1", .type = "function", .function = {.name = "ls", .arguments = "{}"}}
+  };
   chat.add_user_message("u3");
   chat.add_assistant_message("", std::move(calls));
   chat.add_tool_result("ls", "call_1", "result");
@@ -415,21 +391,17 @@ TEST_CASE("conversation: apply_compaction keeps tool messages in the tail verbat
 
   // Old turn with a tool call.
   chat.add_user_message("list files");
-  std::vector<mistral::api::tool_call> calls1 = {{
-    .id = "call_1",
-    .type = "function",
-    .function = {.name = "ls", .arguments = "{}"}
-  }};
+  std::vector<mistral::api::tool_call> calls1 = {
+    {.id = "call_1", .type = "function", .function = {.name = "ls", .arguments = "{}"}}
+  };
   chat.add_assistant_message("", std::move(calls1));
   chat.add_tool_result("ls", "call_1", R"({"files":["a.txt"]})");
 
   // Recent turn with a tool call - must be kept verbatim.
   chat.add_user_message("read a.txt");
-  std::vector<mistral::api::tool_call> calls2 = {{
-    .id = "call_2",
-    .type = "function",
-    .function = {.name = "read", .arguments = "{}"}
-  }};
+  std::vector<mistral::api::tool_call> calls2 = {
+    {.id = "call_2", .type = "function", .function = {.name = "read", .arguments = "{}"}}
+  };
   chat.add_assistant_message("", std::move(calls2));
   chat.add_tool_result("read", "call_2", "content");
 
@@ -504,8 +476,7 @@ TEST_CASE("conversation: save_snapshot writes precompact file without touching l
 
   std::ifstream in(snapshot_path);
   REQUIRE(in);
-  std::string content((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
+  std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   auto j = mistral::api::json::parse(content);
   REQUIRE(j.size() == 3);
   CHECK(j[0]["role"] == "system");
@@ -524,11 +495,9 @@ TEST_CASE("conversation: save and load round-trip")
   mistral::agent::conversation chat;
   chat.set_system_message("You are helpful.");
   chat.add_user_message("list files");
-  std::vector<mistral::api::tool_call> calls = {{
-    .id = "call_123",
-    .type = "function",
-    .function = {.name = "ls", .arguments = R"({"path":"."})"}
-  }};
+  std::vector<mistral::api::tool_call> calls = {
+    {.id = "call_123", .type = "function", .function = {.name = "ls", .arguments = R"({"path":"."})"}}
+  };
   chat.add_assistant_message("", std::move(calls));
   chat.add_tool_result("ls", "call_123", R"({"files":["a.txt"]})");
   std::vector<mistral::api::message_content> assistant_content = {
@@ -611,8 +580,7 @@ TEST_CASE("conversation: load replaces history and system message can be re-appl
 TEST_CASE("conversation: load throws on missing file")
 {
   mistral::agent::conversation chat;
-  CHECK_THROWS_AS(
-    chat.load("/nonexistent/path/chat_x.json"), std::runtime_error);
+  CHECK_THROWS_AS(chat.load("/nonexistent/path/chat_x.json"), std::runtime_error);
 }
 
 TEST_CASE("conversation: load throws on malformed content")
@@ -625,12 +593,18 @@ TEST_CASE("conversation: load throws on malformed content")
   mistral::agent::conversation chat;
 
   auto bad_json = tmp / "chat_bad.json";
-  { std::ofstream out(bad_json); out << "{not json"; }
+  {
+    std::ofstream out(bad_json);
+    out << "{not json";
+  }
   CHECK_THROWS_AS(chat.load(bad_json.string()), std::runtime_error);
 
   // Valid JSON but not an array of messages.
   auto not_array = tmp / "chat_notarray.json";
-  { std::ofstream out(not_array); out << R"({"role":"user"})"; }
+  {
+    std::ofstream out(not_array);
+    out << R"({"role":"user"})";
+  }
   CHECK_THROWS_AS(chat.load(not_array.string()), std::runtime_error);
 
   fs::remove_all(tmp);
@@ -668,11 +642,9 @@ TEST_CASE("conversation: last_turn includes tool messages of the turn")
 {
   mistral::agent::conversation chat;
   chat.add_user_message("list files");
-  std::vector<mistral::api::tool_call> calls = {{
-    .id = "call_1",
-    .type = "function",
-    .function = {.name = "ls", .arguments = "{}"}
-  }};
+  std::vector<mistral::api::tool_call> calls = {
+    {.id = "call_1", .type = "function", .function = {.name = "ls", .arguments = "{}"}}
+  };
   chat.add_assistant_message("", std::move(calls));
   chat.add_tool_result("ls", "call_1", "a.txt");
   chat.add_assistant_message("Found a.txt");
@@ -729,8 +701,7 @@ TEST_CASE("conversation: compacted history survives save/load round-trip")
   CHECK(msgs[1].role == "user");
   CHECK(msgs[1].content[0].content.find("SUMMARY") != std::string::npos);
   CHECK(msgs[2].role == "assistant");
-  CHECK(msgs[2].content[0].content ==
-        "Understood. Continuing with the compacted context in mind.");
+  CHECK(msgs[2].content[0].content == "Understood. Continuing with the compacted context in mind.");
   CHECK(msgs[3].role == "user");
   CHECK(msgs[3].content[0].content == "u3");
   CHECK(msgs[4].role == "assistant");

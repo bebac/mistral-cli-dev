@@ -1,10 +1,10 @@
 #ifndef MISTRAL_AGENT_SYSTEM_STATS_TASK_H
 #define MISTRAL_AGENT_SYSTEM_STATS_TASK_H
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
+#include <dripcore/task_handle.h>
 
 #include <nlohmann/json.hpp>
 
@@ -34,8 +34,7 @@ namespace mistral::agent
   class agent_system_stats_task : public dripcore::task
   {
   public:
-    explicit agent_system_stats_task(
-      std::shared_ptr<dripcore::channel<stat_message>> stats_ch);
+    explicit agent_system_stats_task(std::shared_ptr<dripcore::channel<stat_message>> stats_ch);
 
     dripcore::awaitable<> body() override;
 

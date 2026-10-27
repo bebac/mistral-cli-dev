@@ -1,14 +1,14 @@
 #ifndef MISTRAL_SLASH_COMMAND_EXECUTOR_TASK_H
 #define MISTRAL_SLASH_COMMAND_EXECUTOR_TASK_H
 
+#include "agent/agent_system.h"
 #include "slash_command/slash_command.h"
 #include "slash_command/slash_command_registry.h"
-#include "agent/agent_system.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
+#include <dripcore/task_handle.h>
 
 #include <memory>
 #include <string>

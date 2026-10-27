@@ -11,27 +11,36 @@ namespace mistral::mcp
     auto& mgr = mcp_manager::instance();
     auto servers = mgr.auto_connect_servers();
 
-    if (servers.empty()) {
+    if (servers.empty())
+    {
       co_return;
     }
 
-    for (const auto& name : servers) {
-      std::cerr << std::format("[mcp] auto-connecting '{}'...\n", name)
-                << std::flush;
+    for (const auto& name : servers)
+    {
+      std::cerr << std::format("[mcp] auto-connecting '{}'...\n", name) << std::flush;
     }
 
     auto results = co_await mgr.connect_auto();
 
-    for (const auto& r : results) {
-      if (r.value("connected", false)) {
-        std::cerr << std::format("[mcp] connected '{}': {} tools registered\n",
-          r["server"].get<std::string>(),
-          r["tools"].get<size_t>())
+    for (const auto& r : results)
+    {
+      if (r.value("connected", false))
+      {
+        std::cerr << std::format(
+                       "[mcp] connected '{}': {} tools registered\n",
+                       r["server"].get<std::string>(),
+                       r["tools"].get<size_t>()
+                     )
                   << std::flush;
-      } else {
-        std::cerr << std::format("[mcp] auto-connect failed for '{}': {}\n",
-          r["server"].get<std::string>(),
-          r.value("error", std::string("unknown error")))
+      }
+      else
+      {
+        std::cerr << std::format(
+                       "[mcp] auto-connect failed for '{}': {}\n",
+                       r["server"].get<std::string>(),
+                       r.value("error", std::string("unknown error"))
+                     )
                   << std::flush;
         std::cerr << "[mcp] run /mcp connect to retry\n" << std::flush;
       }

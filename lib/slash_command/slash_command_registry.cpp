@@ -20,7 +20,7 @@ namespace mistral::slash_command
     commands_[std::move(name)] = std::move(cmd);
   }
 
-  const slash_command *slash_command_registry::get_command(const std::string &name) const
+  const slash_command* slash_command_registry::get_command(const std::string& name) const
   {
     std::lock_guard<std::mutex> lock(mtx_);
     auto it = commands_.find(name);
@@ -36,16 +36,16 @@ namespace mistral::slash_command
     std::lock_guard<std::mutex> lock(mtx_);
     std::vector<std::string> names;
     names.reserve(commands_.size());
-    for (const auto &pair : commands_)
+    for (const auto& pair : commands_)
     {
       names.push_back(pair.first);
     }
     return names;
   }
 
-  std::string slash_command_registry::get_usage(const std::string &name) const
+  std::string slash_command_registry::get_usage(const std::string& name) const
   {
-    const slash_command *cmd = get_command(name);
+    const slash_command* cmd = get_command(name);
     if (!cmd)
     {
       return "";
@@ -53,7 +53,7 @@ namespace mistral::slash_command
     return cmd->usage();
   }
 
-  bool slash_command_registry::has_command(const std::string &name) const
+  bool slash_command_registry::has_command(const std::string& name) const
   {
     std::lock_guard<std::mutex> lock(mtx_);
     return commands_.contains(name);

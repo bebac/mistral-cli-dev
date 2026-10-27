@@ -14,10 +14,13 @@ PointerAlignment: Left
 # Crucial Setting for Braces: Ensures the opening brace of a function is on a new line
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterNamespace: true
+  AfterCaseLabel: true
   AfterClass: true
-  AfterFunction: true
   AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
   BeforeElse: true
   BeforeCatch: true
   BeforeWhile: true
@@ -58,5 +61,12 @@ AlignTrailingComments: true
 # open bracket, put each argument on its own line (with BinPack*: false)
 # and the closing bracket on its own line
 AlignAfterOpenBracket: BlockIndent
+
+# Convention: a braced init list that should be formatted one element per
+# line (block style) must end with a trailing comma in the source — this is
+# the only mechanism clang-format provides to opt out of continuation-style
+# packing for braced lists.
+
 ContinuationIndentWidth: 2
+ConstructorInitializerIndentWidth: 2
 SpaceBeforeParens: ControlStatements

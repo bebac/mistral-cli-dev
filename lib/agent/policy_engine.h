@@ -1,14 +1,14 @@
 #ifndef MISTRAL_POLICY_ENGINE_H
 #define MISTRAL_POLICY_ENGINE_H
 
-#include <nlohmann/json.hpp>
 #include <filesystem>
-#include <optional>
-#include <string>
-#include <vector>
 #include <map>
 #include <memory>
+#include <nlohmann/json.hpp>
+#include <optional>
 #include <regex>
+#include <string>
+#include <vector>
 
 namespace mistral::agent
 {
@@ -18,7 +18,12 @@ namespace mistral::agent
 
   // ---- Policy Decision Types ----
 
-  enum class policy_decision { ALLOW, REQUIRE_APPROVAL, DENY };
+  enum class policy_decision
+  {
+    ALLOW,
+    REQUIRE_APPROVAL,
+    DENY
+  };
 
   // ---- Policy Context ----
 
@@ -49,8 +54,19 @@ namespace mistral::agent
 
   // ---- Rule Types ----
 
-  enum class rule_type { TOOL, DIRECTORY, PATH_PREFIX, EXECUTABLE, UNKNOWN };
-  enum class rule_action { ALLOW, REQUIRE_APPROVAL };
+  enum class rule_type
+  {
+    TOOL,
+    DIRECTORY,
+    PATH_PREFIX,
+    EXECUTABLE,
+    UNKNOWN
+  };
+  enum class rule_action
+  {
+    ALLOW,
+    REQUIRE_APPROVAL
+  };
 
   // ---- Policy Rule ----
 
@@ -89,29 +105,34 @@ namespace mistral::agent
 
     // Add rules programmatically
     void allow_tool(const std::string& tool_name);
-    void allow_directory(const std::string& tool_name,
-                         const std::string& path,
-                         const std::vector<std::string>& exclude = {});
+    void allow_directory(
+      const std::string& tool_name,
+      const std::string& path,
+      const std::vector<std::string>& exclude = {}
+    );
     void require_approval_tool(const std::string& tool_name);
-    void require_approval_directory(const std::string& tool_name,
-                                   const std::string& path_pattern);
-    void require_approval_path_prefix(const std::string& tool_name,
-                                      const std::string& prefix);
+    void require_approval_directory(const std::string& tool_name, const std::string& path_pattern);
+    void require_approval_path_prefix(const std::string& tool_name, const std::string& prefix);
 
     // Executable-specific rules (for exec tool)
-    void allow_executable(const std::string& tool_name, const std::string& command,
-                          const std::vector<std::string>& args = {},
-                          const std::optional<std::string>& cwd = std::nullopt);
-    void require_approval_executable(const std::string& tool_name, const std::string& command,
-                                     const std::vector<std::string>& args = {},
-                                     const std::optional<std::string>& cwd = std::nullopt);
+    void allow_executable(
+      const std::string& tool_name,
+      const std::string& command,
+      const std::vector<std::string>& args = {},
+      const std::optional<std::string>& cwd = std::nullopt
+    );
+    void require_approval_executable(
+      const std::string& tool_name,
+      const std::string& command,
+      const std::vector<std::string>& args = {},
+      const std::optional<std::string>& cwd = std::nullopt
+    );
 
     // Set default policy
     void set_default_policy(policy_decision default_policy);
 
     // Set custom rejection message for a rule
-    void set_rejection_message(const std::string& rule_id,
-                               const std::string& message);
+    void set_rejection_message(const std::string& rule_id, const std::string& message);
 
     // Evaluate a tool call against policies
     policy_result evaluate(const policy_context& ctx) const;
@@ -120,21 +141,30 @@ namespace mistral::agent
     static std::string normalize_path(const std::string& path);
 
     // Get current default policy
-    policy_decision get_default_policy() const { return default_policy_; }
+    policy_decision get_default_policy() const
+    {
+      return default_policy_;
+    }
 
     // Clear all rules
     void clear_rules();
 
     // Get number of rules loaded
-    size_t rule_count() const { return rules_.size(); }
+    size_t rule_count() const
+    {
+      return rules_.size();
+    }
 
   private:
     // Parse rule fields from JSON (used by load_configuration)
     void parse_rule_fields(policy_rule& rule, const json& rule_json) const;
 
     // Parse DSL rule body (selector + additional parts)
-    void parse_dsl_rule_body(policy_rule& rule, const std::string& selector,
-                             const std::vector<std::string>& parts) const;
+    void parse_dsl_rule_body(
+      policy_rule& rule,
+      const std::string& selector,
+      const std::vector<std::string>& parts
+    ) const;
 
     // Parse a DSL rule string
     policy_rule parse_dsl_rule(const std::string& rule_dsl) const;
@@ -149,8 +179,12 @@ namespace mistral::agent
     bool command_matches(const std::string& rule_command, const std::string& test_command) const;
 
     // Check path matching
-    bool path_matches(const std::string& rule_path, const std::string& test_path,
-                      bool negated, const std::vector<std::string>& exclusions) const;
+    bool path_matches(
+      const std::string& rule_path,
+      const std::string& test_path,
+      bool negated,
+      const std::vector<std::string>& exclusions
+    ) const;
 
     // Check if path is excluded
     bool is_excluded(const std::string& path, const std::vector<std::string>& exclusions) const;

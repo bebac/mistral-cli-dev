@@ -5,7 +5,8 @@
 
 #include <string>
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
   // Save the original stdout fd before any PTY test redirects fd 1.
   // cpptui writes via std::cout (fd 1), which PTY tests redirect to the
   // pseudo-terminal slave.  doctest also writes via std::cout by default,
@@ -19,12 +20,14 @@ int main(int argc, char** argv) {
 
   doctest::Context ctx;
   ctx.applyCommandLine(argc, argv);
-  if (orig_stdout >= 0) {
+  if (orig_stdout >= 0)
+  {
     std::string out_path = "/dev/fd/" + std::to_string(orig_stdout);
     ctx.setOption("out", out_path.c_str());
   }
   int res = ctx.run();
 
-  if (orig_stdout >= 0) ::close(orig_stdout);
+  if (orig_stdout >= 0)
+    ::close(orig_stdout);
   return res;
 }

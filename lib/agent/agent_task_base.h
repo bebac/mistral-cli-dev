@@ -1,21 +1,21 @@
 #ifndef MISTRAL_AGENT_TASK_BASE_H
 #define MISTRAL_AGENT_TASK_BASE_H
 
-#include "agent/conversation.h"
-#include "agent/tool_registry.h"
-#include "agent/policy_engine.h"
-#include "agent/approval_manager.h"
-#include "agent/agent_system.h"
 #include "agent/agent_config.h"
-#include "tools/edit_parser.h"
+#include "agent/agent_system.h"
+#include "agent/approval_manager.h"
+#include "agent/conversation.h"
+#include "agent/policy_engine.h"
+#include "agent/tool_registry.h"
 #include "api/provider.h"
 #include "api/provider_registry.h"
 #include "api/types.h"
+#include "tools/edit_parser.h"
 
-#include <dripcore/task.h>
-#include <dripcore/channel.h>
-#include <dripcore/task_handle.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/channel.h>
+#include <dripcore/task.h>
+#include <dripcore/task_handle.h>
 
 #include <cstdint>
 #include <memory>
@@ -66,7 +66,9 @@ namespace mistral::agent
     virtual auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> = 0;
     virtual void agent_loop_on_error(const std::string& error) = 0;
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
-    virtual void agent_loop_on_cancelled() {}
+    virtual void agent_loop_on_cancelled()
+    {
+    }
 
     // Rebuilds the tool registry when MCP tools were registered after
     // construction (e.g. via /mcp connect), and surfaces MCP server
@@ -74,38 +76,34 @@ namespace mistral::agent
     void refresh_mcp_tools();
 
     // Helper methods
-    std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
-      try_parse_and_store_patchset(const std::vector<api::message_content>& accumulated_content);
+    std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>> try_parse_and_store_patchset(
+      const std::vector<api::message_content>& accumulated_content
+    );
 
     // Parse edit blocks from accumulated content and append them to an
     // ongoing (non-applied) patchset. Returns the patchset ID and full
     // edit list if edits were appended, or std::nullopt if no edits
     // were found or no ongoing patchset exists.
-    std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>>
-      try_parse_and_append_edits(const std::vector<api::message_content>& accumulated_content);
+    std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>> try_parse_and_append_edits(
+      const std::vector<api::message_content>& accumulated_content
+    );
     void accumulate_message_content(std::vector<api::message_content>& accumulated, api::message_content mc);
-    std::optional<std::string> accumulate_tool_call(
-      std::vector<api::tool_call>& accumulated, api::tool_call tc);
+    std::optional<std::string> accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
     auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
 
     // Shared tool-call helpers used by subclasses' agent_loop_do_tool_call.
     // These extract common policy/execution logic so subclasses only
     // need to handle sink output and approval flow.
-    static std::string accumulate_text(
-      const std::vector<api::message_content>& accumulated_content);
+    static std::string accumulate_text(const std::vector<api::message_content>& accumulated_content);
     // Structural pre-check of a tool call, run before policy evaluation
     // and approval. Returns an error message when the call is malformed
     // and cannot succeed (e.g. an exec command containing shell syntax
     // or naming a command that does not exist), or std::nullopt when
     // the call should proceed to policy evaluation.
-    std::optional<std::string> precheck_tool_call(
-      const api::tool_call& tc, const api::json& tool_args) const;
-    policy_result evaluate_tool_policy(
-      const api::tool_call& tc, const api::json& tool_args) const;
-    static api::json build_tool_rejection(
-      const std::string& status, const std::string& message);
-    auto execute_and_record_tool(const api::tool_call& tc)
-      -> dripcore::awaitable<std::string>;
+    std::optional<std::string> precheck_tool_call(const api::tool_call& tc, const api::json& tool_args) const;
+    policy_result evaluate_tool_policy(const api::tool_call& tc, const api::json& tool_args) const;
+    static api::json build_tool_rejection(const std::string& status, const std::string& message);
+    auto execute_and_record_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
 
     // Agent identifier
     std::string agent_id_;

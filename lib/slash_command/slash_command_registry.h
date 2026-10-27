@@ -28,16 +28,16 @@ namespace mistral::slash_command
     void register_command(std::unique_ptr<slash_command> cmd);
 
     // Lookup by name
-    const slash_command *get_command(const std::string &name) const;
+    const slash_command* get_command(const std::string& name) const;
 
     // Get all command names (for completion)
     std::vector<std::string> get_command_names() const;
 
     // Get usage string for help
-    std::string get_usage(const std::string &name) const;
+    std::string get_usage(const std::string& name) const;
 
     // Check if a command exists
-    bool has_command(const std::string &name) const;
+    bool has_command(const std::string& name) const;
 
   private:
     std::map<std::string, std::unique_ptr<slash_command>> commands_;

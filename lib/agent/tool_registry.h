@@ -1,8 +1,8 @@
 #ifndef MISTRAL_TOOL_REGISTRY_H
 #define MISTRAL_TOOL_REGISTRY_H
 
-#include <nlohmann/json.hpp>
 #include <dripcore/awaitable.h>
+#include <nlohmann/json.hpp>
 
 #include <format>
 #include <functional>
@@ -19,8 +19,7 @@ namespace mistral::agent
 
   // Custom approval prompt renderer: receives the parsed tool arguments
   // and the policy reason, and returns a formatted prompt string.
-  using approval_renderer_fn =
-    std::function<std::string(const json& args, std::string_view reason)>;
+  using approval_renderer_fn = std::function<std::string(const json& args, std::string_view reason)>;
 
   // ---- Argument metadata ----
 
@@ -28,7 +27,7 @@ namespace mistral::agent
   {
     std::string name;
     std::string description;
-    std::optional<std::string> default_value;  // JSON string
+    std::optional<std::string> default_value; // JSON string
   };
 
   inline arg_info arg(std::string name, std::string desc)
@@ -36,8 +35,7 @@ namespace mistral::agent
     return {std::move(name), std::move(desc), std::nullopt};
   }
 
-  template <typename T>
-  inline arg_info arg(std::string name, std::string desc, const T& default_val)
+  template <typename T> inline arg_info arg(std::string name, std::string desc, const T& default_val)
   {
     json j = default_val;
     return {std::move(name), std::move(desc), j.dump()};
@@ -47,57 +45,70 @@ namespace mistral::agent
 
   namespace detail
   {
-    template <typename T> struct is_vector : std::false_type {};
-    template <typename T, typename A> struct is_vector<std::vector<T, A>> : std::true_type {
+    template <typename T> struct is_vector : std::false_type
+    {
+    };
+    template <typename T, typename A> struct is_vector<std::vector<T, A>> : std::true_type
+    {
       using inner_type = T;
     };
 
-    template <typename T> struct is_optional : std::false_type {};
-    template <typename T> struct is_optional<std::optional<T>> : std::true_type {
+    template <typename T> struct is_optional : std::false_type
+    {
+    };
+    template <typename T> struct is_optional<std::optional<T>> : std::true_type
+    {
       using inner_type = T;
     };
 
-    template <typename T>
-    json build_type_schema()
+    template <typename T> json build_type_schema()
     {
       using U = std::decay_t<T>;
 
-      if constexpr (is_vector<U>::value) {
+      if constexpr (is_vector<U>::value)
+      {
         using V = typename is_vector<U>::inner_type;
         return {{"type", "array"}, {"items", build_type_schema<V>()}};
       }
-      else if constexpr (is_optional<U>::value) {
+      else if constexpr (is_optional<U>::value)
+      {
         using V = typename is_optional<U>::inner_type;
         // For optional types, we don't mark as required and use the inner type's schema
         return build_type_schema<V>();
       }
-      else if constexpr (std::is_same_v<U, bool>) {
+      else if constexpr (std::is_same_v<U, bool>)
+      {
         return {{"type", "boolean"}};
       }
-      else if constexpr (std::is_integral_v<U>) {
+      else if constexpr (std::is_integral_v<U>)
+      {
         return {{"type", "integer"}};
       }
-      else if constexpr (std::is_floating_point_v<U>) {
+      else if constexpr (std::is_floating_point_v<U>)
+      {
         return {{"type", "number"}};
       }
-      else if constexpr (std::is_same_v<U, std::string>) {
+      else if constexpr (std::is_same_v<U, std::string>)
+      {
         return {{"type", "string"}};
       }
-      else {
+      else
+      {
         return {{"type", "string"}};
       }
     }
   } // namespace detail
 
   // ---- Helper to detect awaitable types ----
-  template <typename T>
-  struct is_awaitable : std::false_type {};
+  template <typename T> struct is_awaitable : std::false_type
+  {
+  };
 
-  template <typename T>
-  struct is_awaitable<dripcore::awaitable<T>> : std::true_type {};
+  template <typename T> struct is_awaitable<dripcore::awaitable<T>> : std::true_type
+  {
+  };
 
-  template <typename T>
-  constexpr bool is_awaitable_v = is_awaitable<T>::value;
+  template <typename T> constexpr bool is_awaitable_v = is_awaitable<T>::value;
 
   // ---- Abstract tool interface ----
 
@@ -111,35 +122,41 @@ namespace mistral::agent
 
     // Custom approval prompt rendering. Default: nullopt, meaning
     // "fall back to the generic build_approval_prompt()".
-    virtual std::optional<std::string> render_approval(
-      const json& args, std::string_view reason) const
+    virtual std::optional<std::string> render_approval(const json& args, std::string_view reason) const
     {
       return std::nullopt;
     }
 
     // Attach a custom approval renderer. Default: no-op.
-    virtual void set_approval_renderer(approval_renderer_fn renderer) {}
+    virtual void set_approval_renderer(approval_renderer_fn renderer)
+    {
+    }
   };
 
   // ---- Concrete tool wrapper ----
 
-  template <typename Ret, typename... Args>
-  class tool_wrapper : public tool_interface
+  template <typename Ret, typename... Args> class tool_wrapper : public tool_interface
   {
   public:
     tool_wrapper(std::function<Ret(Args...)> f, std::vector<arg_info> info, std::string desc)
       : func_(std::move(f)), args_info_(std::move(info)), description_(std::move(desc))
-    {}
+    {
+    }
 
     dripcore::awaitable<json> execute(const json& j_args) override
     {
       auto result = call_impl(j_args, std::index_sequence_for<Args...>{});
 
-      if constexpr (std::is_same_v<Ret, json>) {
+      if constexpr (std::is_same_v<Ret, json>)
+      {
         co_return result;
-      } else if constexpr (is_awaitable_v<Ret>) {
+      }
+      else if constexpr (is_awaitable_v<Ret>)
+      {
         co_return json(co_await result);
-      } else {
+      }
+      else
+      {
         co_return json(result);
       }
     }
@@ -156,47 +173,40 @@ namespace mistral::agent
           json property = detail::build_type_schema<T>();
           property["description"] = info.description;
 
-          if (info.default_value) {
+          if (info.default_value)
+          {
             property["default"] = json::parse(*info.default_value);
           }
           // In strict mode all properties must be listed in "required",
           // even those with default values.
-          if (!info.default_value || strict) {
+          if (!info.default_value || strict)
+          {
             required_list.push_back(info.name);
           }
           properties[info.name] = property;
         }.template operator()<Args>(),
         ...);
 
-      json parameters = {
-        {"type", "object"},
-        {"properties", properties},
-        {"required", required_list}
-      };
-      if (strict) {
+      json parameters = {{"type", "object"}, {"properties", properties}, {"required", required_list}};
+      if (strict)
+      {
         parameters["additionalProperties"] = false;
       }
 
-      json function = {
-        {"name", tool_name},
-        {"description", description_},
-        {"parameters", parameters}
-      };
-      if (strict) {
+      json function = {{"name", tool_name}, {"description", description_}, {"parameters", parameters}};
+      if (strict)
+      {
         function["strict"] = true;
       }
 
       // Mistral API format: {"type":"function","function":{...}}
-      return {
-        {"type", "function"},
-        {"function", function}
-      };
+      return {{"type", "function"}, {"function", function}};
     }
 
-    std::optional<std::string> render_approval(
-      const json& args, std::string_view reason) const override
+    std::optional<std::string> render_approval(const json& args, std::string_view reason) const override
     {
-      if (approval_renderer_) return (*approval_renderer_)(args, reason);
+      if (approval_renderer_)
+        return (*approval_renderer_)(args, reason);
       return std::nullopt;
     }
 
@@ -209,57 +219,67 @@ namespace mistral::agent
     {
       // Create a new wrapper with the same function and metadata
       // Note: The captured variables in func_ (like tool instance pointers) are preserved
-      auto copy = std::make_shared<tool_wrapper<Ret, Args...>>(
-        func_, args_info_, description_
-      );
+      auto copy = std::make_shared<tool_wrapper<Ret, Args...>>(func_, args_info_, description_);
       copy->approval_renderer_ = approval_renderer_;
       return copy;
     }
 
   private:
     // Helper class to avoid template ambiguity with std::optional
-    template <typename T, typename = void>
-    struct from_json_helper
+    template <typename T, typename = void> struct from_json_helper
     {
       static T get(const json& j, const arg_info& info)
       {
-        if (!j.contains(info.name) && info.default_value) {
+        if (!j.contains(info.name) && info.default_value)
+        {
           return json::parse(*info.default_value).get<T>();
         }
-        if (!j.contains(info.name)) {
+        if (!j.contains(info.name))
+        {
           throw std::runtime_error("missing required argument: " + info.name);
         }
-        if constexpr (std::is_same_v<T, bool>) {
+        if constexpr (std::is_same_v<T, bool>)
+        {
           const auto& v = j[info.name];
-          if (v.is_boolean()) return v.get<bool>();
-          if (v.is_number_integer()) return v.get<int>() != 0;
-          if (v.is_string()) {
+          if (v.is_boolean())
+            return v.get<bool>();
+          if (v.is_number_integer())
+            return v.get<int>() != 0;
+          if (v.is_string())
+          {
             auto s = v.get<std::string>();
             return s == "true" || s == "1";
           }
           throw std::runtime_error("expected boolean for " + info.name);
-        } else {
+        }
+        else
+        {
           return j[info.name].get<T>();
         }
       }
     };
 
     // Partial specialization for std::optional<T>
-    template <typename T>
-    struct from_json_helper<std::optional<T>>
+    template <typename T> struct from_json_helper<std::optional<T>>
     {
       static std::optional<T> get(const json& j, const arg_info& info)
       {
-        if (!j.contains(info.name)) {
+        if (!j.contains(info.name))
+        {
           // If not provided and has default value, parse it
-          if (info.default_value) {
-            try {
+          if (info.default_value)
+          {
+            try
+            {
               auto parsed = json::parse(*info.default_value);
-              if (parsed.is_null()) {
+              if (parsed.is_null())
+              {
                 return std::nullopt;
               }
               return parsed.get<T>();
-            } catch (...) {
+            }
+            catch (...)
+            {
               return std::nullopt;
             }
           }
@@ -269,38 +289,49 @@ namespace mistral::agent
 
         // Provided in JSON
         const auto& v = j[info.name];
-        if (v.is_null()) {
+        if (v.is_null())
+        {
           return std::nullopt;
         }
         return v.get<T>();
       }
     };
 
-    template <typename T>
-    static T from_json_arg(const json& j, const arg_info& info)
+    template <typename T> static T from_json_arg(const json& j, const arg_info& info)
     {
       return from_json_helper<T>::get(j, info);
     }
 
-
     // Get a human-readable name for a C++ type
-    template <typename T>
-    static std::string type_name()
+    template <typename T> static std::string type_name()
     {
       using U = std::decay_t<T>;
-      if constexpr (detail::is_vector<U>::value) {
+      if constexpr (detail::is_vector<U>::value)
+      {
         return "array of " + type_name<typename detail::is_vector<U>::inner_type>();
-      } else if constexpr (detail::is_optional<U>::value) {
+      }
+      else if constexpr (detail::is_optional<U>::value)
+      {
         return type_name<typename detail::is_optional<U>::inner_type>();
-      } else if constexpr (std::is_same_v<U, bool>) {
+      }
+      else if constexpr (std::is_same_v<U, bool>)
+      {
         return "boolean";
-      } else if constexpr (std::is_integral_v<U>) {
+      }
+      else if constexpr (std::is_integral_v<U>)
+      {
         return "integer";
-      } else if constexpr (std::is_floating_point_v<U>) {
+      }
+      else if constexpr (std::is_floating_point_v<U>)
+      {
         return "number";
-      } else if constexpr (std::is_same_v<U, std::string>) {
+      }
+      else if constexpr (std::is_same_v<U, std::string>)
+      {
         return "string";
-      } else {
+      }
+      else
+      {
         return "string";
       }
     }
@@ -308,13 +339,20 @@ namespace mistral::agent
     // Get a human-readable name for a JSON value's type
     static std::string json_type_name(const json& v)
     {
-      if (v.is_string()) return "string";
-      if (v.is_array()) return "array";
-      if (v.is_object()) return "object";
-      if (v.is_number_integer()) return "integer";
-      if (v.is_number_float()) return "number";
-      if (v.is_boolean()) return "boolean";
-      if (v.is_null()) return "null";
+      if (v.is_string())
+        return "string";
+      if (v.is_array())
+        return "array";
+      if (v.is_object())
+        return "object";
+      if (v.is_number_integer())
+        return "integer";
+      if (v.is_number_float())
+        return "number";
+      if (v.is_boolean())
+        return "boolean";
+      if (v.is_null())
+        return "null";
       return "unknown";
     }
 
@@ -322,42 +360,46 @@ namespace mistral::agent
     // Raw nlohmann json exceptions (e.g. "[json.exception.type_error.302]...")
     // are replaced with actionable messages that include the argument name,
     // expected type, and actual value.
-    template <typename T>
-    static T safe_from_json_arg(const json& j, const arg_info& info)
+    template <typename T> static T safe_from_json_arg(const json& j, const arg_info& info)
     {
-      try {
+      try
+      {
         return from_json_arg<T>(j, info);
-      } catch (const std::exception& e) {
+      }
+      catch (const std::exception& e)
+      {
         std::string msg = e.what();
         // Only enhance raw nlohmann json exceptions; rethrow others
         // (e.g., "missing required argument: foo") as-is
-        if (msg.find("[json.") == std::string::npos) {
+        if (msg.find("[json.") == std::string::npos)
+        {
           throw;
         }
 
-        std::string actual = j.contains(info.name)
-          ? json_type_name(j[info.name])
-          : "missing";
+        std::string actual = j.contains(info.name) ? json_type_name(j[info.name]) : "missing";
 
         std::string value_str;
-        if (j.contains(info.name)) {
+        if (j.contains(info.name))
+        {
           value_str = j[info.name].dump();
-          if (value_str.size() > 100) value_str = value_str.substr(0, 100) + "...";
+          if (value_str.size() > 100)
+            value_str = value_str.substr(0, 100) + "...";
         }
 
-        throw std::runtime_error(std::format(
-          "Argument '{}' has wrong type: expected {}, but received {}{}{}",
-          info.name,
-          type_name<T>(),
-          actual,
-          value_str.empty() ? "" : " (value: ",
-          value_str.empty() ? "" : value_str + ")"
-        ));
+        throw std::runtime_error(
+          std::format(
+            "Argument '{}' has wrong type: expected {}, but received {}{}{}",
+            info.name,
+            type_name<T>(),
+            actual,
+            value_str.empty() ? "" : " (value: ",
+            value_str.empty() ? "" : value_str + ")"
+          )
+        );
       }
     }
 
-    template <size_t... Is>
-    Ret call_impl(const json& j_args, std::index_sequence<Is...>)
+    template <size_t... Is> Ret call_impl(const json& j_args, std::index_sequence<Is...>)
     {
       return func_(safe_from_json_arg<Args>(j_args, args_info_[Is])...);
     }
@@ -377,10 +419,10 @@ namespace mistral::agent
     tool_registry() = default;
 
     // Copy constructor - creates a deep copy of the registry
-    tool_registry(const tool_registry& other)
-      : strict_mode_(other.strict_mode_)
+    tool_registry(const tool_registry& other) : strict_mode_(other.strict_mode_)
     {
-      for (const auto& [name, tool] : other.tools_) {
+      for (const auto& [name, tool] : other.tools_)
+      {
         // Clone the tool_wrapper by re-registering with the same parameters
         // Note: This assumes the tool instances (T*) are still valid
         // The actual tool execution will use the same underlying instances
@@ -391,10 +433,12 @@ namespace mistral::agent
     // Copy assignment operator
     tool_registry& operator=(const tool_registry& other)
     {
-      if (this != &other) {
+      if (this != &other)
+      {
         tools_.clear();
         strict_mode_ = other.strict_mode_;
-        for (const auto& [name, tool] : other.tools_) {
+        for (const auto& [name, tool] : other.tools_)
+        {
           tools_[name] = tool->clone();
         }
       }
@@ -402,13 +446,12 @@ namespace mistral::agent
     }
 
     template <typename T, typename Ret, typename... Args, typename... Names>
-      requires (sizeof...(Args) == sizeof...(Names))
+      requires(sizeof...(Args) == sizeof...(Names))
     void register_tool(std::string name, std::string desc, T* inst, Ret (T::*m)(Args...), Names... names)
     {
       std::vector<arg_info> info_vec = {names...};
       auto wrapper = std::make_shared<tool_wrapper<Ret, Args...>>(
-        [inst, m](Args... args) { return (inst->*m)(args...); },
-        std::move(info_vec), std::move(desc)
+        [inst, m](Args... args) { return (inst->*m)(args...); }, std::move(info_vec), std::move(desc)
       );
       tools_[name] = std::move(wrapper);
     }
@@ -418,17 +461,24 @@ namespace mistral::agent
       auto name = tool_call["function"]["name"].get<std::string>();
 
       json args;
-      try {
+      try
+      {
         args = json::parse(tool_call["function"]["arguments"].get<std::string>());
-      } catch (const std::exception& e) {
+      }
+      catch (const std::exception& e)
+      {
         co_return json(std::string("Error: failed to parse tool arguments: ") + e.what());
       }
 
       auto it = tools_.find(name);
-      if (it != tools_.end()) {
-        try {
+      if (it != tools_.end())
+      {
+        try
+        {
           co_return co_await it->second->execute(args);
-        } catch (const std::exception& e) {
+        }
+        catch (const std::exception& e)
+        {
           co_return json(std::string("Error: ") + e.what());
         }
       }
@@ -440,7 +490,8 @@ namespace mistral::agent
     json get_schema() const
     {
       json schema = json::array();
-      for (const auto& [name, tool] : tools_) {
+      for (const auto& [name, tool] : tools_)
+      {
         schema.push_back(tool->get_schema(name, strict_mode_));
       }
       return schema;
@@ -489,12 +540,10 @@ namespace mistral::agent
     // Register a custom approval renderer for a tool.
     // The renderer receives the parsed tool arguments and the policy reason,
     // and returns a formatted prompt string.
-    void register_approval_renderer(
-      const std::string& tool_name,
-      approval_renderer_fn renderer
-    )
+    void register_approval_renderer(const std::string& tool_name, approval_renderer_fn renderer)
     {
-      if (auto tool = get_tool(tool_name)) {
+      if (auto tool = get_tool(tool_name))
+      {
         tool->set_approval_renderer(std::move(renderer));
       }
     }

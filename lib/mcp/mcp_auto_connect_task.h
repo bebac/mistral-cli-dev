@@ -1,8 +1,8 @@
 #ifndef MISTRAL_MCP_AUTO_CONNECT_TASK_H
 #define MISTRAL_MCP_AUTO_CONNECT_TASK_H
 
-#include <dripcore/task.h>
 #include <dripcore/awaitable.h>
+#include <dripcore/task.h>
 
 namespace mistral::mcp
 {
@@ -14,6 +14,6 @@ namespace mistral::mcp
   public:
     dripcore::awaitable<> body() override;
   };
-}
+} // namespace mistral::mcp
 
 #endif // MISTRAL_MCP_AUTO_CONNECT_TASK_H

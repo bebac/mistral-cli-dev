@@ -26,29 +26,23 @@ namespace mistral::agent
       std::cout << normal_color_ << text << std::endl;
     }
 
-    void output_tool_call(const std::string& name,
-                          const std::string& args) override
+    void output_tool_call(const std::string& name, const std::string& args) override
     {
-      std::cout << tool_color_
-                << "\n[tool] " << name
-                << "(" << args << ")"
-                << normal_color_ << std::flush;
+      std::cout << tool_color_ << "\n[tool] " << name << "(" << args << ")" << normal_color_ << std::flush;
     }
 
     void output_tool_result(const std::string& result) override
     {
-      std::string display = (result.size() > 200)
-        ? result.substr(0, 200) + "..."
-        : result;
+      std::string display = (result.size() > 200) ? result.substr(0, 200) + "..." : result;
       std::cout << normal_color_ << " \xe2\x86\x92 " << display << std::endl;
     }
 
-    void output_resume_preview(const std::string& user_text,
-                               const std::string& assistant_text) override
+    void output_resume_preview(const std::string& user_text, const std::string& assistant_text) override
     {
       std::cout << normal_color_ << "Last turn:" << std::endl;
       std::cout << user_color_ << "> " << user_text << normal_color_ << std::endl;
-      if (!assistant_text.empty()) {
+      if (!assistant_text.empty())
+      {
         std::cout << normal_color_ << assistant_text << std::endl;
       }
     }
@@ -84,10 +78,12 @@ namespace mistral::agent
     }
 
   private:
+    // clang-format off
     static constexpr char normal_color_[]   = "\033[0m";
     static constexpr char thinking_color_[] = "\033[90m";
     static constexpr char tool_color_[]     = "\033[32m";
     static constexpr char user_color_[]     = "\033[32m";
+    // clang-format on
   };
 } // namespace mistral::agent
 

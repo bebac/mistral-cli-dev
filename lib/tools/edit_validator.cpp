@@ -18,10 +18,8 @@ namespace mistral::tools
     // Check if a file path has a markdown extension (.md or .markdown)
     bool is_markdown_file(const std::string& path)
     {
-      return (path.size() >= 3 &&
-              path.compare(path.size() - 3, 3, ".md") == 0) ||
-             (path.size() >= 9 &&
-              path.compare(path.size() - 9, 9, ".markdown") == 0);
+      return (path.size() >= 3 && path.compare(path.size() - 3, 3, ".md") == 0) ||
+             (path.size() >= 9 && path.compare(path.size() - 9, 9, ".markdown") == 0);
     }
 
     // Check if text contains patchset format markers that would indicate
@@ -43,14 +41,11 @@ namespace mistral::tools
             // whitespace, a single alphanumeric word (language specifier),
             // and optional trailing whitespace, then end-of-line.
             size_t i = pos + 3;
-            while (i < text.size() && text[i] != '\n' &&
-                   std::isspace(static_cast<unsigned char>(text[i])))
+            while (i < text.size() && text[i] != '\n' && std::isspace(static_cast<unsigned char>(text[i])))
               i++;
-            while (i < text.size() && text[i] != '\n' &&
-                   std::isalnum(static_cast<unsigned char>(text[i])))
+            while (i < text.size() && text[i] != '\n' && std::isalnum(static_cast<unsigned char>(text[i])))
               i++;
-            while (i < text.size() && text[i] != '\n' &&
-                   std::isspace(static_cast<unsigned char>(text[i])))
+            while (i < text.size() && text[i] != '\n' && std::isspace(static_cast<unsigned char>(text[i])))
               i++;
             if (i >= text.size() || text[i] == '\n')
             {
@@ -93,26 +88,32 @@ namespace mistral::tools
     // Validate a file path for safety and correctness
     bool is_valid_file_path(const std::string& path)
     {
-      if (path.empty()) return false;
+      if (path.empty())
+        return false;
 
       // Reject absolute paths
-      if (path[0] == '/') return false;
+      if (path[0] == '/')
+        return false;
 
       // Reject paths starting with Windows drive letters (e.g., C:)
-      if (path.size() >= 2 && path[1] == ':' && std::isalpha(path[0])) return false;
+      if (path.size() >= 2 && path[1] == ':' && std::isalpha(path[0]))
+        return false;
 
       // Reject paths that look like markdown headers or console output
-      if (path[0] == '#' || path[0] == '<' || path[0] == '>' ||
-          path[0] == '[' || path[0] == '*' || path[0] == '-') return false;
+      if (path[0] == '#' || path[0] == '<' || path[0] == '>' || path[0] == '[' || path[0] == '*' || path[0] == '-')
+        return false;
 
       // Reject if path is exactly "." or ".."
-      if (path == "." || path == "..") return false;
+      if (path == "." || path == "..")
+        return false;
 
       // Reject if path contains consecutive slashes
-      if (path.find("//") != std::string::npos) return false;
+      if (path.find("//") != std::string::npos)
+        return false;
 
       // Reject if path starts or ends with slash
-      if (path.back() == '/') return false;
+      if (path.back() == '/')
+        return false;
 
       return true;
     }
@@ -123,32 +124,28 @@ namespace mistral::tools
     // parser then treats the next marker line as the file path.
     bool is_patchset_marker_path(const std::string& path)
     {
-      return path.starts_with("~~~") ||      // code fence (optionally with language)
-             path.starts_with("<<<<<<<") ||  // SEARCH marker
-             path.starts_with("=======") ||  // SEPARATOR marker
-             path.starts_with(">>>>>>>");    // REPLACE marker
+      return path.starts_with("~~~") ||     // code fence (optionally with language)
+             path.starts_with("<<<<<<<") || // SEARCH marker
+             path.starts_with("=======") || // SEPARATOR marker
+             path.starts_with(">>>>>>>");   // REPLACE marker
     }
 
     // Apply suspicious content check to a validation result.
     // If the replace_text contains patchset format markers (and the file
     // is not markdown), marks the result as invalid.
-    void apply_suspicious_content_check(const file_edit_t& edit,
-                                        edit_validation_t& result)
+    void apply_suspicious_content_check(const file_edit_t& edit, edit_validation_t& result)
     {
-      if (result.valid && !is_markdown_file(edit.file_path) &&
-          contains_patch_markers(edit.replace_text))
+      if (result.valid && !is_markdown_file(edit.file_path) && contains_patch_markers(edit.replace_text))
       {
         result.valid = false;
         result.error_type = "suspicious_replace_content";
-        result.error_message =
-          "Replace text contains patchset format markers (~~~, <<<<<<< SEARCH, "
-          "or >>>>>>> REPLACE). This usually indicates a missing >>>>>>> REPLACE "
-          "marker in the original patchset, causing subsequent edit blocks to be "
-          "merged into this edit's replace text.";
+        result.error_message = "Replace text contains patchset format markers (~~~, <<<<<<< SEARCH, "
+                               "or >>>>>>> REPLACE). This usually indicates a missing >>>>>>> REPLACE "
+                               "marker in the original patchset, causing subsequent edit blocks to be "
+                               "merged into this edit's replace text.";
         result.is_fixable = true;
-        result.suggestion =
-          "Check that every edit block has a >>>>>>> REPLACE marker before the "
-          "closing ~~~ fence, and that each edit block is properly separated.";
+        result.suggestion = "Check that every edit block has a >>>>>>> REPLACE marker before the "
+                            "closing ~~~ fence, and that each edit block is properly separated.";
       }
     }
   } // namespace
@@ -173,17 +170,15 @@ namespace mistral::tools
     if (is_patchset_marker_path(edit.file_path))
     {
       result.error_type = "missing_file_path";
-      result.error_message =
-        "Edit block is missing its file path line: '" + edit.file_path +
-        "' is a patchset format marker, not a file path. This usually means "
-        "the edit block did not start with its file path (e.g. the path line "
-        "was omitted for a subsequent edit of the same file), so the parser "
-        "consumed the next marker line as the path.";
-      result.suggestion =
-        "Re-emit the affected edit blocks, each starting with the file path "
-        "on its own line, followed by the ~~~ fence. Every edit block needs "
-        "its own file path line, even when editing the same file as the "
-        "previous block.";
+      result.error_message = "Edit block is missing its file path line: '" + edit.file_path +
+                             "' is a patchset format marker, not a file path. This usually means "
+                             "the edit block did not start with its file path (e.g. the path line "
+                             "was omitted for a subsequent edit of the same file), so the parser "
+                             "consumed the next marker line as the path.";
+      result.suggestion = "Re-emit the affected edit blocks, each starting with the file path "
+                          "on its own line, followed by the ~~~ fence. Every edit block needs "
+                          "its own file path line, even when editing the same file as the "
+                          "previous block.";
       return result;
     }
 
@@ -247,8 +242,7 @@ namespace mistral::tools
     std::string content;
     try
     {
-      content.assign(std::istreambuf_iterator<char>(in),
-                     std::istreambuf_iterator<char>());
+      content.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
     catch (const std::exception&)
     {
@@ -279,8 +273,7 @@ namespace mistral::tools
     else if (result.match_count > 1)
     {
       result.error_type = "multiple_matches";
-      result.error_message = "Search text found " + std::to_string(result.match_count) +
-                               " times in file";
+      result.error_message = "Search text found " + std::to_string(result.match_count) + " times in file";
       result.is_fixable = true;
       result.suggestion = "Make search text more specific by including surrounding context";
     }

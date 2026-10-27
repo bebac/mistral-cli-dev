@@ -1,7 +1,7 @@
-#include "tools/patchset_tools.h"
-#include "tools/patchset_store.h"
-#include "tools/edit_types.h"
 #include "doctest/doctest.h"
+#include "tools/edit_types.h"
+#include "tools/patchset_store.h"
+#include "tools/patchset_tools.h"
 
 #include <filesystem>
 #include <fstream>
@@ -112,13 +112,15 @@ namespace mistral::tools
         }
       }
 
-      const std::string& path() const { return path_; }
+      const std::string& path() const
+      {
+        return path_;
+      }
 
       std::string read() const
       {
         std::ifstream in(path_);
-        return std::string((std::istreambuf_iterator<char>(in)),
-                           std::istreambuf_iterator<char>());
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
       }
 
       void write(const std::string& content)
@@ -148,7 +150,8 @@ namespace mistral::tools
       const std::string& file_path,
       const std::string& search_text,
       const std::string& replace_text,
-      size_t patch_number = 1)
+      size_t patch_number = 1
+    )
     {
       file_edit_t edit;
       edit.file_path = file_path;
@@ -157,7 +160,7 @@ namespace mistral::tools
       edit.patch_number = patch_number;
       return edit;
     }
-  }
+  } // namespace
 
   TEST_SUITE_BEGIN("patchset_tools");
 
@@ -348,8 +351,7 @@ namespace mistral::tools
     CHECK(result["failed"] == 0);
 
     std::ifstream in(new_file);
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(content == "new file content");
 
     std::filesystem::remove(new_file);
@@ -360,8 +362,7 @@ namespace mistral::tools
     mock_patchset_store store;
     patchset_tools tools(store);
 
-    std::string new_dir = "patchset_test_subdir_" +
-      std::to_string(temp_file::next_id_for_dir_tests());
+    std::string new_dir = "patchset_test_subdir_" + std::to_string(temp_file::next_id_for_dir_tests());
     std::string new_file = new_dir + "/nested/deep/file.tmp";
 
     // Ensure directory doesn't exist
@@ -379,8 +380,7 @@ namespace mistral::tools
     CHECK(result["failed"] == 0);
 
     std::ifstream in(new_file);
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(content == "nested content");
 
     // Cleanup
@@ -477,9 +477,7 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update1", {edit});
 
-    auto result = tools.patchset_update("update1", 1, f.path(),
-      std::optional<std::string>("hello"),
-      std::nullopt);
+    auto result = tools.patchset_update("update1", 1, f.path(), std::optional<std::string>("hello"), std::nullopt);
     CHECK(result["status"] == "success");
     CHECK(result["patchset_id"] == "update1");
     CHECK(result["patch_number"] == 1);
@@ -499,9 +497,7 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update2", {edit});
 
-    auto result = tools.patchset_update("update2", 1, f.path(),
-      std::nullopt,
-      std::optional<std::string>("bye"));
+    auto result = tools.patchset_update("update2", 1, f.path(), std::nullopt, std::optional<std::string>("bye"));
     CHECK(result["status"] == "success");
 
     auto get_result = tools.patchset_get("update2");
@@ -518,9 +514,9 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update3", {edit});
 
-    auto result = tools.patchset_update("update3", 1, f.path(),
-      std::optional<std::string>("hi"),
-      std::optional<std::string>("bye"));
+    auto result = tools.patchset_update(
+      "update3", 1, f.path(), std::optional<std::string>("hi"), std::optional<std::string>("bye")
+    );
     CHECK(result["status"] == "success");
 
     auto get_result = tools.patchset_get("update3");
@@ -538,9 +534,7 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update5", {edit});
 
-    auto result = tools.patchset_update("update5", 1, g.path(),
-      std::nullopt,
-      std::nullopt);
+    auto result = tools.patchset_update("update5", 1, g.path(), std::nullopt, std::nullopt);
     CHECK(result["status"] == "success");
     CHECK(result["file_path"] == g.path());
 
@@ -560,9 +554,7 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update6", {edit});
 
-    auto result = tools.patchset_update("update6", 1, "",
-      std::nullopt,
-      std::nullopt);
+    auto result = tools.patchset_update("update6", 1, "", std::nullopt, std::nullopt);
     CHECK(result["status"] == "success");
 
     auto get_result = tools.patchset_get("update6");
@@ -578,9 +570,7 @@ namespace mistral::tools
     auto edit = make_edit(f.path(), "hello", "goodbye", 1);
     store.store_patchset("update4", {edit});
 
-    auto result = tools.patchset_update("update4", 99, f.path(),
-      std::optional<std::string>("new"),
-      std::nullopt);
+    auto result = tools.patchset_update("update4", 99, f.path(), std::optional<std::string>("new"), std::nullopt);
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "edit_not_found");
     CHECK(result["error"].get<std::string>().find("99") != std::string::npos);
@@ -591,9 +581,7 @@ namespace mistral::tools
     mock_patchset_store store;
     patchset_tools tools(store);
 
-    auto result = tools.patchset_update("nonexistent", 1, "file.tmp",
-      std::optional<std::string>("new"),
-      std::nullopt);
+    auto result = tools.patchset_update("nonexistent", 1, "file.tmp", std::optional<std::string>("new"), std::nullopt);
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "patchset_not_found");
   }
@@ -964,9 +952,8 @@ namespace mistral::tools
     CHECK(apply_result["status"] == "success");
 
     // Attempt to update should fail with already_applied
-    auto result = tools.patchset_update("applied2", 1, f.path(),
-      std::optional<std::string>("new_search"),
-      std::nullopt);
+    auto result =
+      tools.patchset_update("applied2", 1, f.path(), std::optional<std::string>("new_search"), std::nullopt);
     CHECK(result["status"] == "error");
     CHECK(result["error_type"] == "already_applied");
   }

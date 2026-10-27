@@ -1,13 +1,13 @@
-#include <doctest/doctest.h>
 #include "tools/exec_tools.h"
+#include <doctest/doctest.h>
 
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
 #include <chrono>
 #include <errno.h>
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <signal.h>
 #include <string>
 #include <thread>
@@ -20,7 +20,8 @@ namespace mistral::tools
     std::string command,
     std::vector<std::string> args,
     std::string cwd = "",
-    int timeout_seconds = 30)
+    int timeout_seconds = 30
+  )
   {
     json result;
     bool completed = false;
@@ -29,12 +30,19 @@ namespace mistral::tools
     class exec_task : public dripcore::task
     {
     public:
-      exec_task(exec_tools& tools, std::string cmd, std::vector<std::string> a,
-                std::string cwd, int timeout,
-                json& out_result, bool& out_completed)
-        : tools_(tools), command_(std::move(cmd)), args_(std::move(a)),
-          cwd_(std::move(cwd)), timeout_(timeout),
-          out_result_(out_result), out_completed_(out_completed) {}
+      exec_task(
+        exec_tools& tools,
+        std::string cmd,
+        std::vector<std::string> a,
+        std::string cwd,
+        int timeout,
+        json& out_result,
+        bool& out_completed
+      )
+        : tools_(tools), command_(std::move(cmd)), args_(std::move(a)), cwd_(std::move(cwd)), timeout_(timeout),
+          out_result_(out_result), out_completed_(out_completed)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -54,11 +62,11 @@ namespace mistral::tools
     };
 
     dripcore::scheduler scheduler;
-    scheduler.spawn<exec_task>(tools, std::move(command), std::move(args),
-                                cwd, timeout_seconds, result, completed);
+    scheduler.spawn<exec_task>(tools, std::move(command), std::move(args), cwd, timeout_seconds, result, completed);
     scheduler.run();
 
-    if (completed) {
+    if (completed)
+    {
       return result;
     }
     return {};
@@ -259,8 +267,7 @@ TEST_CASE("exec_tools: timeout kills the entire process tree")
   // (sh) waits on it. On timeout the whole process group must be
   // killed - killing only the direct child would leave the sleep
   // grandchild running.
-  std::string pid_file = std::filesystem::temp_directory_path().string()
-    + "/exec_tools_tree_test_9173.pid";
+  std::string pid_file = std::filesystem::temp_directory_path().string() + "/exec_tools_tree_test_9173.pid";
   std::filesystem::remove(pid_file);
 
   std::string cmd = "sleep 9173 & echo $! > " + pid_file + "; wait";
@@ -281,10 +288,14 @@ TEST_CASE("exec_tools: timeout kills the entire process tree")
   // The grandchild must be gone. Allow a moment for the kill to
   // propagate and for the orphan to be reaped.
   bool gone = false;
-  for (int attempt = 0; attempt < 40 && !gone; ++attempt) {
-    if (kill(grandchild_pid, 0) == -1 && errno == ESRCH) {
+  for (int attempt = 0; attempt < 40 && !gone; ++attempt)
+  {
+    if (kill(grandchild_pid, 0) == -1 && errno == ESRCH)
+    {
       gone = true;
-    } else {
+    }
+    else
+    {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
   }
@@ -314,8 +325,7 @@ TEST_CASE("exec_tools: stderr is capped to avoid blowing the context window")
   exec_tools tools;
 
   // yes | head -c writes 128 KiB to stderr, then stops (SIGPIPE on yes)
-  auto result = run_async_exec(
-    tools, "sh", {"-c", "yes 'error message' | head -c 131072 >&2"});
+  auto result = run_async_exec(tools, "sh", {"-c", "yes 'error message' | head -c 131072 >&2"});
 
   CHECK(result.contains("exit_code"));
   CHECK(result.contains("stderr_truncated"));

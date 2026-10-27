@@ -41,14 +41,12 @@ namespace mistral::agent
     // server_agent_id_ is set.
     auto ensure_server_agent() -> dripcore::awaitable<bool>;
     // Find a server-side agent by exact name. Returns the entity when found.
-    auto find_server_agent_by_name(const std::string& name)
-      -> dripcore::awaitable<std::optional<api::agent_entity>>;
+    auto find_server_agent_by_name(const std::string& name) -> dripcore::awaitable<std::optional<api::agent_entity>>;
     // Create the server-side agent entity. Returns its id on success.
     auto create_server_agent() -> dripcore::awaitable<std::optional<std::string>>;
     // Update an existing server-side agent after the local config drifted
     // (creates a new version server-side). Returns true on success.
-    auto update_server_agent(const std::string& agent_id)
-      -> dripcore::awaitable<bool>;
+    auto update_server_agent(const std::string& agent_id) -> dripcore::awaitable<bool>;
     // Fingerprint of the current server_agent config (stored in the
     // server-side agent's metadata to detect drift on reuse).
     std::string config_fingerprint() const;

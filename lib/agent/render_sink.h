@@ -24,17 +24,16 @@ namespace mistral::agent
     // user message and the last assistant reply. The default renders a
     // plain status block; UIs with styled content override this to render
     // the user line and the assistant reply with their respective styles.
-    virtual void output_resume_preview(const std::string& user_text,
-                                       const std::string& assistant_text)
+    virtual void output_resume_preview(const std::string& user_text, const std::string& assistant_text)
     {
       std::string out = "Last turn:\n  > " + user_text;
-      if (!assistant_text.empty()) {
+      if (!assistant_text.empty())
+      {
         out += "\n  " + assistant_text;
       }
       output_status(out);
     }
-    virtual void output_tool_call(const std::string& name,
-                                  const std::string& args) = 0;
+    virtual void output_tool_call(const std::string& name, const std::string& args) = 0;
     virtual void output_tool_result(const std::string& result) = 0;
     virtual void output_error(const std::string& text) = 0;
     virtual void output_warning(const std::string& text) = 0;

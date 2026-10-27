@@ -1,5 +1,5 @@
-#include <doctest/doctest.h>
 #include "common/executable_finder.h"
+#include <doctest/doctest.h>
 
 #include <filesystem>
 #include <fstream>
@@ -22,8 +22,7 @@ namespace
   public:
     temp_dir()
     {
-      std::string tmpl =
-        (fs::temp_directory_path() / "mistral_find_exec_XXXXXX").string();
+      std::string tmpl = (fs::temp_directory_path() / "mistral_find_exec_XXXXXX").string();
       std::vector<char> buf(tmpl.begin(), tmpl.end());
       buf.push_back('\0');
       char* result = ::mkdtemp(buf.data());
@@ -31,9 +30,15 @@ namespace
       path_ = result;
     }
 
-    ~temp_dir() { fs::remove_all(path_); }
+    ~temp_dir()
+    {
+      fs::remove_all(path_);
+    }
 
-    const std::string& path() const { return path_; }
+    const std::string& path() const
+    {
+      return path_;
+    }
 
   private:
     std::string path_;
@@ -47,15 +52,19 @@ namespace
     explicit path_override(const std::string& new_path)
     {
       const char* old = ::getenv("PATH");
-      if (old) old_ = old;
+      if (old)
+        old_ = old;
       ::setenv("PATH", new_path.c_str(), 1);
     }
 
     ~path_override()
     {
-      if (old_.empty()) {
+      if (old_.empty())
+      {
         ::unsetenv("PATH");
-      } else {
+      }
+      else
+      {
         ::setenv("PATH", old_.c_str(), 1);
       }
     }
@@ -75,7 +84,7 @@ namespace
   {
     REQUIRE(::chmod(file.c_str(), 0755) == 0);
   }
-}
+} // namespace
 
 TEST_CASE("find_executable returns the path for an existing executable file")
 {
@@ -116,7 +125,7 @@ TEST_CASE("find_executable searches PATH for a bare command name")
 
 TEST_CASE("find_executable returns empty for a command not in PATH")
 {
-  temp_dir dir;  // empty directory as the only PATH entry
+  temp_dir dir; // empty directory as the only PATH entry
   path_override po(dir.path());
   CHECK(mistral::utils::find_executable("definitely_not_on_path_xyz").empty());
 }

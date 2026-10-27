@@ -16,24 +16,27 @@ namespace
   {
     fs::path path;
 
-    temp_notes_dir() {
+    temp_notes_dir()
+    {
       path = fs::temp_directory_path() / "mistral_notes_test";
       fs::remove_all(path);
       fs::create_directories(path);
     }
 
-    ~temp_notes_dir() {
+    ~temp_notes_dir()
+    {
       fs::remove_all(path);
     }
 
-    void write(const std::string& name, const std::string& content) {
+    void write(const std::string& name, const std::string& content)
+    {
       auto p = path / name;
       fs::create_directories(p.parent_path());
       std::ofstream f(p);
       f << content;
     }
   };
-}
+} // namespace
 
 // ---- Frontmatter parsing ----
 
@@ -92,36 +95,49 @@ TEST_CASE("parse_frontmatter: tags without brackets")
 }
 
 // ---- Helper for async note operations in tests ----
-namespace {
+namespace
+{
   // Helper to extract the value type from an awaitable
-  template <typename T>
-  struct awaitable_value {
+  template <typename T> struct awaitable_value
+  {
     using type = T;
   };
 
-  template <typename T>
-  struct awaitable_value<dripcore::awaitable<T>> {
+  template <typename T> struct awaitable_value<dripcore::awaitable<T>>
+  {
     using type = T;
   };
 
-  template <typename T>
-  using awaitable_value_t = typename awaitable_value<T>::type;
+  template <typename T> using awaitable_value_t = typename awaitable_value<T>::type;
 
   // Result holder that can be set from a task
-  template <typename T>
-  class async_result {
+  template <typename T> class async_result
+  {
   public:
-    async_result() : completed_(false) {}
-    void set(T value) { value_ = std::move(value); completed_ = true; }
-    T get() const { return std::move(value_); }
-    bool completed() const { return completed_; }
+    async_result() : completed_(false)
+    {
+    }
+    void set(T value)
+    {
+      value_ = std::move(value);
+      completed_ = true;
+    }
+    T get() const
+    {
+      return std::move(value_);
+    }
+    bool completed() const
+    {
+      return completed_;
+    }
+
   private:
     T value_;
     bool completed_;
   };
 
-  template <typename Func>
-  auto run_async_note_op(Func&& func) {
+  template <typename Func> auto run_async_note_op(Func&& func)
+  {
     using func_result = decltype(func());
     using result_type = awaitable_value_t<func_result>;
 
@@ -130,13 +146,18 @@ namespace {
     class async_note_task : public dripcore::task
     {
     public:
-      async_note_task(Func&& f, async_result<result_type>& holder)
-        : func_(std::forward<Func>(f)), holder_(holder) {}
+      async_note_task(Func&& f, async_result<result_type>& holder) : func_(std::forward<Func>(f)), holder_(holder)
+      {
+      }
 
-      dripcore::awaitable<> body() override {
-        if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>) {
+      dripcore::awaitable<> body() override
+      {
+        if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>)
+        {
           holder_.set(co_await func_());
-        } else {
+        }
+        else
+        {
           holder_.set(func_());
         }
         co_return;
@@ -151,12 +172,13 @@ namespace {
     scheduler.spawn<async_note_task>(std::forward<Func>(func), result_holder);
     scheduler.run();
 
-    if (result_holder.completed()) {
+    if (result_holder.completed())
+    {
       return result_holder.get();
     }
     return result_type{};
   }
-}
+} // namespace
 
 // ---- Note CRUD ----
 
@@ -165,7 +187,9 @@ TEST_CASE("note_tools: write and read a note")
   temp_notes_dir tmp;
   mistral::tools::note_tools notes(tmp.path.string());
 
-  auto w = run_async_note_op([&]() { return notes.write_note("test-note", "---\ntitle: Test\ntags: [demo]\n---\nHello world.\n"); });
+  auto w = run_async_note_op([&]() {
+    return notes.write_note("test-note", "---\ntitle: Test\ntags: [demo]\n---\nHello world.\n");
+  });
   CHECK(w["status"] == "ok");
 
   auto r = run_async_note_op([&]() { return notes.read_note("test-note"); });

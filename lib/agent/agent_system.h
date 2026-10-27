@@ -2,26 +2,26 @@
 #define MISTRAL_AGENT_SYSTEM_H
 
 #include "agent/agent_config.h"
-#include "agent/tool_registry.h"
-#include "agent/policy_engine.h"
-#include "agent/approval_manager.h"
-#include "agent/save_command.h"
-#include "agent/load_command.h"
-#include "agent/usage_command.h"
-#include "agent/tool_command.h"
 #include "agent/agent_system_stats_task.h"
-#include "tools/patchset_store.h"
-#include "tools/edit_types.h"
+#include "agent/approval_manager.h"
+#include "agent/load_command.h"
+#include "agent/policy_engine.h"
+#include "agent/save_command.h"
+#include "agent/tool_command.h"
+#include "agent/tool_registry.h"
+#include "agent/usage_command.h"
 #include "slash_command/slash_command_registry.h"
+#include "tools/edit_types.h"
+#include "tools/patchset_store.h"
 
-#include <dripcore/channel.h>
-#include <api/types.h>
 #include <api/chat_types.h>
+#include <api/types.h>
+#include <dripcore/channel.h>
 
-#include <string>
-#include <memory>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace mistral::tools
@@ -36,7 +36,7 @@ namespace mistral::tools
   class patchset_tools;
   class research_tools;
   class ask_tools;
-}
+} // namespace mistral::tools
 
 namespace mistral::agent
 {
@@ -58,21 +58,17 @@ namespace mistral::agent
     // Resolve system prompt (handles file:// URLs). When the agent's
     // available tools include ask_user (or the wildcard), a brief
     // "Asking the human" introduction is appended.
-    std::string resolve_system_prompt(
-        const agent_config& agent_cfg,
-        const std::string& model_id) const;
+    std::string resolve_system_prompt(const agent_config& agent_cfg, const std::string& model_id) const;
 
     // Resolve server-agent instructions (handles file:// URLs)
-    std::string resolve_server_agent_instructions(
-        const agent_config& agent_cfg) const;
+    std::string resolve_server_agent_instructions(const agent_config& agent_cfg) const;
 
     // Server-side agent id cache (local agent id -> server agent entity id)
     std::optional<std::string> get_server_agent_id(const std::string& agent_id) const;
     void set_server_agent_id(const std::string& agent_id, const std::string& server_agent_id);
 
     // Resolve tool policy (handles file:// URLs and JSON strings)
-    json resolve_tool_policy(
-        const agent_config& agent_cfg) const;
+    json resolve_tool_policy(const agent_config& agent_cfg) const;
 
     // Resolve tool schema options (model defaults + agent overrides).
     // These are client-side schema generation options, not API request params.
@@ -91,24 +87,57 @@ namespace mistral::agent
     std::string resolve_model_id(const std::string& model_name) const;
 
     // Get the full configuration
-    const full_config& get_config() const { return config_; }
+    const full_config& get_config() const
+    {
+      return config_;
+    }
 
     // Tool registry
     tool_registry create_tool_registry(const std::vector<std::string>& available_tools) const;
-    const tool_registry& global_tools() const { return global_tools_; }
-    tool_registry& global_tools() { return global_tools_; }
+    const tool_registry& global_tools() const
+    {
+      return global_tools_;
+    }
+    tool_registry& global_tools()
+    {
+      return global_tools_;
+    }
 
     // Access to global tool instances
-    mistral::tools::file_tools& file_tools() { return *file_tools_; }
-    mistral::tools::note_tools& note_tools() { return *note_tools_; }
+    mistral::tools::file_tools& file_tools()
+    {
+      return *file_tools_;
+    }
+    mistral::tools::note_tools& note_tools()
+    {
+      return *note_tools_;
+    }
 #ifdef MISTRAL_ENABLE_TREE_SITTER
-    mistral::tools::code_tools& code_tools() { return *code_tools_; }
+    mistral::tools::code_tools& code_tools()
+    {
+      return *code_tools_;
+    }
 #endif
-    mistral::tools::exec_tools& exec_tools() { return *exec_tools_; }
-    mistral::tools::task_tools& task_tools() { return *task_tools_; }
-    mistral::tools::patchset_tools& patchset_tools() { return *patchset_tools_; }
-    mistral::tools::research_tools& research_tools() { return *research_tools_; }
-    mistral::tools::ask_tools& ask_tools() { return *ask_tools_; }
+    mistral::tools::exec_tools& exec_tools()
+    {
+      return *exec_tools_;
+    }
+    mistral::tools::task_tools& task_tools()
+    {
+      return *task_tools_;
+    }
+    mistral::tools::patchset_tools& patchset_tools()
+    {
+      return *patchset_tools_;
+    }
+    mistral::tools::research_tools& research_tools()
+    {
+      return *research_tools_;
+    }
+    mistral::tools::ask_tools& ask_tools()
+    {
+      return *ask_tools_;
+    }
 
     // Shared channels
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
@@ -116,7 +145,10 @@ namespace mistral::agent
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch() const;
 
     // Notes directory
-    const std::string& notes_dir() const { return notes_dir_; }
+    const std::string& notes_dir() const
+    {
+      return notes_dir_;
+    }
 
     // Last AI response access
     std::string get_last_response() const;
@@ -137,7 +169,10 @@ namespace mistral::agent
     bool has_patchset() const;
 
     // Slash command registry
-    std::shared_ptr<slash_command::slash_command_registry> slash_commands() { return slash_command_registry_; }
+    std::shared_ptr<slash_command::slash_command_registry> slash_commands()
+    {
+      return slash_command_registry_;
+    }
 
     // Register built-in slash commands
     void register_slash_commands();
@@ -180,9 +215,7 @@ namespace mistral::agent
     full_config load_config_from_file(const std::string& config_file) const;
 
     // Resolve a prompt string (handles file:// URLs and templates)
-    std::string resolve_prompt_string(
-        const std::string& prompt,
-        const std::string& model_id) const;
+    std::string resolve_prompt_string(const std::string& prompt, const std::string& model_id) const;
 
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);

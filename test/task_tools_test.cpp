@@ -1,9 +1,9 @@
 #include "doctest/doctest.h"
 #include "tools/task_tools.h"
 
+#include <dripcore/awaitable.h>
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
-#include <dripcore/awaitable.h>
 
 #include <filesystem>
 #include <fstream>
@@ -17,45 +17,59 @@ namespace
   {
     fs::path path;
 
-    temp_tasks_dir() {
+    temp_tasks_dir()
+    {
       path = fs::temp_directory_path() / "mistral_tasks_test";
       fs::remove_all(path);
       fs::create_directories(path);
     }
 
-    ~temp_tasks_dir() {
+    ~temp_tasks_dir()
+    {
       fs::remove_all(path);
     }
   };
 
   // Helper to extract the value type from an awaitable
-  template <typename T>
-  struct awaitable_value {
+  template <typename T> struct awaitable_value
+  {
     using type = T;
   };
 
-  template <typename T>
-  struct awaitable_value<dripcore::awaitable<T>> {
+  template <typename T> struct awaitable_value<dripcore::awaitable<T>>
+  {
     using type = T;
   };
 
-  template <typename T>
-  using awaitable_value_t = typename awaitable_value<T>::type;
+  template <typename T> using awaitable_value_t = typename awaitable_value<T>::type;
 
-  template <typename T>
-  class async_result {
+  template <typename T> class async_result
+  {
   public:
-    async_result() : completed_(false) {}
-    void set(T value) { value_ = std::move(value); completed_ = true; }
-    T get() const { return std::move(value_); }
-    bool completed() const { return completed_; }
+    async_result() : completed_(false)
+    {
+    }
+    void set(T value)
+    {
+      value_ = std::move(value);
+      completed_ = true;
+    }
+    T get() const
+    {
+      return std::move(value_);
+    }
+    bool completed() const
+    {
+      return completed_;
+    }
+
   private:
     T value_;
     bool completed_;
   };
 
-  template <typename Func>
-  auto run_async_task_op(Func&& func) {
+  template <typename Func> auto run_async_task_op(Func&& func)
+  {
     using func_result = decltype(func());
     using result_type = awaitable_value_t<func_result>;
 
@@ -64,13 +78,18 @@ namespace
     class async_task_op : public dripcore::task
     {
     public:
-      async_task_op(Func&& f, async_result<result_type>& holder)
-        : func_(std::forward<Func>(f)), holder_(holder) {}
+      async_task_op(Func&& f, async_result<result_type>& holder) : func_(std::forward<Func>(f)), holder_(holder)
+      {
+      }
 
-      dripcore::awaitable<> body() override {
-        if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>) {
+      dripcore::awaitable<> body() override
+      {
+        if constexpr (std::is_same_v<func_result, dripcore::awaitable<result_type>>)
+        {
           holder_.set(co_await func_());
-        } else {
+        }
+        else
+        {
           holder_.set(func_());
         }
         co_return;
@@ -85,12 +104,13 @@ namespace
     scheduler.spawn<async_task_op>(std::forward<Func>(func), result_holder);
     scheduler.run();
 
-    if (result_holder.completed()) {
+    if (result_holder.completed())
+    {
       return result_holder.get();
     }
     return result_type{};
   }
-}
+} // namespace
 
 // ---- Create ----
 
@@ -99,9 +119,7 @@ TEST_CASE("task_tools: create task with defaults")
   temp_tasks_dir tmp;
   mistral::tools::task_tools tasks(tmp.path.string());
 
-  auto r = run_async_task_op([&]() {
-    return tasks.create_task("Implement feature X", "", "", {});
-  });
+  auto r = run_async_task_op([&]() { return tasks.create_task("Implement feature X", "", "", {}); });
 
   CHECK(r["id"] == "task-001");
   CHECK(r["title"] == "Implement feature X");
@@ -183,9 +201,7 @@ TEST_CASE("task_tools: list tasks filtered by status")
   run_async_task_op([&]() { return tasks.create_task("Task A", "", "", {}); });
   auto t2 = run_async_task_op([&]() { return tasks.create_task("Task B", "", "", {}); });
 
-  run_async_task_op([&]() {
-    return tasks.update_task(t2["id"], "in-progress", "", "", "");
-  });
+  run_async_task_op([&]() { return tasks.update_task(t2["id"], "in-progress", "", "", ""); });
 
   auto results = run_async_task_op([&]() { return tasks.list_tasks("in-progress", "", ""); });
   REQUIRE(results.size() == 1);
@@ -234,9 +250,7 @@ TEST_CASE("task_tools: get existing task")
   temp_tasks_dir tmp;
   mistral::tools::task_tools tasks(tmp.path.string());
 
-  auto created = run_async_task_op([&]() {
-    return tasks.create_task("My Task", "Description", "high", {"tag1"});
-  });
+  auto created = run_async_task_op([&]() { return tasks.create_task("My Task", "Description", "high", {"tag1"}); });
 
   auto r = run_async_task_op([&]() { return tasks.get_task(created["id"]); });
   CHECK(r["id"] == created["id"]);
@@ -263,9 +277,7 @@ TEST_CASE("task_tools: update task status")
 
   auto created = run_async_task_op([&]() { return tasks.create_task("Task", "", "", {}); });
 
-  auto r = run_async_task_op([&]() {
-    return tasks.update_task(created["id"], "in-progress", "", "", "");
-  });
+  auto r = run_async_task_op([&]() { return tasks.update_task(created["id"], "in-progress", "", "", ""); });
 
   CHECK(r["status"] == "in-progress");
   CHECK(r["title"] == "Task");
@@ -278,9 +290,7 @@ TEST_CASE("task_tools: update task priority")
 
   auto created = run_async_task_op([&]() { return tasks.create_task("Task", "", "", {}); });
 
-  auto r = run_async_task_op([&]() {
-    return tasks.update_task(created["id"], "", "critical", "", "");
-  });
+  auto r = run_async_task_op([&]() { return tasks.update_task(created["id"], "", "critical", "", ""); });
 
   CHECK(r["priority"] == "critical");
 }
@@ -292,9 +302,7 @@ TEST_CASE("task_tools: update task title and description")
 
   auto created = run_async_task_op([&]() { return tasks.create_task("Old Title", "Old Desc", "", {}); });
 
-  auto r = run_async_task_op([&]() {
-    return tasks.update_task(created["id"], "", "", "New Title", "New Desc");
-  });
+  auto r = run_async_task_op([&]() { return tasks.update_task(created["id"], "", "", "New Title", "New Desc"); });
 
   CHECK(r["title"] == "New Title");
   CHECK(r["description"] == "New Desc");
@@ -316,9 +324,7 @@ TEST_CASE("task_tools: update with invalid status fails")
 
   auto created = run_async_task_op([&]() { return tasks.create_task("Task", "", "", {}); });
 
-  auto r = run_async_task_op([&]() {
-    return tasks.update_task(created["id"], "invalid", "", "", "");
-  });
+  auto r = run_async_task_op([&]() { return tasks.update_task(created["id"], "invalid", "", "", ""); });
   CHECK(r.contains("error"));
 }
 
@@ -342,12 +348,8 @@ TEST_CASE("task_tools: search by description")
   temp_tasks_dir tmp;
   mistral::tools::task_tools tasks(tmp.path.string());
 
-  run_async_task_op([&]() {
-    return tasks.create_task("Task", "Contains keyword like socket", "", {});
-  });
-  run_async_task_op([&]() {
-    return tasks.create_task("Other", "No match here", "", {});
-  });
+  run_async_task_op([&]() { return tasks.create_task("Task", "Contains keyword like socket", "", {}); });
+  run_async_task_op([&]() { return tasks.create_task("Other", "No match here", "", {}); });
 
   auto results = run_async_task_op([&]() { return tasks.search_tasks("socket"); });
   REQUIRE(results.size() == 1);

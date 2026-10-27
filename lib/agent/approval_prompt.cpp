@@ -1,9 +1,9 @@
 #include "agent/approval_prompt.h"
 
+#include <cctype>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
-#include <cctype>
 
 namespace mistral::agent
 {
@@ -19,7 +19,7 @@ namespace mistral::agent
   }
 
   // Build approval prompt string for display
-  std::string build_approval_prompt(std::string_view tool_name, const json &tool_arguments, std::string_view reason)
+  std::string build_approval_prompt(std::string_view tool_name, const json& tool_arguments, std::string_view reason)
   {
     std::ostringstream oss;
     oss << "\n[APPROVAL REQUIRED]\n";
@@ -32,7 +32,7 @@ namespace mistral::agent
       for (auto it = tool_arguments.begin(); it != tool_arguments.end(); ++it)
       {
         std::string_view key = it.key();
-        const json &value = it.value();
+        const json& value = it.value();
 
         // Format the value
         std::string value_str;
@@ -74,14 +74,13 @@ namespace mistral::agent
   // Get the approval help message
   std::string get_approval_help_message()
   {
-    return
-      "\n  Approval Options:\n"
-      "    y - Approve this specific call\n"
-      "    n - Reject this call\n"
-      "    r - Reject with custom message for AI\n"
-      "    a - Approve all similar calls for this session\n"
-      "    ? - Show this help\n"
-      "  Approve? [y/n/r/a/?]: ";
+    return "\n  Approval Options:\n"
+           "    y - Approve this specific call\n"
+           "    n - Reject this call\n"
+           "    r - Reject with custom message for AI\n"
+           "    a - Approve all similar calls for this session\n"
+           "    ? - Show this help\n"
+           "  Approve? [y/n/r/a/?]: ";
   }
 
   // Parse single-character approval response

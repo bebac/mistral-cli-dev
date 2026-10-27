@@ -19,7 +19,8 @@ namespace mistral::tui
   // transitions to the UI thread via App::post(), eliminating the
   // former 50ms polling timer and the dual atomic/enum sync.
   // ---------------------------------------------------------------------------
-  enum class approval_state {
+  enum class approval_state
+  {
     idle,
     single_key,
     text_input,
@@ -30,6 +31,6 @@ namespace mistral::tui
   // dripcore thread to the UI thread. The callback is invoked inside
   // a posted App::post() lambda, so it always runs on the UI thread.
   using approval_state_fn = std::function<void(approval_state)>;
-}
+} // namespace mistral::tui
 
 #endif // MISTRAL_TUI_APPROVAL_STATE_H

@@ -1,11 +1,11 @@
-#include <doctest/doctest.h>
 #include "agent/tool_registry.h"
+#include <doctest/doctest.h>
 
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
-#include <string>
 #include <memory>
+#include <string>
 
 namespace mistral::agent
 {
@@ -13,9 +13,18 @@ namespace mistral::agent
   class test_tool
   {
   public:
-    json add(int a, int b) { return {{"result", a + b}}; }
-    json greet(std::string name) { return {{"result", "Hello, " + name}}; }
-    json multiply(int a, int b) { return {{"result", a * b}}; }
+    json add(int a, int b)
+    {
+      return {{"result", a + b}};
+    }
+    json greet(std::string name)
+    {
+      return {{"result", "Hello, " + name}};
+    }
+    json multiply(int a, int b)
+    {
+      return {{"result", a * b}};
+    }
     json greet_titled(std::string name, std::string title)
     {
       return {{"result", "Hello, " + title + " " + name}};
@@ -33,7 +42,9 @@ namespace mistral::agent
     {
     public:
       dispatch_task(tool_registry& reg, json tc, json& out_result, bool& out_completed)
-        : registry_(reg), tool_call_(std::move(tc)), out_result_(out_result), out_completed_(out_completed) {}
+        : registry_(reg), tool_call_(std::move(tc)), out_result_(out_result), out_completed_(out_completed)
+      {
+      }
 
       dripcore::awaitable<> body() override
       {
@@ -53,7 +64,8 @@ namespace mistral::agent
     scheduler.spawn<dispatch_task>(registry, std::move(tool_call), result, completed);
     scheduler.run();
 
-    if (completed) {
+    if (completed)
+    {
       return result;
     }
     return {};
@@ -69,37 +81,18 @@ TEST_CASE("tool_registry: register and dispatch sync-like tool")
   test_tool tool_inst;
 
   registry.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
-  registry.register_tool(
-    "greet",
-    "Greet someone",
-    &tool_inst, &test_tool::greet,
-    arg("name", "Name to greet")
-  );
+  registry.register_tool("greet", "Greet someone", &tool_inst, &test_tool::greet, arg("name", "Name to greet"));
 
   // Test dispatch with add
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "add"},
-      {"arguments", R"({"a": 5, "b": 3})"}
-    }}
-  });
+  auto result = run_async_dispatch(registry, {{"function", {{"name", "add"}, {"arguments", R"({"a": 5, "b": 3})"}}}});
 
   CHECK(result["result"] == 8);
 
   // Test dispatch with greet
-  result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "greet"},
-      {"arguments", R"({"name": "World"})"}
-    }}
-  });
+  result = run_async_dispatch(registry, {{"function", {{"name", "greet"}, {"arguments", R"({"name": "World"})"}}}});
 
   CHECK(result["result"] == "Hello, World");
 }
@@ -109,12 +102,7 @@ TEST_CASE("tool_registry: dispatch unknown tool")
   using namespace mistral::agent;
 
   tool_registry registry;
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "nonexistent"},
-      {"arguments", "{}"}
-    }}
-  });
+  auto result = run_async_dispatch(registry, {{"function", {{"name", "nonexistent"}, {"arguments", "{}"}}}});
 
   CHECK(result.is_string());
   CHECK(result.get<std::string>().find("not found") != std::string::npos);
@@ -128,20 +116,12 @@ TEST_CASE("tool_registry: dispatch with wrong argument type")
   test_tool tool_inst;
 
   registry.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
   // Pass a string where an integer is expected
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "add"},
-      {"arguments", R"({"a": "hello", "b": 3})"}
-    }}
-  });
+  auto result =
+    run_async_dispatch(registry, {{"function", {{"name", "add"}, {"arguments", R"({"a": "hello", "b": 3})"}}}});
 
   REQUIRE(result.is_string());
   auto msg = result.get<std::string>();
@@ -165,20 +145,10 @@ TEST_CASE("tool_registry: dispatch with wrong argument type for string param")
   tool_registry registry;
   test_tool tool_inst;
 
-  registry.register_tool(
-    "greet",
-    "Greet someone",
-    &tool_inst, &test_tool::greet,
-    arg("name", "Name to greet")
-  );
+  registry.register_tool("greet", "Greet someone", &tool_inst, &test_tool::greet, arg("name", "Name to greet"));
 
   // Pass an integer where a string is expected
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "greet"},
-      {"arguments", R"({"name": 42})"}
-    }}
-  });
+  auto result = run_async_dispatch(registry, {{"function", {{"name", "greet"}, {"arguments", R"({"name": 42})"}}}});
 
   REQUIRE(result.is_string());
   auto msg = result.get<std::string>();
@@ -198,11 +168,7 @@ TEST_CASE("tool_registry: get_schema returns tool definitions")
   test_tool tool_inst;
 
   registry.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
   auto schema = registry.get_schema();
@@ -229,11 +195,7 @@ TEST_CASE("tool_registry: has_tool and get_tool")
   test_tool tool_inst;
 
   registry.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
   CHECK(registry.has_tool("add") == true);
@@ -254,11 +216,7 @@ TEST_CASE("tool_registry: copy constructor creates independent copy")
   test_tool tool_inst;
 
   registry1.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
   tool_registry registry2 = registry1;
@@ -278,19 +236,10 @@ TEST_CASE("tool_registry: get_tools_map")
   test_tool tool_inst;
 
   registry.register_tool(
-    "add",
-    "Add two integers",
-    &tool_inst, &test_tool::add,
-    arg("a", "First integer"),
-    arg("b", "Second integer")
+    "add", "Add two integers", &tool_inst, &test_tool::add, arg("a", "First integer"), arg("b", "Second integer")
   );
 
-  registry.register_tool(
-    "greet",
-    "Greet someone",
-    &tool_inst, &test_tool::greet,
-    arg("name", "Name to greet")
-  );
+  registry.register_tool("greet", "Greet someone", &tool_inst, &test_tool::greet, arg("name", "Name to greet"));
 
   const auto& tools_map = registry.get_tools_map();
   CHECK(tools_map.size() == 2);
@@ -315,12 +264,8 @@ TEST_CASE("tool_registry: add_tool directly")
 
   CHECK(registry.has_tool("manual_add") == true);
 
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "manual_add"},
-      {"arguments", R"({"a": 10, "b": 20})"}
-    }}
-  });
+  auto result =
+    run_async_dispatch(registry, {{"function", {{"name", "manual_add"}, {"arguments", R"({"a": 10, "b": 20})"}}}});
 
   CHECK(result["result"] == 30);
 }
@@ -335,7 +280,8 @@ TEST_CASE("tool_registry: strict mode off by default")
   registry.register_tool(
     "greet_titled",
     "Greet someone with a title",
-    &tool_inst, &test_tool::greet_titled,
+    &tool_inst,
+    &test_tool::greet_titled,
     arg("name", "Name to greet"),
     arg("title", "Optional title", std::string("Mr."))
   );
@@ -375,7 +321,8 @@ TEST_CASE("tool_registry: strict mode on includes strict and additionalPropertie
   registry.register_tool(
     "greet_titled",
     "Greet someone with a title",
-    &tool_inst, &test_tool::greet_titled,
+    &tool_inst,
+    &test_tool::greet_titled,
     arg("name", "Name to greet"),
     arg("title", "Optional title", std::string("Mr."))
   );
@@ -412,7 +359,8 @@ TEST_CASE("tool_registry: strict mode does not affect argument parsing")
   registry.register_tool(
     "greet_titled",
     "Greet someone with a title",
-    &tool_inst, &test_tool::greet_titled,
+    &tool_inst,
+    &test_tool::greet_titled,
     arg("name", "Name to greet"),
     arg("title", "Optional title", std::string("Mr."))
   );
@@ -420,22 +368,15 @@ TEST_CASE("tool_registry: strict mode does not affect argument parsing")
   registry.set_strict_mode(true);
 
   // Dispatch omitting the optional arg — default value must still be used
-  auto result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "greet_titled"},
-      {"arguments", R"({"name": "World"})"}
-    }}
-  });
+  auto result =
+    run_async_dispatch(registry, {{"function", {{"name", "greet_titled"}, {"arguments", R"({"name": "World"})"}}}});
 
   CHECK(result["result"] == "Hello, Mr. World");
 
   // Dispatch providing the optional arg explicitly
-  result = run_async_dispatch(registry, {
-    {"function", {
-      {"name", "greet_titled"},
-      {"arguments", R"({"name": "World", "title": "Dr."})"}
-    }}
-  });
+  result = run_async_dispatch(
+    registry, {{"function", {{"name", "greet_titled"}, {"arguments", R"({"name": "World", "title": "Dr."})"}}}}
+  );
 
   CHECK(result["result"] == "Hello, Dr. World");
 }
@@ -450,7 +391,8 @@ TEST_CASE("tool_registry: strict mode is per-registry, not global")
   strict_registry.register_tool(
     "greet_titled",
     "Greet someone with a title",
-    &tool_inst, &test_tool::greet_titled,
+    &tool_inst,
+    &test_tool::greet_titled,
     arg("name", "Name to greet"),
     arg("title", "Optional title", std::string("Mr."))
   );
@@ -460,7 +402,8 @@ TEST_CASE("tool_registry: strict mode is per-registry, not global")
   plain_registry.register_tool(
     "greet_titled",
     "Greet someone with a title",
-    &tool_inst, &test_tool::greet_titled,
+    &tool_inst,
+    &test_tool::greet_titled,
     arg("name", "Name to greet"),
     arg("title", "Optional title", std::string("Mr."))
   );

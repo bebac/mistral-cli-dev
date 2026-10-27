@@ -26,7 +26,8 @@ namespace mistral::agent
   dripcore::awaitable<std::string> compact_command::execute(
     dripcore::task&,
     const std::string& args,
-    agent::agent_system& agent_sys)
+    agent::agent_system& agent_sys
+  )
   {
     // Parse the optional keep argument: the number of recent turns to
     // preserve verbatim.

@@ -30,4 +30,3 @@ namespace mistral::utils
   // Uses heuristic: contains no null bytes and mostly printable characters
   bool is_text_file(const std::string& filepath);
 } // namespace mistral::utils
-

@@ -33,8 +33,7 @@ namespace mistral::tui
   class tui_render_sink : public agent::render_sink
   {
   public:
-    tui_render_sink(post_fn post, append_fn append, flush_fn flush,
-                    completed_fn completed = {})
+    tui_render_sink(post_fn post, append_fn append, flush_fn flush, completed_fn completed = {})
       : state_(std::make_shared<shared_state>())
     {
       state_->post = std::move(post);
@@ -68,8 +67,7 @@ namespace mistral::tui
       state_->enqueue(text + "\n", content_type::system);
     }
 
-    void output_resume_preview(const std::string& user_text,
-                               const std::string& assistant_text) override
+    void output_resume_preview(const std::string& user_text, const std::string& assistant_text) override
     {
       // The leading newline keeps the header on its own line when it
       // merges with the "Resumed session" status block above it. The user
@@ -77,25 +75,21 @@ namespace mistral::tui
       // the normal text style.
       state_->enqueue("\nLast turn:", content_type::system);
       state_->enqueue("> " + user_text + "\n", content_type::user);
-      if (!assistant_text.empty()) {
+      if (!assistant_text.empty())
+      {
         state_->enqueue(assistant_text + "\n", content_type::normal);
       }
     }
 
-    void output_tool_call(const std::string& name,
-                          const std::string& args) override
+    void output_tool_call(const std::string& name, const std::string& args) override
     {
-      state_->enqueue("\n[tool] " + name + "(" + args + ")",
-                      content_type::tool_call);
+      state_->enqueue("\n[tool] " + name + "(" + args + ")", content_type::tool_call);
     }
 
     void output_tool_result(const std::string& result) override
     {
-      std::string display = (result.size() > 200)
-        ? result.substr(0, 200) + "..."
-        : result;
-      state_->enqueue(" \xe2\x86\x92 " + display + "\n",
-                      content_type::tool_result);
+      std::string display = (result.size() > 200) ? result.substr(0, 200) + "..." : result;
+      state_->enqueue(" \xe2\x86\x92 " + display + "\n", content_type::tool_result);
     }
 
     void output_error(const std::string& text) override
@@ -130,7 +124,8 @@ namespace mistral::tui
     }
 
   private:
-    struct fragment {
+    struct fragment
+    {
       std::string text;
       content_type type;
     };
@@ -138,10 +133,11 @@ namespace mistral::tui
     // Shared state: captured by posted callbacks via shared_ptr so it
     // stays alive as long as any callback is pending, even if the sink
     // itself is destroyed.
-    struct shared_state : std::enable_shared_from_this<shared_state> {
-      post_fn   post;
+    struct shared_state : std::enable_shared_from_this<shared_state>
+    {
+      post_fn post;
       append_fn append;
-      flush_fn  flush;
+      flush_fn flush;
       completed_fn completed;
       std::mutex mutex;
       std::vector<fragment> buffer;
@@ -158,10 +154,9 @@ namespace mistral::tui
           buffer.push_back({std::move(text), type});
         }
         bool expected = false;
-        if (pending.compare_exchange_strong(expected, true)) {
-          post([self = shared_from_this()]() {
-            self->drain();
-          });
+        if (pending.compare_exchange_strong(expected, true))
+        {
+          post([self = shared_from_this()]() { self->drain(); });
         }
       }
 
@@ -176,16 +171,18 @@ namespace mistral::tui
           std::lock_guard<std::mutex> lock(mutex);
           drained.swap(buffer);
         }
-        for (auto& f : drained) {
+        for (auto& f : drained)
+        {
           append(f.text, f.type);
         }
-        if (flush) flush();
+        if (flush)
+          flush();
 
         // Call completed_fn if completed() was requested.
         // Atomically get and clear the flag to avoid races with
         // the agent thread setting it between our check and clear.
-        if (completed_pending.exchange(false,
-              std::memory_order_acq_rel) && completed) {
+        if (completed_pending.exchange(false, std::memory_order_acq_rel) && completed)
+        {
           completed();
         }
 
@@ -198,14 +195,14 @@ namespace mistral::tui
         {
           std::lock_guard<std::mutex> lock(mutex);
           should_repost = !buffer.empty();
-          if (!should_repost) {
+          if (!should_repost)
+          {
             pending.store(false, std::memory_order_release);
           }
         }
-        if (should_repost) {
-          post([self = shared_from_this()]() {
-            self->drain();
-          });
+        if (should_repost)
+        {
+          post([self = shared_from_this()]() { self->drain(); });
         }
       }
     };

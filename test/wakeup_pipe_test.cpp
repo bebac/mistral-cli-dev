@@ -1,11 +1,11 @@
-#include <doctest/doctest.h>
 #include "common/wakeup_pipe.h"
+#include <doctest/doctest.h>
 
-#include <unistd.h>
-#include <cerrno>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <thread>
+#include <unistd.h>
 
 TEST_CASE("wakeup_pipe construction creates valid pipe")
 {
@@ -165,7 +165,8 @@ TEST_CASE("wakeup_pipe cross-thread wakeup")
   std::thread reader([&]() {
     char buf[16];
     ssize_t n = ::read(pipe.read_fd(), buf, sizeof(buf));
-    if (n > 0) {
+    if (n > 0)
+    {
       received.store(true);
     }
   });
