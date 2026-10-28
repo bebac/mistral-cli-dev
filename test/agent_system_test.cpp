@@ -9,6 +9,7 @@
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -96,7 +97,7 @@ struct AgentSystemTestFixture
   {
     create_config_file(create_standard_config(model_name, model_id));
     auto& system = mistral::agent::agent_system::instance();
-    system.initialize(config_file, base_dir, notes_dir, nullptr);
+    system.initialize(config_file, base_dir, notes_dir);
   }
 
   // Helper to initialize agent_system with empty config (for tests that don't need config data)
@@ -104,7 +105,7 @@ struct AgentSystemTestFixture
   {
     create_config_file(nlohmann::json({}));
     auto& system = mistral::agent::agent_system::instance();
-    system.initialize(config_file, base_dir, notes_dir, nullptr);
+    system.initialize(config_file, base_dir, notes_dir);
   }
 };
 
@@ -166,7 +167,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   // Check models
   CHECK(system.has_model_config("mistral-medium"));
@@ -195,7 +196,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: missing file t
 {
   CHECK_THROWS_AS(
     mistral::agent::agent_system::instance().initialize(
-      "/nonexistent/path/mistral-cli.json", base_dir, notes_dir, nullptr
+      "/nonexistent/path/mistral-cli.json", base_dir, notes_dir
     ),
     std::runtime_error
   );
@@ -205,7 +206,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: invalid JSON t
 {
   create_config_file(std::string("this is not valid json {"));
   CHECK_THROWS_AS(
-    mistral::agent::agent_system::instance().initialize(config_file, base_dir, notes_dir, nullptr), std::runtime_error
+    mistral::agent::agent_system::instance().initialize(config_file, base_dir, notes_dir), std::runtime_error
   );
 }
 
@@ -213,7 +214,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
 {
   create_config_file(nlohmann::json({}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   CHECK(system.get_config().models.empty());
   CHECK(system.get_config().agents.empty());
@@ -226,7 +227,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered
 
   create_config_file(nlohmann::json({}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   auto& global_registry = system.global_tools();
 
@@ -260,7 +261,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple model
 
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   // Check multiple models
   CHECK(system.has_model_config("mistral-small"));
@@ -305,7 +306,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_schema_options: model de
 
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   // Model default inherited
   auto opts = system.resolve_tool_schema_options(system.get_agent_config("inherits"));
@@ -328,7 +329,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_agent_config: throws for missing 
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   CHECK_THROWS_AS(system.get_agent_config("nonexistent"), std::runtime_error);
 }
@@ -337,7 +338,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_model_config: throws for missing 
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir, nullptr);
+  system.initialize(config_file, base_dir, notes_dir);
 
   CHECK_THROWS_AS(system.get_model_config("nonexistent"), std::runtime_error);
 }
@@ -667,20 +668,457 @@ TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::channels");
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch: returns null if not set")
-{
-  initialize_agent_system_empty();
-  auto& system = mistral::agent::agent_system::instance();
-
-  CHECK(system.request_ch() == nullptr);
-}
-
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "response_ch: returns null if not set")
 {
   initialize_agent_system_empty();
   auto& system = mistral::agent::agent_system::instance();
 
   CHECK(system.response_ch() == nullptr);
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::transport_endpoints");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: agents on one provider share a single endpoint")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"mistral-small",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-large"}}},
+      {"researcher", {{"model", "mistral-small"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "api.mistral.ai");
+  CHECK(endpoints[0].port == 443);
+  CHECK(endpoints[0].api_key_env == "MISTRAL_API_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: two providers yield two endpoints")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-small",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"greenpt-glm",
+       {{"provider", "greenpt"},
+        {"model_id", "glm-5.3"},
+        {"api_key_env", "GREENPT_API_KEY"},
+        {"base_url", "https://api.greenpt.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "greenpt-glm"}}},
+      {"researcher", {{"model", "mistral-small"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 2);
+  // Agents are iterated in name order: main (greenpt) first, then researcher (mistral)
+  CHECK(endpoints[0].host == "api.greenpt.ai");
+  CHECK(endpoints[0].port == 443);
+  CHECK(endpoints[0].api_key_env == "GREENPT_API_KEY");
+  CHECK(endpoints[1].host == "api.mistral.ai");
+  CHECK(endpoints[1].port == 443);
+  CHECK(endpoints[1].api_key_env == "MISTRAL_API_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: models no agent references are ignored")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"greenpt-glm",
+       {{"provider", "greenpt"},
+        {"model_id", "glm-5.3"},
+        {"api_key_env", "GREENPT_API_KEY"},
+        {"base_url", "https://api.greenpt.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-large"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "api.mistral.ai");
+  CHECK(endpoints[0].api_key_env == "MISTRAL_API_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: explicit port in base_url is parsed")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"proxy-model",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://proxy.local:8443"}}}}},
+    {"agents",
+     {{"main", {{"model", "proxy-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "proxy.local");
+  CHECK(endpoints[0].port == 8443);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: missing base_url and api_key_env use the config loader defaults")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"minimal-model", {{"provider", "mistral"}, {"model_id", "mistral-small-latest"}}}}},
+    {"agents",
+     {{"main", {{"model", "minimal-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  // The config loader defaults base_url to https://api.mistral.ai and
+  // api_key_env to MISTRAL_API_KEY
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "api.mistral.ai");
+  CHECK(endpoints[0].port == 443);
+  CHECK(endpoints[0].api_key_env == "MISTRAL_API_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: explicitly empty api_key_env means no key required")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"keyless-model",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", ""},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "keyless-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "api.mistral.ai");
+  CHECK(endpoints[0].api_key_env.empty());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: same host with different api_key_env are distinct endpoints")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"model-a",
+       {{"provider", "mistral"},
+        {"model_id", "a"},
+        {"api_key_env", "KEY_A"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"model-b",
+       {{"provider", "mistral"},
+        {"model_id", "b"},
+        {"api_key_env", "KEY_B"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"agent-a", {{"model", "model-a"}}},
+      {"agent-b", {{"model", "model-b"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 2);
+  CHECK(endpoints[0].api_key_env == "KEY_A");
+  CHECK(endpoints[1].api_key_env == "KEY_B");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: no agents yields no endpoints")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+  CHECK(system.resolve_transport_endpoints().empty());
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::endpoint_channels");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: returns a channel for a configured agent")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  CHECK(system.request_ch_for("main") != nullptr);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: agents sharing an endpoint share its channel")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"mistral-small",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-large"}}},
+      {"researcher", {{"model", "mistral-small"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  CHECK(system.request_ch_for("main") == system.request_ch_for("researcher"));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: agents on different providers get different channels")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-small",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"greenpt-glm",
+       {{"provider", "greenpt"},
+        {"model_id", "glm-5.3"},
+        {"api_key_env", "GREENPT_API_KEY"},
+        {"base_url", "https://api.greenpt.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "greenpt-glm"}}},
+      {"researcher", {{"model", "mistral-small"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  CHECK(system.request_ch_for("main") != system.request_ch_for("researcher"));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: one channel per endpoint")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"mistral-small",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"greenpt-glm",
+       {{"provider", "greenpt"},
+        {"model_id", "glm-5.3"},
+        {"api_key_env", "GREENPT_API_KEY"},
+        {"base_url", "https://api.greenpt.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-large"}}},
+      {"researcher", {{"model", "mistral-small"}}},
+      {"helper", {{"model", "greenpt-glm"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  // main and researcher share the Mistral endpoint; helper is on GreenPT
+  auto main_ch = system.request_ch_for("main");
+  auto researcher_ch = system.request_ch_for("researcher");
+  auto helper_ch = system.request_ch_for("helper");
+  CHECK(main_ch == researcher_ch);
+  CHECK(main_ch != helper_ch);
+  CHECK(system.resolve_transport_endpoints().size() == 2);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: throws for unknown agent")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  CHECK_THROWS_AS(system.request_ch_for("nonexistent"), std::runtime_error);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: throws for agent with unknown model")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "missing-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  CHECK_THROWS_AS(system.request_ch_for("main"), std::runtime_error);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: re-initialize rebuilds the endpoint map")
+{
+  nlohmann::json mistral_config = {
+    {"models",
+     {{"mistral-large",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-large-4"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "mistral-large"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(mistral_config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  auto before = system.request_ch_for("main");
+
+  nlohmann::json greenpt_config = {
+    {"models",
+     {{"greenpt-glm",
+       {{"provider", "greenpt"},
+        {"model_id", "glm-5.3"},
+        {"api_key_env", "GREENPT_API_KEY"},
+        {"base_url", "https://api.greenpt.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "greenpt-glm"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(greenpt_config);
+  system.initialize(config_file, base_dir, notes_dir);
+  auto after = system.request_ch_for("main");
+
+  CHECK(before != after);
+  auto endpoints = system.resolve_transport_endpoints();
+  REQUIRE(endpoints.size() == 1);
+  CHECK(endpoints[0].host == "api.greenpt.ai");
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::transport_keys");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: throws when a required key is missing")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"test-model",
+       {{"provider", "mistral"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "test-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+  try
+  {
+    system.validate_transport_keys();
+    FAIL("expected std::runtime_error");
+  }
+  catch (const std::runtime_error& e)
+  {
+    CHECK(std::string(e.what()).find("MISTRAL_TRANSPORT_TEST_KEY") != std::string::npos);
+    CHECK(std::string(e.what()).find("api.mistral.ai") != std::string::npos);
+  }
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: passes when the key is set")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"test-model",
+       {{"provider", "mistral"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "test-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
+  CHECK_NOTHROW(system.validate_transport_keys());
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: endpoint without api_key_env needs no key")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"keyless-model",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-small-latest"},
+        {"api_key_env", ""},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "keyless-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  CHECK_NOTHROW(system.validate_transport_keys());
 }
 
 TEST_SUITE_END;

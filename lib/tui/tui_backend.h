@@ -8,7 +8,6 @@
 #include "api/types.h"
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
-#include "http/http_coordinator_task.h"
 #include "mcp/mcp_auto_connect_task.h"
 #include "mcp/mcp_manager.h"
 #include "slash_command/slash_command_executor_task.h"
@@ -33,20 +32,17 @@ namespace mistral::tui
 {
   // -------------------------------------------------------------------------
   // tui_config: configuration shared between tui_main.cpp, tui_app, and
-  // tui_backend. Contains agent identification, connection parameters, and
-  // the dripcore channels used for inter-task communication.
+  // tui_backend. Contains agent identification and the dripcore channels
+  // used for inter-task communication. Transport (endpoints, API keys,
+  // coordinators) is owned by agent_system.
   // -------------------------------------------------------------------------
   struct tui_config
   {
     std::string agent_id;
-    std::string host;
-    int port;
-    std::string api_key;
     std::string theme_name;
     std::string resolved_model;
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch;
     std::shared_ptr<dripcore::channel<std::string>> input_ch;
-    std::shared_ptr<dripcore::channel<mistral::api::api_request>> request_ch;
     std::shared_ptr<dripcore::channel<std::string>> agent_response_ch;
     std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch;
@@ -135,7 +131,7 @@ namespace mistral::tui
 
         sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
         sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
-        sched.spawn<mistral::net::http_coordinator_task>(cfg_.host, cfg_.port, cfg_.api_key, cfg_.request_ch);
+        agent_system.start_transport(sched);
         sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(input_pipe_.read_fd(), cfg_.input_ch, std::ref(inq_));
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
           cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch, agent_system.slash_commands()

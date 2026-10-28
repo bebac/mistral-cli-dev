@@ -84,7 +84,7 @@ namespace mistral::agent
           std::ofstream out(config_file);
           out << "{}";
         } // Close (and flush) the file before initialize() reads it
-        agent_system::instance().initialize(config_file, base_dir, notes_dir, nullptr);
+        agent_system::instance().initialize(config_file, base_dir, notes_dir);
       }
     };
   } // namespace

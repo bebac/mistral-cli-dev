@@ -24,6 +24,11 @@
 #include <string>
 #include <vector>
 
+namespace dripcore
+{
+  class scheduler;
+}
+
 namespace mistral::tools
 {
   class file_tools;
@@ -40,6 +45,19 @@ namespace mistral::tools
 
 namespace mistral::agent
 {
+  // ---- Transport Endpoint ----
+  // A distinct model API endpoint derived from the agent configs: one
+  // entry per (host, port, api_key_env) referenced by any agent's
+  // model. Agents that share an endpoint share its request channel.
+  struct transport_endpoint
+  {
+    std::string host = "api.mistral.ai";
+    int port = 443;
+    std::string api_key_env; // Env var holding the API key (empty: no key required)
+
+    bool operator==(const transport_endpoint& other) const = default;
+  };
+
   // ---- Agent System Singleton ----
   // Provides shared resources, configuration access, and model management.
   class agent_system : public tools::patchset_store
@@ -51,8 +69,7 @@ namespace mistral::agent
     void initialize(
       const std::string& config_file,
       const std::string& base_dir,
-      const std::string& notes_dir,
-      std::shared_ptr<dripcore::channel<api::api_request>> request_ch
+      const std::string& notes_dir
     );
 
     // Resolve system prompt (handles file:// URLs). When the agent's
@@ -85,6 +102,12 @@ namespace mistral::agent
     // Resolve sampling parameters (model defaults + agent overrides)
     api::sampling_params resolve_sampling_params(const agent_config& agent_cfg) const;
     std::string resolve_model_id(const std::string& model_name) const;
+
+    // Resolve the distinct transport endpoints needed by the configured
+    // agents: each agent's model contributes its base_url (host, port)
+    // and api_key_env; duplicates are merged. Models no agent references
+    // contribute nothing.
+    std::vector<transport_endpoint> resolve_transport_endpoints() const;
 
     // Get the full configuration
     const full_config& get_config() const
@@ -139,8 +162,23 @@ namespace mistral::agent
       return *ask_tools_;
     }
 
+    // Request channel for the given agent's transport endpoint
+    // (agent -> model -> endpoint -> channel). Throws if the agent or
+    // its model is unknown.
+    std::shared_ptr<dripcore::channel<api::api_request>> request_ch_for(const std::string& agent_id) const;
+
+    // Fail-fast check: every transport endpoint that requires an API
+    // key must have it in the environment. Throws std::runtime_error
+    // naming the endpoint and env var.
+    void validate_transport_keys() const;
+
+    // Spawn one http_coordinator_task per transport endpoint on the
+    // scheduler. Validates API keys first (see validate_transport_keys).
+    // Call once after creating the scheduler, before spawning any
+    // agent task.
+    void start_transport(dripcore::scheduler& sched);
+
     // Shared channels
-    std::shared_ptr<dripcore::channel<api::api_request>> request_ch() const;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch() const;
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch() const;
 
@@ -241,8 +279,16 @@ namespace mistral::agent
 
     tool_registry global_tools_;
 
-    std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
+
+    // One request channel per distinct transport endpoint, built in
+    // initialize() from the agent configs.
+    struct endpoint_entry
+    {
+      transport_endpoint endpoint;
+      std::shared_ptr<dripcore::channel<api::api_request>> request_ch;
+    };
+    std::vector<endpoint_entry> endpoints_;
 
     // Server-side agent id cache (local agent id -> server agent entity id)
     mutable std::mutex server_agent_ids_mtx_;

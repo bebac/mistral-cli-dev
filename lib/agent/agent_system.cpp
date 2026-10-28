@@ -6,6 +6,7 @@
 #include "agent/server_agent_task.h"
 #include "agent/subagent_task.h"
 #include "agent/workspace_bootstrap.h"
+#include "http/http_coordinator_task.h"
 #include "mcp/mcp_manager.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
@@ -20,11 +21,14 @@
 #include "tools/task_tools.h"
 
 #include <api/chat_types.h>
+#include <uri.h>
 
 #include <dripcore/awaitable.h>
+#include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -36,6 +40,45 @@ namespace mistral::agent
 
   namespace fs = std::filesystem;
   using json = nlohmann::ordered_json;
+
+  namespace
+  {
+    // Derive the transport endpoint (host, port, api_key_env) from a
+    // model config's base_url. An empty or unparseable base_url falls
+    // back to the default Mistral endpoint.
+    transport_endpoint endpoint_for_model(const model_config& model)
+    {
+      transport_endpoint ep;
+      ep.api_key_env = model.api_key_env;
+      if (!model.base_url.empty())
+      {
+        auto parse_result = uri::parse(model.base_url);
+        if (std::holds_alternative<uri::uri_view>(parse_result))
+        {
+          const auto& parsed_uri = std::get<uri::uri_view>(parse_result);
+          ep.host = parsed_uri.host();
+          auto port_str = parsed_uri.port();
+          if (!port_str.empty())
+          {
+            try
+            {
+              ep.port = std::stoi(std::string(port_str));
+            }
+            catch (...)
+            {
+              // If port parsing fails, keep the HTTPS default
+            }
+          }
+        }
+      }
+      if (ep.host.empty())
+      {
+        ep.host = "api.mistral.ai";
+        ep.port = 443;
+      }
+      return ep;
+    }
+  } // namespace
 
   // ---- Singleton Instance ----
 
@@ -50,13 +93,11 @@ namespace mistral::agent
   void agent_system::initialize(
     const std::string& config_file,
     const std::string& base_dir,
-    const std::string& notes_dir,
-    std::shared_ptr<dripcore::channel<api::api_request>> request_ch
+    const std::string& notes_dir
   )
   {
     base_dir_ = base_dir;
     notes_dir_ = notes_dir;
-    request_ch_ = std::move(request_ch);
 
     // The server-side agent id cache is per-session: drop entries from a
     // previous initialize() call.
@@ -70,6 +111,13 @@ namespace mistral::agent
 
     // Load configuration
     config_ = load_config_from_file(config_file);
+
+    // Build one request channel per distinct transport endpoint
+    endpoints_.clear();
+    for (const auto& ep : resolve_transport_endpoints())
+    {
+      endpoints_.push_back({ep, std::make_shared<dripcore::channel<api::api_request>>(4)});
+    }
 
     // Initialize tool instances
     initialize_tools(notes_dir_);
@@ -1102,6 +1150,30 @@ namespace mistral::agent
     return model_name; // Return as-is if not found (backward compatibility)
   }
 
+  std::vector<transport_endpoint> agent_system::resolve_transport_endpoints() const
+  {
+    std::vector<transport_endpoint> endpoints;
+
+    for (const auto& [agent_id, agent_cfg] : config_.agents)
+    {
+      (void)agent_id;
+      auto model_it = config_.models.find(agent_cfg.model);
+      if (model_it == config_.models.end())
+      {
+        // Unknown model: get_model_config() reports this when the agent is used
+        continue;
+      }
+
+      const auto ep = endpoint_for_model(model_it->second);
+      if (std::find(endpoints.begin(), endpoints.end(), ep) == endpoints.end())
+      {
+        endpoints.push_back(ep);
+      }
+    }
+
+    return endpoints;
+  }
+
   // ---- Tool Registry ----
 
   tool_registry agent_system::create_tool_registry(const std::vector<std::string>& available_tools) const
@@ -1146,9 +1218,52 @@ namespace mistral::agent
 
   // ---- Channel Access ----
 
-  std::shared_ptr<dripcore::channel<api::api_request>> agent_system::request_ch() const
+  std::shared_ptr<dripcore::channel<api::api_request>> agent_system::request_ch_for(const std::string& agent_id) const
   {
-    return request_ch_;
+    const auto& agent_cfg = get_agent_config(agent_id);
+    const auto ep = endpoint_for_model(get_model_config(agent_cfg.model));
+
+    const auto it = std::find_if(endpoints_.begin(), endpoints_.end(), [&ep](const endpoint_entry& entry) {
+      return entry.endpoint == ep;
+    });
+    if (it == endpoints_.end())
+    {
+      throw std::runtime_error("no transport endpoint channel for agent '" + agent_id + "'");
+    }
+    return it->request_ch;
+  }
+
+  void agent_system::validate_transport_keys() const
+  {
+    for (const auto& entry : endpoints_)
+    {
+      if (entry.endpoint.api_key_env.empty())
+      {
+        continue; // Endpoint requires no key
+      }
+      if (std::getenv(entry.endpoint.api_key_env.c_str()) == nullptr)
+      {
+        throw std::runtime_error(
+          "endpoint " + entry.endpoint.host + ":" + std::to_string(entry.endpoint.port) + " requires " +
+          entry.endpoint.api_key_env + " (environment variable not set)"
+        );
+      }
+    }
+  }
+
+  void agent_system::start_transport(dripcore::scheduler& sched)
+  {
+    validate_transport_keys();
+
+    for (const auto& entry : endpoints_)
+    {
+      std::string api_key;
+      if (!entry.endpoint.api_key_env.empty())
+      {
+        api_key = std::getenv(entry.endpoint.api_key_env.c_str());
+      }
+      sched.spawn<net::http_coordinator_task>(entry.endpoint.host, entry.endpoint.port, api_key, entry.request_ch);
+    }
   }
 
   std::shared_ptr<dripcore::channel<api::api_event>> agent_system::response_ch() const

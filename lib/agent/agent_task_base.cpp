@@ -47,8 +47,8 @@ namespace mistral::agent
     auto tool_policy_config = agent_system::instance().resolve_tool_policy(agent_cfg);
     policy_engine_.load_configuration(tool_policy_config);
 
-    // Get shared HTTP request channel
-    request_ch_ = agent_system::instance().request_ch();
+    // Get the request channel for this agent's transport endpoint
+    request_ch_ = agent_system::instance().request_ch_for(agent_id_);
 
     // Get stats channel
     stats_ch_ = agent_system::instance().stats_ch();

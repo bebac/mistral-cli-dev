@@ -9,7 +9,6 @@
 #include "common/wakeup_pipe.h"
 #include "console/console_render_sink.h"
 #include "console/console_task.h"
-#include "http/http_coordinator_task.h"
 #include "http/tls_connection.h"
 #include "mcp/mcp_auto_connect_task.h"
 #include "mcp/mcp_manager.h"
@@ -21,7 +20,6 @@
 
 #include <dripcore/channel.h>
 #include <dripcore/scheduler.h>
-#include <uri.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -77,8 +75,6 @@ int main(int argc, char* argv[])
   // Default configuration.
   std::string base_dir = ".mistral-cli";
   std::string notes_dir = ".mistral-cli/notes";
-  std::string host = "api.mistral.ai";
-  int port = 443;
   bool system_prompt_show = false;
   bool bootstrap_enabled = true;
   bool bootstrap_update_managed = false;
@@ -92,8 +88,6 @@ int main(int argc, char* argv[])
   static struct option long_options[] = {
     {"config-file", required_argument, 0, 'c'},
     {"notes-dir", required_argument, 0, 'n'},
-    {"host", required_argument, 0, 'H'},
-    {"port", required_argument, 0, 'p'},
     {"agent", required_argument, 0, 'a'},
     {"resume", no_argument, 0, 'r'},
     {"system-prompt-show", no_argument, 0, 'e'},
@@ -104,7 +98,7 @@ int main(int argc, char* argv[])
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:n:H:p:a:erP:D:BUh", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:n:a:erP:D:BUh", long_options, nullptr)) != -1)
   {
     switch (opt)
     {
@@ -113,12 +107,6 @@ int main(int argc, char* argv[])
       break;
     case 'n':
       notes_dir = optarg;
-      break;
-    case 'H':
-      host = optarg;
-      break;
-    case 'p':
-      port = std::atoi(optarg);
       break;
     case 'a':
       agent_id = optarg;
@@ -139,8 +127,6 @@ int main(int argc, char* argv[])
       std::cout << "Usage: mistral-cli [OPTIONS]\n"
                 << "  -c, --config-file FILE         Configuration file path (required)\n"
                 << "  -n, --notes-dir DIR            Notes directory (default: .mistral-cli/notes)\n"
-                << "  -H, --host HOST                API host (default: api.mistral.ai)\n"
-                << "  -p, --port PORT                API port (default: 443)\n"
                 << "  -a, --agent AGENT              Agent ID to use (default: main)\n"
                 << "  -r, --resume                   Resume the latest chat session\n"
                 << "                                 (.mistral-cli/chats/chat.latest.json)\n"
@@ -197,15 +183,12 @@ int main(int argc, char* argv[])
   mistral::trace::logger::instance().set_log_path(log_filename.string());
   mistral::trace::logger::instance().enable(false);
 
-  std::string api_key;
-
   // Initialize OpenSSL.
   mistral::net::init_openssl();
 
   // Create channels.
   auto prompt_ch = std::make_shared<dripcore::channel<std::string>>(1);
   auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
-  auto request_ch = std::make_shared<dripcore::channel<mistral::api::api_request>>(4);
   auto agent_response_ch = std::make_shared<dripcore::channel<std::string>>(32);
 
   // Create slash command channels
@@ -225,7 +208,7 @@ int main(int argc, char* argv[])
   std::cout << "Loading configuration from: " << config_file << std::endl;
   try
   {
-    agent_system.initialize(config_file.string(), base_dir, notes_dir, request_ch);
+    agent_system.initialize(config_file.string(), base_dir, notes_dir);
   }
   catch (const std::exception& e)
   {
@@ -246,6 +229,17 @@ int main(int argc, char* argv[])
     return 1;
   }
 
+  // Fail fast if a transport endpoint is missing its API key.
+  try
+  {
+    agent_system.validate_transport_keys();
+  }
+  catch (const std::exception& e)
+  {
+    std::cerr << "error: " << e.what() << std::endl;
+    return 1;
+  }
+
   // Get agent configuration
   const auto& agent_config = agent_system.get_agent_config(agent_id);
   const auto& model_config = agent_system.get_model_config(agent_config.model);
@@ -263,49 +257,6 @@ int main(int argc, char* argv[])
     std::cerr << "error: cannot load tool policy for agent '" << agent_id << "': " << e.what() << std::endl;
     return 1;
   }
-
-  // Use base_url from config if command-line host wasn't overridden
-  if (host == "api.mistral.ai" && !model_config.base_url.empty())
-  {
-    auto parse_result = uri::parse(model_config.base_url);
-    if (std::holds_alternative<uri::uri_view>(parse_result))
-    {
-      const auto& parsed_uri = std::get<uri::uri_view>(parse_result);
-
-      auto config_host = parsed_uri.host();
-      auto config_port = 443; // Default to HTTPS port
-
-      // Extract port if present
-      auto port_str = parsed_uri.port();
-      if (!port_str.empty())
-      {
-        try
-        {
-          config_port = std::stoi(std::string(port_str));
-        }
-        catch (...)
-        {
-          // If port parsing fails, keep default
-        }
-      }
-
-      host = config_host;
-
-      if (port == 443)
-      { // Only use config port if command-line didn't override
-        port = config_port;
-      }
-    }
-  }
-
-  // Read API key from environment variable specified in model config
-  const char* api_key_env = std::getenv(model_config.api_key_env.c_str());
-  if (!api_key_env)
-  {
-    std::cerr << "error: " << model_config.api_key_env << " environment variable not set\n";
-    return 1;
-  }
-  api_key = std::string(api_key_env);
 
   // Resolve model ID and system prompt
   std::string resolved_model = model_config.model_id;
@@ -340,6 +291,9 @@ int main(int argc, char* argv[])
   // Create scheduler and spawn tasks.
   dripcore::scheduler sched;
 
+  // Spawn one HTTP coordinator per transport endpoint.
+  agent_system.start_transport(sched);
+
   // Spawn agent_system_task to capture responses
   sched.spawn<mistral::agent::agent_system_task>(agent_response_ch);
 
@@ -356,7 +310,6 @@ int main(int argc, char* argv[])
     prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch, agent_system.slash_commands()
   );
 
-  sched.spawn<mistral::net::http_coordinator_task>(host, port, api_key, request_ch);
   auto sink = std::make_shared<mistral::agent::console_render_sink>();
   sched.spawn<mistral::agent::interactive_agent_task>(agent_id, input_ch, agent_response_ch, prompt_ch, sink, resume);
   sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe.read_fd());

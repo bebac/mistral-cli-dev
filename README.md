@@ -162,8 +162,6 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 |--------------------------|--------------------------------------------------------------------|----------------------------------------------|
 | `-c, --config-file FILE` | Configuration file path.                                           | `.mistral-cli/mistral-cli.json`              |
 | `-n, --notes-dir DIR`    | Notes directory.                                                   | `.mistral-cli/notes`                         |
-| `-H, --host HOST`        | API host.                                                          | `api.mistral.ai` (or `base_url` from config) |
-| `-p, --port PORT`        | API port.                                                          | `443`                                        |
 | `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                       |
 | `-r, --resume`           | Resume the latest chat session                                     |                                              |
 | `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                              |
@@ -176,8 +174,6 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 | Option                   | Description                                                        | Default                         |
 |--------------------------|--------------------------------------------------------------------|---------------------------------|
 | `-c FILE`                | Config file.                                                       | `.mistral-cli/mistral-cli.json` |
-| `-H HOST`                | API host.                                                          | `api.mistral.ai`                |
-| `-p PORT`                | API port.                                                          | `443`                           |
 | `-a ID`                  | Agent ID.                                                          | `main`                          |
 | `--theme NAME`           | Theme: `dark`, `light`, `nord`, `tokyo-night`, `solarized-light`.  | `dark`                          |
 | `--no-bootstrap`         | Do not bootstrap the workspace.                                    |                                 |

@@ -44,7 +44,6 @@ namespace
       base_dir = temp_dir;
       notes_dir = (std::filesystem::path(temp_dir) / "notes").string();
       std::filesystem::create_directories(notes_dir);
-      request_ch = std::make_shared<dripcore::channel<api::api_request>>(8);
     }
 
     ~server_agent_test_fixture()
@@ -61,7 +60,11 @@ namespace
 
     void initialize()
     {
-      agent::agent_system::instance().initialize(config_file, base_dir, notes_dir, request_ch);
+      auto& sys = agent::agent_system::instance();
+      sys.initialize(config_file, base_dir, notes_dir);
+      // Agent tasks send on the per-endpoint channel built by
+      // initialize(); the fake HTTP layer listens on that channel.
+      request_ch = sys.request_ch_for("researcher");
     }
   };
 
