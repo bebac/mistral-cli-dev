@@ -1266,9 +1266,15 @@ namespace mistral::agent
     }
   }
 
-  std::shared_ptr<dripcore::channel<api::api_event>> agent_system::response_ch() const
+  void agent_system::stop_transport()
   {
-    return response_ch_;
+    for (const auto& entry : endpoints_)
+    {
+      if (entry.request_ch)
+      {
+        entry.request_ch->close();
+      }
+    }
   }
 
   std::string agent_system::get_last_response() const

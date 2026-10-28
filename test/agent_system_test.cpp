@@ -668,14 +668,6 @@ TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::channels");
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "response_ch: returns null if not set")
-{
-  initialize_agent_system_empty();
-  auto& system = mistral::agent::agent_system::instance();
-
-  CHECK(system.response_ch() == nullptr);
-}
-
 TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::transport_endpoints");

@@ -177,9 +177,9 @@ namespace mistral::agent
     // Call once after creating the scheduler, before spawning any
     // agent task.
     void start_transport(dripcore::scheduler& sched);
+    void stop_transport();
 
     // Shared channels
-    std::shared_ptr<dripcore::channel<api::api_event>> response_ch() const;
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch() const;
 
     // Notes directory
@@ -278,8 +278,6 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::ask_tools> ask_tools_;
 
     tool_registry global_tools_;
-
-    std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
 
     // One request channel per distinct transport endpoint, built in
     // initialize() from the agent configs.

@@ -37,6 +37,7 @@ namespace mistral::common
         if (n <= 0)
         {
           // EOF or error -- shutdown.
+          agent::agent_system::instance().stop_transport();
           break;
         }
 
@@ -45,6 +46,7 @@ namespace mistral::common
           if (buf[i] == '0')
           {
             // Shutdown signal.
+            agent::agent_system::instance().stop_transport();
             co_return;
           }
           if (buf[i] == '1')
