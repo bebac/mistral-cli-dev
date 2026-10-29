@@ -13,7 +13,7 @@
 [submodule "third_party/cpp-tui"]
 	path = third_party/cpp-tui
 	url = git@github.com:bebac/cpp-tui.git
-	branch = mistral-fixes
+	branch = mistral-fixes-2
 [submodule "third_party/tree-sitter"]
 	path = third_party/tree-sitter
 	url = git@github.com:tree-sitter/tree-sitter.git
