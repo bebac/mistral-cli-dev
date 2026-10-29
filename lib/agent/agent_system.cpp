@@ -841,7 +841,7 @@ namespace mistral::agent
       &exec_tools,
       &mistral::tools::exec_tools::exec,
       arg("command", "Executable name (e.g., 'git', 'cmake')"),
-      arg("args", "Command arguments as array of strings"),
+      arg("args", "Command arguments as array of strings (optional, defaults to an empty array)", std::vector<std::string>{}),
       arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
       arg("timeout_seconds", "Timeout in seconds", 30)
     );

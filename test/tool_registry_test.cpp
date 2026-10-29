@@ -29,6 +29,10 @@ namespace mistral::agent
     {
       return {{"result", "Hello, " + title + " " + name}};
     }
+    json run(std::string command, std::vector<std::string> args)
+    {
+      return {{"result", command}, {"args", args}};
+    }
   };
 
   // Helper to run an async dispatch call from a test
@@ -379,6 +383,48 @@ TEST_CASE("tool_registry: strict mode does not affect argument parsing")
   );
 
   CHECK(result["result"] == "Hello, Dr. World");
+}
+
+TEST_CASE("tool_registry: vector<string> arg with default empty array is optional")
+{
+  using namespace mistral::agent;
+
+  tool_registry registry;
+  test_tool tool_inst;
+
+  registry.register_tool(
+    "run",
+    "Run a command",
+    &tool_inst,
+    &test_tool::run,
+    arg("command", "Executable name"),
+    arg("args", "Command arguments (optional, defaults to empty)", std::vector<std::string>{})
+  );
+
+  // Schema: "args" has a default and is not required (non-strict mode)
+  auto schema = registry.get_schema();
+  auto required = schema[0]["function"]["parameters"]["required"];
+  CHECK(required == json::array({"command"}));
+  auto props = schema[0]["function"]["parameters"]["properties"];
+  CHECK(props["args"]["type"] == "array");
+  CHECK(props["args"]["default"] == json::array({}));
+
+  // Dispatch omitting "args" — must default to an empty array, not error
+  auto result = run_async_dispatch(registry, {{"function", {{"name", "run"}, {"arguments", R"({"command": "ls"})"}}}});
+
+  CHECK(result["result"] == "ls");
+  CHECK(result["args"] == json::array({}));
+
+  // Dispatch providing "args" explicitly still works
+  result = run_async_dispatch(
+    registry, {{"function", {{"name", "run"}, {"arguments", R"({"command": "echo", "args": ["hello", "world"]})"}}}}
+  );
+
+  CHECK(result["result"] == "echo");
+  REQUIRE(result["args"].is_array());
+  CHECK(result["args"].size() == 2);
+  CHECK(result["args"][0] == "hello");
+  CHECK(result["args"][1] == "world");
 }
 
 TEST_CASE("tool_registry: strict mode is per-registry, not global")
