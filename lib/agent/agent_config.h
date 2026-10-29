@@ -2,6 +2,7 @@
 #define MISTRAL_AGENT_CONFIG_H
 
 #include "api/agent_api.h"
+#include "api/chat_types.h"
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_index.h"
 #endif
@@ -26,17 +27,11 @@ namespace mistral::agent
     std::string api_version = "v1"; // API version
 
     // Sampling parameters (defaults)
-    std::optional<std::string> reasoning_effort; // e.g., "high", "low", "none"
-    std::optional<float> temperature;            // 0.0 to 1.0
-    std::optional<float> top_p;                  // 0.0 to 1.0
-    std::optional<int> top_k;                    // Mistral-specific
-    std::optional<int> max_tokens;               // Maximum tokens to generate
-    std::optional<float> frequency_penalty;      // -2.0 to 2.0
-    std::optional<float> presence_penalty;       // -2.0 to 2.0
-    std::optional<int> seed;                     // Random seed for deterministic output
-    std::optional<bool> safe_prompt;             // Mistral-specific
-    std::optional<float> randomness;             // Mistral-specific, 0.0 to 1.0
-    std::optional<bool> strict_mode;             // Strict tool schema mode (OpenAI-style)
+    api::sampling_params sampling;
+
+    // Strict tool schema mode (OpenAI-style). Client-side option controlling
+    // tool schema generation only; not part of the API sampling parameters.
+    std::optional<bool> strict_mode;
   };
 
   // ---- Server-side Agent Configuration ----
@@ -94,17 +89,10 @@ namespace mistral::agent
     std::map<std::string, std::string> subagent_tools;
 
     // Sampling parameters (overrides model defaults)
-    std::optional<std::string> reasoning_effort; // Override model default
-    std::optional<float> temperature;            // Override model default
-    std::optional<float> top_p;                  // Override model default
-    std::optional<int> top_k;                    // Override model default
-    std::optional<int> max_tokens;               // Override model default
-    std::optional<float> frequency_penalty;      // Override model default
-    std::optional<float> presence_penalty;       // Override model default
-    std::optional<int> seed;                     // Override model default
-    std::optional<bool> safe_prompt;             // Override model default
-    std::optional<float> randomness;             // Override model default
-    std::optional<bool> strict_mode;             // Override model default
+    api::sampling_params sampling;
+
+    // Strict tool schema mode override (see tool_schema_options)
+    std::optional<bool> strict_mode;
   };
 
   // ---- Tool Schema Options ----

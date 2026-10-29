@@ -78,6 +78,102 @@ namespace mistral::agent
       }
       return ep;
     }
+
+    // Parse the sampling-related keys of a model/agent JSON block.
+    // Absent or null keys stay unset (std::nullopt); unknown keys are
+    // ignored.
+    api::sampling_params parse_sampling_params(const json& j)
+    {
+      api::sampling_params p;
+      if (j.contains("reasoning_effort") && !j["reasoning_effort"].is_null())
+      {
+        p.reasoning_effort = j["reasoning_effort"].get<std::string>();
+      }
+      if (j.contains("temperature") && !j["temperature"].is_null())
+      {
+        p.temperature = j["temperature"].get<float>();
+      }
+      if (j.contains("top_p") && !j["top_p"].is_null())
+      {
+        p.top_p = j["top_p"].get<float>();
+      }
+      if (j.contains("top_k") && !j["top_k"].is_null())
+      {
+        p.top_k = j["top_k"].get<int>();
+      }
+      if (j.contains("max_tokens") && !j["max_tokens"].is_null())
+      {
+        p.max_tokens = j["max_tokens"].get<int>();
+      }
+      if (j.contains("frequency_penalty") && !j["frequency_penalty"].is_null())
+      {
+        p.frequency_penalty = j["frequency_penalty"].get<float>();
+      }
+      if (j.contains("presence_penalty") && !j["presence_penalty"].is_null())
+      {
+        p.presence_penalty = j["presence_penalty"].get<float>();
+      }
+      if (j.contains("seed") && !j["seed"].is_null())
+      {
+        p.seed = j["seed"].get<int>();
+      }
+      if (j.contains("safe_prompt") && !j["safe_prompt"].is_null())
+      {
+        p.safe_prompt = j["safe_prompt"].get<bool>();
+      }
+      if (j.contains("randomness") && !j["randomness"].is_null())
+      {
+        p.randomness = j["randomness"].get<float>();
+      }
+      return p;
+    }
+
+    // Copy every set field of `overrides` onto `base`, leaving unset
+    // fields untouched (agent-level sampling parameters override model
+    // defaults field by field).
+    void apply_sampling_overrides(api::sampling_params& base, const api::sampling_params& overrides)
+    {
+      if (overrides.reasoning_effort)
+      {
+        base.reasoning_effort = overrides.reasoning_effort;
+      }
+      if (overrides.temperature)
+      {
+        base.temperature = overrides.temperature;
+      }
+      if (overrides.top_p)
+      {
+        base.top_p = overrides.top_p;
+      }
+      if (overrides.top_k)
+      {
+        base.top_k = overrides.top_k;
+      }
+      if (overrides.max_tokens)
+      {
+        base.max_tokens = overrides.max_tokens;
+      }
+      if (overrides.frequency_penalty)
+      {
+        base.frequency_penalty = overrides.frequency_penalty;
+      }
+      if (overrides.presence_penalty)
+      {
+        base.presence_penalty = overrides.presence_penalty;
+      }
+      if (overrides.seed)
+      {
+        base.seed = overrides.seed;
+      }
+      if (overrides.safe_prompt)
+      {
+        base.safe_prompt = overrides.safe_prompt;
+      }
+      if (overrides.randomness)
+      {
+        base.randomness = overrides.randomness;
+      }
+    }
   } // namespace
 
   // ---- Singleton Instance ----
@@ -240,46 +336,7 @@ namespace mistral::agent
         model_cfg.api_version = model_json.value("api_version", "v1");
 
         // Parse sampling parameters
-        if (model_json.contains("reasoning_effort") && !model_json["reasoning_effort"].is_null())
-        {
-          model_cfg.reasoning_effort = model_json["reasoning_effort"].get<std::string>();
-        }
-        if (model_json.contains("temperature") && !model_json["temperature"].is_null())
-        {
-          model_cfg.temperature = model_json["temperature"].get<float>();
-        }
-        if (model_json.contains("top_p") && !model_json["top_p"].is_null())
-        {
-          model_cfg.top_p = model_json["top_p"].get<float>();
-        }
-        if (model_json.contains("top_k") && !model_json["top_k"].is_null())
-        {
-          model_cfg.top_k = model_json["top_k"].get<int>();
-        }
-        if (model_json.contains("max_tokens") && !model_json["max_tokens"].is_null())
-        {
-          model_cfg.max_tokens = model_json["max_tokens"].get<int>();
-        }
-        if (model_json.contains("frequency_penalty") && !model_json["frequency_penalty"].is_null())
-        {
-          model_cfg.frequency_penalty = model_json["frequency_penalty"].get<float>();
-        }
-        if (model_json.contains("presence_penalty") && !model_json["presence_penalty"].is_null())
-        {
-          model_cfg.presence_penalty = model_json["presence_penalty"].get<float>();
-        }
-        if (model_json.contains("seed") && !model_json["seed"].is_null())
-        {
-          model_cfg.seed = model_json["seed"].get<int>();
-        }
-        if (model_json.contains("safe_prompt") && !model_json["safe_prompt"].is_null())
-        {
-          model_cfg.safe_prompt = model_json["safe_prompt"].get<bool>();
-        }
-        if (model_json.contains("randomness") && !model_json["randomness"].is_null())
-        {
-          model_cfg.randomness = model_json["randomness"].get<float>();
-        }
+        model_cfg.sampling = parse_sampling_params(model_json);
         if (model_json.contains("strict_mode") && !model_json["strict_mode"].is_null())
         {
           model_cfg.strict_mode = model_json["strict_mode"].get<bool>();
@@ -330,46 +387,7 @@ namespace mistral::agent
         }
 
         // Parse sampling parameters (agent-level overrides)
-        if (agent_json.contains("reasoning_effort") && !agent_json["reasoning_effort"].is_null())
-        {
-          agent_cfg.reasoning_effort = agent_json["reasoning_effort"].get<std::string>();
-        }
-        if (agent_json.contains("temperature") && !agent_json["temperature"].is_null())
-        {
-          agent_cfg.temperature = agent_json["temperature"].get<float>();
-        }
-        if (agent_json.contains("top_p") && !agent_json["top_p"].is_null())
-        {
-          agent_cfg.top_p = agent_json["top_p"].get<float>();
-        }
-        if (agent_json.contains("top_k") && !agent_json["top_k"].is_null())
-        {
-          agent_cfg.top_k = agent_json["top_k"].get<int>();
-        }
-        if (agent_json.contains("max_tokens") && !agent_json["max_tokens"].is_null())
-        {
-          agent_cfg.max_tokens = agent_json["max_tokens"].get<int>();
-        }
-        if (agent_json.contains("frequency_penalty") && !agent_json["frequency_penalty"].is_null())
-        {
-          agent_cfg.frequency_penalty = agent_json["frequency_penalty"].get<float>();
-        }
-        if (agent_json.contains("presence_penalty") && !agent_json["presence_penalty"].is_null())
-        {
-          agent_cfg.presence_penalty = agent_json["presence_penalty"].get<float>();
-        }
-        if (agent_json.contains("seed") && !agent_json["seed"].is_null())
-        {
-          agent_cfg.seed = agent_json["seed"].get<int>();
-        }
-        if (agent_json.contains("safe_prompt") && !agent_json["safe_prompt"].is_null())
-        {
-          agent_cfg.safe_prompt = agent_json["safe_prompt"].get<bool>();
-        }
-        if (agent_json.contains("randomness") && !agent_json["randomness"].is_null())
-        {
-          agent_cfg.randomness = agent_json["randomness"].get<float>();
-        }
+        agent_cfg.sampling = parse_sampling_params(agent_json);
         if (agent_json.contains("strict_mode") && !agent_json["strict_mode"].is_null())
         {
           agent_cfg.strict_mode = agent_json["strict_mode"].get<bool>();
@@ -1064,59 +1082,24 @@ namespace mistral::agent
   {
     api::sampling_params params;
 
-    // Get model defaults if available
+    // Apply model defaults if available
     if (has_model_config(agent_cfg.model))
     {
-      const auto& model_cfg = get_model_config(agent_cfg.model);
-
-      // Apply model defaults
-      params.reasoning_effort = model_cfg.reasoning_effort.value_or("high");
-      params.temperature = model_cfg.temperature.value_or(0.6f);
-      if (model_cfg.top_p)
-        params.top_p = model_cfg.top_p;
-      if (model_cfg.top_k)
-        params.top_k = model_cfg.top_k;
-      if (model_cfg.max_tokens)
-        params.max_tokens = model_cfg.max_tokens;
-      if (model_cfg.frequency_penalty)
-        params.frequency_penalty = model_cfg.frequency_penalty;
-      if (model_cfg.presence_penalty)
-        params.presence_penalty = model_cfg.presence_penalty;
-      if (model_cfg.seed)
-        params.seed = model_cfg.seed;
-      if (model_cfg.safe_prompt)
-        params.safe_prompt = model_cfg.safe_prompt;
-      if (model_cfg.randomness)
-        params.randomness = model_cfg.randomness;
+      params = get_model_config(agent_cfg.model).sampling;
     }
-    else
+
+    // Built-in defaults for unset reasoning effort / temperature
+    if (!params.reasoning_effort)
     {
-      // Default values if no model config
       params.reasoning_effort = "high";
+    }
+    if (!params.temperature)
+    {
       params.temperature = 0.6f;
     }
 
     // Apply agent overrides (if specified)
-    if (agent_cfg.reasoning_effort)
-      params.reasoning_effort = *agent_cfg.reasoning_effort;
-    if (agent_cfg.temperature)
-      params.temperature = *agent_cfg.temperature;
-    if (agent_cfg.top_p)
-      params.top_p = *agent_cfg.top_p;
-    if (agent_cfg.top_k)
-      params.top_k = *agent_cfg.top_k;
-    if (agent_cfg.max_tokens)
-      params.max_tokens = *agent_cfg.max_tokens;
-    if (agent_cfg.frequency_penalty)
-      params.frequency_penalty = *agent_cfg.frequency_penalty;
-    if (agent_cfg.presence_penalty)
-      params.presence_penalty = *agent_cfg.presence_penalty;
-    if (agent_cfg.seed)
-      params.seed = *agent_cfg.seed;
-    if (agent_cfg.safe_prompt)
-      params.safe_prompt = *agent_cfg.safe_prompt;
-    if (agent_cfg.randomness)
-      params.randomness = *agent_cfg.randomness;
+    apply_sampling_overrides(params, agent_cfg.sampling);
 
     return params;
   }
