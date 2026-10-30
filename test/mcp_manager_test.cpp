@@ -16,6 +16,10 @@
 #include <map>
 #include <string>
 
+// The live test below needs the Storybook dev server; its helpers are
+// compiled only when MISTRAL_ENABLE_LIVE_MCP_TESTS is ON.
+#ifdef MISTRAL_ENABLE_LIVE_MCP_TESTS
+
 namespace
 {
   bool storybook_server_available()
@@ -103,6 +107,8 @@ namespace
   };
 } // namespace
 
+#endif // MISTRAL_ENABLE_LIVE_MCP_TESTS
+
 TEST_CASE("mcp_tool: forwards remote schema verbatim")
 {
   nlohmann::ordered_json schema;
@@ -156,6 +162,8 @@ TEST_CASE("mcp_manager: configure and status without connection")
   CHECK(mgr.instructions().empty());
 }
 
+#ifdef MISTRAL_ENABLE_LIVE_MCP_TESTS
+
 TEST_CASE("mcp_manager: live connect registers tools and dispatches")
 {
   if (!storybook_server_available())
@@ -183,3 +191,5 @@ TEST_CASE("mcp_manager: live connect registers tools and dispatches")
   REQUIRE(names.size() == 4);
   CHECK(names[0] == "stories-preview");
 }
+
+#endif // MISTRAL_ENABLE_LIVE_MCP_TESTS

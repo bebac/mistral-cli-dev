@@ -28,6 +28,54 @@ namespace mistral::mcp
       }
       return s;
     }
+
+    // Maps an SSL_get_error() result onto errno so the pump loop's
+    // retry check (EAGAIN/EWOULDBLOCK) and its std::strerror message
+    // stay meaningful. Without this a fatal TLS error leaves errno
+    // untouched, and a stale EAGAIN from an earlier call would make
+    // the loop retry until the request deadline and report a timeout
+    // instead of the real failure.
+    void map_ssl_error_to_errno(int ssl_error)
+    {
+      switch (ssl_error) {
+        case SSL_ERROR_WANT_READ:
+        case SSL_ERROR_WANT_WRITE:
+        case SSL_ERROR_WANT_X509_LOOKUP:
+          errno = EAGAIN;  // retryable: the pump loop polls again
+          break;
+        case SSL_ERROR_SYSCALL:
+          // The failing syscall set errno itself; only synthesise one
+          // when it did not (an unexpected EOF reported as SYSCALL).
+          if (errno == 0) {
+            errno = EIO;
+          }
+          break;
+        default:
+          // Fatal protocol error (SSL_ERROR_SSL and friends): fail fast.
+          errno = EIO;
+          break;
+      }
+    }
+
+    // Builds a human-readable reason for a failed TLS handshake. Must be
+    // called before the ssl_handle is destroyed: SSL_free() drains the
+    // OpenSSL error queue, so the reason has to be read while it is
+    // still queued.
+    std::string describe_tls_failure(SSL* ssl, int ret)
+    {
+      if (SSL_get_error(ssl, ret) == SSL_ERROR_ZERO_RETURN) {
+        return "TLS handshake failed: peer closed the connection";
+      }
+      if (ERR_peek_error() != 0) {
+        return "TLS handshake failed: " + net::tls_connection::get_ssl_error_details().first;
+      }
+      // Nothing queued: the failure came from the socket itself, so
+      // errno is the useful part.
+      if (errno != 0) {
+        return std::string("TLS handshake failed: ") + std::strerror(errno);
+      }
+      return "TLS handshake failed (no OpenSSL error queued)";
+    }
   } // namespace
 
   mcp_client::mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout)
@@ -46,57 +94,136 @@ namespace mistral::mcp
       throw std::runtime_error("invalid mcp endpoint url '" + endpoint_url_ + "': " + std::string(err->message));
     }
     auto& u = std::get<uri::uri_view>(parsed);
-    if (u.scheme() != "http") {
-      throw std::runtime_error("unsupported scheme in mcp endpoint '" + endpoint_url_ + "': only http is supported");
+    if (u.scheme() != "http" && u.scheme() != "https") {
+      throw std::runtime_error("unsupported scheme in mcp endpoint '" + endpoint_url_ + "': only http and https are supported");
     }
+    use_tls_ = (u.scheme() == "https");
     host_ = std::string(u.host());
     if (host_.empty()) {
       throw std::runtime_error("mcp endpoint has no host: " + endpoint_url_);
     }
-    port_ = u.port().empty() ? 80 : static_cast<uint16_t>(std::stoi(std::string(u.port())));
+    uint16_t default_port = use_tls_ ? 443 : 80;
+    port_ = u.port().empty() ? default_port : static_cast<uint16_t>(std::stoi(std::string(u.port())));
     path_ = u.path().empty() ? "/" : std::string(u.path());
-    host_header_ = (port_ == 80) ? host_ : host_ + ":" + std::to_string(port_);
+    host_header_ = (port_ == default_port) ? host_ : host_ + ":" + std::to_string(port_);
   }
 
   dripcore::awaitable<bool> mcp_client::connect()
   {
     ensure_endpoint_parsed();
     close();
+    connect_error_.clear();
     try
     {
       auto addr = net::address_info::resolve(host_, std::to_string(port_));
       if (!addr) {
+        connect_error_ = "cannot resolve host";
         co_return false;
       }
+      std::string last_socket_error;
       for (auto* res : *addr) {
         try {
           dripcore::socket sock{res->ai_family, res->ai_socktype,
                                 res->ai_protocol};
           sock.connect(res->ai_addr, res->ai_addrlen);
-          sock.nonblocking(true);
           socket_ = std::move(sock);
           break;
         }
-        catch (const std::exception&) {
+        catch (const std::exception& e) {
           // Try the next resolved address.
+          last_socket_error = e.what();
         }
       }
       if (!socket_) {
+        connect_error_ = last_socket_error.empty() ? "no usable address" : last_socket_error;
         co_return false;
       }
+      if (use_tls_) {
+        // TLS handshake while the socket is still in blocking mode, so
+        // SSL_connect completes fully or fails outright. No ALPN is
+        // offered: the server must default to HTTP/1.1, which is what
+        // the client_context speaks.
+        //
+        // The context is per-client and reused across connections; only
+        // the SSL handle is per-connection. Building it once keeps the
+        // cost off the hot path, which matters once it has to load the
+        // trust store for peer verification.
+        if (!ssl_ctx_) {
+          ssl_ctx_ = std::make_unique<net::ssl_context>();
+        }
+        ssl_ = std::make_unique<net::ssl_handle>(ssl_ctx_->get());
+        ssl_->set_hostname(host_);
+        ssl_->set_fd(socket_->platform_handle());
+        errno = 0;
+        int ret = ssl_->connect();
+        if (ret != 1) {
+          // Capture the reason before close(): SSL_free() drains the
+          // OpenSSL error queue.
+          connect_error_ = describe_tls_failure(ssl_->get(), ret);
+          close();
+          co_return false;
+        }
+      }
+      socket_->nonblocking(true);
       ctx_ = std::make_unique<http::client_context>();
       ctx_->set_protocol_version(http::protocol_version::v1_1);
       co_return true;
     }
+    catch (const std::exception& e) {
+      connect_error_ = e.what();
+      close();
+      co_return false;
+    }
     catch (...) {
+      connect_error_ = "unknown error";
+      close();
       co_return false;
     }
   }
 
   void mcp_client::close()
   {
+    // Only the per-connection state is released here. ssl_ctx_ is
+    // per-client and deliberately survives: every request uses its own
+    // connection (Connection: close), so tearing the context down would
+    // rebuild it on each round trip.
+    //
+    // Release the SSL handle before the socket it wraps.
+    ssl_.reset();
     socket_.reset();
     ctx_.reset();
+  }
+
+  mcp_client::~mcp_client() = default;
+
+  ssize_t mcp_client::stream_send(const void* buf, size_t len)
+  {
+    if (ssl_) {
+      // Cleared so SSL_ERROR_SYSCALL can be told apart from a stale
+      // errno left behind by an earlier call.
+      errno = 0;
+      int n = SSL_write(ssl_->get(), buf, static_cast<int>(len));
+      if (n <= 0) {
+        map_ssl_error_to_errno(SSL_get_error(ssl_->get(), n));
+      }
+      return n;
+    }
+    return socket_->send(buf, len, 0);
+  }
+
+  ssize_t mcp_client::stream_recv(void* buf, size_t len)
+  {
+    if (ssl_) {
+      // Cleared so SSL_ERROR_SYSCALL can be told apart from a stale
+      // errno left behind by an earlier call.
+      errno = 0;
+      int n = SSL_read(ssl_->get(), buf, static_cast<int>(len));
+      if (n <= 0) {
+        map_ssl_error_to_errno(SSL_get_error(ssl_->get(), n));
+      }
+      return n;
+    }
+    return socket_->recv(buf, len, 0);
   }
 
   // Sends one JSON-RPC message and pumps the I/O loop until the
@@ -107,7 +234,8 @@ namespace mistral::mcp
   {
     if (!socket_) {
       if (!(co_await connect())) {
-        throw std::runtime_error("cannot connect to " + host_ + ":" + std::to_string(port_));
+        std::string reason = connect_error_.empty() ? "unreachable" : connect_error_;
+        throw std::runtime_error("cannot connect to " + host_ + ":" + std::to_string(port_) + ": " + reason);
       }
     }
 
@@ -176,7 +304,7 @@ namespace mistral::mcp
       auto out = ctx_->output_begin();
       if (!out.empty())
       {
-        int n = static_cast<int>(socket_->send(out.data(), out.size(), 0));
+        int n = static_cast<int>(stream_send(out.data(), out.size()));
         if (n > 0)
         {
           ctx_->output_end(static_cast<size_t>(n));
@@ -194,7 +322,7 @@ namespace mistral::mcp
       auto in = ctx_->input_begin();
       if (!in.empty())
       {
-        int n = static_cast<int>(socket_->recv(in.data(), in.size(), 0));
+        int n = static_cast<int>(stream_recv(in.data(), in.size()));
         if (n > 0) {
           ctx_->input_end(static_cast<size_t>(n));
           continue;

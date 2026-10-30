@@ -52,7 +52,7 @@ namespace mistral::mcp
       return path;
     }
 
-    // Parse "http://host:port/path" into host, port, path.
+    // Parse "http(s)://host:port/path" into host, port, path.
     struct url_parts
     {
       std::string host;
@@ -69,7 +69,7 @@ namespace mistral::mcp
         return std::nullopt;
       }
       auto& u = std::get<uri::uri_view>(parsed);
-      if (u.scheme() != "http")
+      if (u.scheme() != "http" && u.scheme() != "https")
         return std::nullopt;
       url_parts parts;
       parts.host = std::string(u.host());
@@ -78,6 +78,10 @@ namespace mistral::mcp
       if (!u.port().empty())
       {
         parts.port = static_cast<uint16_t>(std::stoi(std::string(u.port())));
+      }
+      else if (u.scheme() == "https")
+      {
+        parts.port = 443;
       }
       parts.path = u.path().empty() ? "/" : std::string(u.path());
       return parts;

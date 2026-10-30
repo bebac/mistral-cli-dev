@@ -15,6 +15,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # search instead.
 option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" ON)
 
+# Live MCP integration tests. These talk to real servers - the Storybook dev
+# server on 127.0.0.1:6006, a xerj node on localhost:9200, and godbolt.org
+# over the internet - so they are opt-in and off by default. They skip
+# themselves when the server is unreachable, but they are slow, assert on
+# third-party tool surfaces, and cannot run in a sandboxed CI.
+#
+# Enable with: cmake -DMISTRAL_ENABLE_LIVE_MCP_TESTS=ON ..
+option(MISTRAL_ENABLE_LIVE_MCP_TESTS "Build tests that require a live MCP server" OFF)
+
 # -----------------------------------------------------------------------------
 # Third-party: dripcore
 # -----------------------------------------------------------------------------
@@ -260,6 +269,11 @@ add_executable(tests
 )
 
 target_compile_features(tests PRIVATE cxx_std_20)
+
+# Live MCP tests are guarded by this define in the test sources.
+if(MISTRAL_ENABLE_LIVE_MCP_TESTS)
+    target_compile_definitions(tests PRIVATE MISTRAL_ENABLE_LIVE_MCP_TESTS=1)
+endif()
 
 target_include_directories(tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/test

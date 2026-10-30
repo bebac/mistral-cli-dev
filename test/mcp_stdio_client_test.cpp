@@ -10,6 +10,10 @@
 #include <iostream>
 #include <string>
 
+// The only test in this file spawns a real xerj MCP server, so the whole
+// file is compiled only when MISTRAL_ENABLE_LIVE_MCP_TESTS is ON.
+#ifdef MISTRAL_ENABLE_LIVE_MCP_TESTS
+
 namespace
 {
   bool xerj_node_available()
@@ -142,3 +146,5 @@ TEST_CASE("mcp_stdio_client: connect to xerj mcp and list tools")
   CHECK(has_search);
   CHECK(has_code_search);
 }
+
+#endif // MISTRAL_ENABLE_LIVE_MCP_TESTS
