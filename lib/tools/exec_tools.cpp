@@ -121,11 +121,15 @@ namespace mistral::tools
       std::string error;
       if (spawned == common::spawn_status::pipe_failed)
       {
-        error = "failed to create pipes";
+        error = std::format("failed to create pipes: {}", strerror(sub.spawn_errno()));
       }
       else if (spawned == common::spawn_status::fork_failed)
       {
         error = std::format("fork failed: {}", strerror(sub.spawn_errno()));
+      }
+      else if (spawned == common::spawn_status::exec_failed)
+      {
+        error = std::format("exec failed: {}", strerror(sub.spawn_errno()));
       }
       else
       {
@@ -228,11 +232,10 @@ namespace mistral::tools
 
       // Check if child has exited (non-blocking reap; ~subprocess()
       // knows the child was reaped and will not kill a recycled pid).
-      int status;
-      if (sub.try_reap(&status))
+      if (auto status = sub.try_reap())
       {
         // Child exited normally
-        final_status = status;
+        final_status = *status;
         child_exited_normally = true;
         break;
       }
@@ -256,8 +259,7 @@ namespace mistral::tools
       // survive the timeout, then reap (blocking is fine here: the
       // group has SIGKILL pending).
       sub.kill();
-      int status;
-      sub.wait(&status);
+      sub.wait(); // blocking is fine here: the group has SIGKILL pending
 
       co_return {
         {"error", std::format("command timed out after {} seconds", timeout_seconds)},

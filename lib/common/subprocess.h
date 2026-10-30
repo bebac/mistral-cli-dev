@@ -2,6 +2,7 @@
 #define MISTRAL_COMMON_SUBPROCESS_H
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,7 +16,11 @@ namespace mistral::common
     ok,
     command_not_found,
     pipe_failed,
-    fork_failed
+    fork_failed,
+    // The child was forked but execve() failed (bad interpreter,
+    // ETXTBSY, wrong architecture, ...). spawn_errno() holds the errno
+    // the child reported through the exec-status pipe.
+    exec_failed
   };
 
   // Options for spawning a child process.
@@ -47,16 +52,23 @@ namespace mistral::common
   // The child is started in its own process group (setpgid on both
   // sides) so kill() takes down the whole child tree, including any
   // grandchildren. kill() and the destructor never block: the reap
-  // uses waitpid(WNOHANG) — a child that does not die immediately is
-  // left to init(8) rather than freezing the event loop or process
-  // exit. wait() is the blocking variant, only sensible after kill()
-  // (SIGKILL pending) or once try_reap() is known to be futile.
+  // uses waitpid(WNOHANG). A child that does not die immediately stays
+  // a zombie until it is collected — init(8) only reaps it once this
+  // process exits — so a long-running process that kills many children
+  // must either call wait() (blocking, safe once SIGKILL is pending) or
+  // keep calling kill()/try_reap() to collect them. wait() is the
+  // blocking variant, only sensible after kill() or once try_reap() is
+  // known to be futile.
   //
   // All parent-side pipe fds are opened non-blocking (for dripcore
   // io_awaiter compatibility) and with FD_CLOEXEC so later fork/exec
   // children do not inherit them. The child closes ALL inherited fds
   // above stderr before exec (kqueue fd, wakeup pipe, other children's
   // pipes) — otherwise pipes never see EOF and the event loop hangs.
+  //
+  // Callers that write to the stdin pipe must ignore SIGPIPE (every CLI
+  // entry point does): writing to a child that has already exited
+  // raises it, and the default action terminates the process.
   class subprocess
   {
   public:
@@ -68,8 +80,10 @@ namespace mistral::common
     subprocess(subprocess&&) = delete;
     subprocess& operator=(subprocess&&) = delete;
 
-    // Spawns the child process. Returns spawn_status::ok on success;
-    // on failure no child is left running.
+    // Spawns the child process, killing any previously spawned child
+    // first. Returns spawn_status::ok on success. On failure no child
+    // is left running and pid()/spawn_errno() are reset, so they never
+    // report a previous spawn.
     spawn_status spawn(const subprocess_options& options);
 
     // True while the child has been spawned and has not been reaped
@@ -96,7 +110,8 @@ namespace mistral::common
       return stderr_fd_;
     }
 
-    // errno of the failed fork() call (0 otherwise).
+    // errno of the failed spawn step — pipe creation, fork or exec
+    // (0 otherwise).
     int spawn_errno() const
     {
       return spawn_errno_;
@@ -106,22 +121,35 @@ namespace mistral::common
     // No-op when stdin is not piped.
     void close_stdin();
 
-    // Non-blocking reap attempt. Returns true when the child has
-    // exited and stores the waitpid status; after a true return the
-    // destructor no longer kills (the pid may have been recycled).
-    bool try_reap(int* status);
+    // Non-blocking reap attempt. Returns the waitpid status once the
+    // child is known to be gone, or nullopt while it is still running.
+    // An already-reaped child returns its stored status immediately. A
+    // child reaped elsewhere — or one whose SIGCHLD is ignored, so
+    // waitpid reports ECHILD — also counts as gone, with an
+    // unrecoverable status of 0. After a successful reap the destructor
+    // no longer kills (the pid may have been recycled).
+    std::optional<int> try_reap();
 
-    // Blocking reap: waits until the child exits and stores the
-    // waitpid status. Only call this when the child cannot run for
-    // long (e.g. right after kill()); a live child would freeze the
-    // caller.
-    bool wait(int* status);
+    // Blocking reap: waits until the child exits and returns the
+    // waitpid status, or nullopt when there is nothing to reap. Retries
+    // on EINTR — SIGINT is installed without SA_RESTART, so a signal
+    // would otherwise report failure. Only call this when the child
+    // cannot run for long (e.g. right after kill()); a live child would
+    // freeze the caller.
+    std::optional<int> wait();
 
     // Kill the entire process group (SIGKILL, falling back to the
     // direct child), reap with WNOHANG, and close all pipe fds.
+    // Safe to call repeatedly: later calls skip the signal but retry
+    // the non-blocking reap, so a child that was still dying on the
+    // first call is collected on the next one.
     void kill();
 
   private:
+    // Single non-blocking reap attempt; true when the child is known
+    // to be gone (collected here, or already collected elsewhere).
+    bool reap_wnohang();
+
     void close_fds();
 
     pid_t pid_ = -1;

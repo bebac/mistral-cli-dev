@@ -3,11 +3,16 @@
 #include "common/executable_finder.h"
 
 #include <cerrno>
-#include <memory>
+#include <cstddef>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if defined(__linux__)
+#include <sys/syscall.h> // SYS_close_range
+#endif
 
 // environ is not declared by <unistd.h> on all platforms (macOS).
 extern char** environ;
@@ -16,84 +21,241 @@ namespace mistral::common
 {
   namespace
   {
-    // RAII wrapper for a file descriptor.
-    class fd_guard
+    // Lowest descriptor the child may inherit: 0/1/2 are its stdio.
+    constexpr int k_first_child_fd = 3;
+
+    // How long spawn() waits for the child to report the result of
+    // execve(). Only reached when the child is stuck before exec'ing
+    // (e.g. chdir() on a hung network mount).
+    constexpr int k_exec_report_timeout_ms = 100;
+
+    // Moves `fd` up to at least `min_fd` (F_DUPFD) so it cannot collide
+    // with the child's stdio descriptors, closing the original. Returns
+    // the new descriptor, or -1 on failure.
+    int move_fd_above(int fd, int min_fd)
     {
-    public:
-      explicit fd_guard(int fd = -1) : fd_(fd)
+      if (fd < 0 || fd >= min_fd)
       {
+        return fd;
       }
-      ~fd_guard()
-      {
-        if (fd_ >= 0)
-          ::close(fd_);
-      }
-      fd_guard(const fd_guard&) = delete;
-      fd_guard& operator=(const fd_guard&) = delete;
-      int get() const
-      {
-        return fd_;
-      }
-      int release()
-      {
-        int tmp = fd_;
-        fd_ = -1;
-        return tmp;
-      }
+      int moved = ::fcntl(fd, F_DUPFD, min_fd);
+      ::close(fd);
+      return moved;
+    }
 
-    private:
-      int fd_;
-    };
-
-    // RAII wrapper for a pipe (two fds).
+    // Owns both ends of a pipe and closes whichever ends are still open
+    // on destruction. A default-constructed guard owns nothing; create()
+    // populates it.
     class pipe_guard
     {
     public:
-      pipe_guard()
+      pipe_guard() = default;
+      ~pipe_guard()
+      {
+        close_read();
+        close_write();
+      }
+      pipe_guard(const pipe_guard&) = delete;
+      pipe_guard& operator=(const pipe_guard&) = delete;
+
+      // Creates the pipe with both ends above the child's stdio
+      // descriptors. Returns false on failure (errno preserved).
+      bool create()
       {
         int fds[2];
-        if (::pipe(fds) == 0)
+        if (::pipe(fds) != 0)
         {
-          read_fd_ = std::make_unique<fd_guard>(fds[0]);
-          write_fd_ = std::make_unique<fd_guard>(fds[1]);
+          return false;
         }
+        read_fd_ = move_fd_above(fds[0], k_first_child_fd);
+        write_fd_ = move_fd_above(fds[1], k_first_child_fd);
+        return valid();
+      }
+
+      bool valid() const
+      {
+        return read_fd_ >= 0 && write_fd_ >= 0;
       }
       int read_fd() const
       {
-        return read_fd_ ? read_fd_->get() : -1;
+        return read_fd_;
       }
       int write_fd() const
       {
-        return write_fd_ ? write_fd_->get() : -1;
-      }
-      bool valid() const
-      {
-        return read_fd() >= 0 && write_fd() >= 0;
+        return write_fd_;
       }
       int release_read()
       {
-        return read_fd_ ? read_fd_->release() : -1;
+        int fd = read_fd_;
+        read_fd_ = -1;
+        return fd;
       }
       int release_write()
       {
-        return write_fd_ ? write_fd_->release() : -1;
+        int fd = write_fd_;
+        write_fd_ = -1;
+        return fd;
+      }
+      void close_read()
+      {
+        if (read_fd_ >= 0)
+        {
+          ::close(read_fd_);
+          read_fd_ = -1;
+        }
+      }
+      void close_write()
+      {
+        if (write_fd_ >= 0)
+        {
+          ::close(write_fd_);
+          write_fd_ = -1;
+        }
       }
 
     private:
-      std::unique_ptr<fd_guard> read_fd_;
-      std::unique_ptr<fd_guard> write_fd_;
+      int read_fd_ = -1;
+      int write_fd_ = -1;
     };
+
+    // Sets FD_CLOEXEC on `fd`, preserving the other descriptor flags.
+    // Failure is not fatal: the child closes every inherited descriptor
+    // above stderr before exec anyway (see close_inherited_fds()).
+    void set_cloexec(int fd)
+    {
+      if (fd < 0)
+        return;
+      int flags = ::fcntl(fd, F_GETFD);
+      if (flags != -1)
+      {
+        ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+      }
+    }
 
     // Mark a parent-side pipe fd non-blocking (dripcore io_awaiter
     // compatibility) and close-on-exec (so later fork/exec children do
     // not inherit it — prevents pipe-EOF deadlocks when the parent
     // spawns another child while this one is still running).
+    //
+    // F_SETFL replaces the whole status-flag set, so read the current
+    // flags first instead of overwriting them.
     void set_cloexec_nonblock(int fd)
     {
       if (fd < 0)
         return;
-      ::fcntl(fd, F_SETFL, O_NONBLOCK);
-      ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+      int status_flags = ::fcntl(fd, F_GETFL);
+      if (status_flags != -1)
+      {
+        ::fcntl(fd, F_SETFL, status_flags | O_NONBLOCK);
+      }
+      set_cloexec(fd);
+    }
+
+    // Child-side failure reporting: write a fixed message to stderr,
+    // report `error` through the exec-status pipe (so the parent can
+    // tell an exec failure apart from a command that exited 127), and
+    // exit. Only async-signal-safe calls (write/_exit) — the child must
+    // not allocate or take locks after fork().
+    [[noreturn]] void child_fail(const char* message, std::size_t length, int report_fd, int error)
+    {
+      ::write(STDERR_FILENO, message, length);
+      if (report_fd >= 0)
+      {
+        ::write(report_fd, &error, sizeof(error));
+      }
+      ::_exit(127);
+    }
+
+    // Child-side stdio redirection. Exits the child if dup2 fails so it
+    // never runs with the wrong streams. No report fd is available yet
+    // at this point — the parent learns about it from the exit status
+    // and the stderr message.
+    void child_dup2(int new_fd, int target_fd)
+    {
+      if (::dup2(new_fd, target_fd) == -1)
+      {
+        child_fail("dup2 failed\n", sizeof("dup2 failed\n") - 1, -1, errno);
+      }
+    }
+
+    // Portable fallback for close_inherited_fds(): one close() per
+    // descriptor.
+    void close_fd_range_loop(int first)
+    {
+      long max_fd = ::sysconf(_SC_OPEN_MAX);
+      if (max_fd < 0)
+      {
+        max_fd = 1024;
+      }
+      for (long fd = first; fd < max_fd; ++fd)
+      {
+        ::close(static_cast<int>(fd));
+      }
+    }
+
+    // Child-side: close every inherited descriptor above stderr except
+    // `keep_fd` (the exec-status pipe).
+    //
+    // The child inherits the dripcore kqueue/epoll fd, the wakeup pipe
+    // and any other child's stdio pipes. Without this the child holds
+    // the parent's wakeup pipe write ends open — when the parent closes
+    // its write ends during shutdown the pipes never see EOF, the
+    // dripcore tasks block forever on readable(), and sched.run() never
+    // returns (CTRL-C hang). FD_CLOEXEC is not enough: the kqueue fd on
+    // macOS has no CLOEXEC variant.
+    //
+    // The bulk syscalls are preferred because the loop costs one
+    // close() per descriptor and _SC_OPEN_MAX is routinely 1,048,576 on
+    // Linux.
+    void close_inherited_fds(int keep_fd)
+    {
+      // The gap below keep_fd is a handful of low-numbered pipe fds, so
+      // a short loop is cheaper than any bulk syscall here.
+      for (int fd = k_first_child_fd; fd < keep_fd; ++fd)
+      {
+        ::close(fd);
+      }
+      int first = (keep_fd >= k_first_child_fd) ? keep_fd + 1 : k_first_child_fd;
+#if defined(__linux__) && defined(SYS_close_range)
+      // Linux 5.9+: one syscall instead of one per descriptor.
+      if (::syscall(SYS_close_range, static_cast<unsigned int>(first), ~0U, 0U) != 0)
+      {
+        close_fd_range_loop(first); // kernel older than 5.9 (ENOSYS)
+      }
+#else
+      // macOS exposes neither closefrom() nor close_range() in its
+      // public headers, but its _SC_OPEN_MAX is small (a few thousand),
+      // so the loop is cheap there. BSDs could use closefrom() if they
+      // ever become targets.
+      close_fd_range_loop(first);
+#endif
+    }
+
+    // Reads the exec result from the status pipe: 0 when the child
+    // exec'd successfully (the close-on-exec write end closed, giving
+    // EOF), the reported errno otherwise. Bounded by
+    // k_exec_report_timeout_ms so a child stuck before execve() cannot
+    // freeze spawn().
+    int read_exec_status(int fd)
+    {
+      if (fd < 0)
+      {
+        return 0;
+      }
+      struct pollfd pfd{};
+      pfd.fd = fd;
+      pfd.events = POLLIN;
+      if (::poll(&pfd, 1, k_exec_report_timeout_ms) <= 0)
+      {
+        return 0; // timeout or error: assume the child is exec'ing
+      }
+      int reported = 0;
+      ssize_t n = ::read(fd, &reported, sizeof(reported));
+      if (n == static_cast<ssize_t>(sizeof(reported)) && reported != 0)
+      {
+        return reported;
+      }
+      return 0;
     }
   } // namespace
 
@@ -116,7 +278,9 @@ namespace mistral::common
       bool replaced = false;
       for (auto& s : env_strings)
       {
-        if (s.starts_with(key + "="))
+        // Compare in place: building a temporary "key=" string for
+        // every inherited entry would allocate per comparison.
+        if (s.size() > key.size() && s.compare(0, key.size(), key) == 0 && s[key.size()] == '=')
         {
           s = entry;
           replaced = true;
@@ -140,23 +304,57 @@ namespace mistral::common
   {
     kill(); // reset any previously spawned child
 
+    // A previous child that was killed but not reaped is abandoned
+    // here (init(8) collects it once this process exits). Clearing the
+    // state means a failed spawn never reports the previous child's
+    // pid, errno or status.
+    pid_ = -1;
+    spawn_errno_ = 0;
+    status_ = 0;
+    reaped_ = false;
+    killed_ = false;
+
     std::string exec_path = utils::find_executable(options.command);
     if (exec_path.empty())
     {
       return spawn_status::command_not_found;
     }
 
-    // Pipes for the requested stdio streams.
-    pipe_guard stdin_pipe;  // parent writes -> child reads
-    pipe_guard stdout_pipe; // child writes  -> parent reads
-    pipe_guard stderr_pipe; // child writes  -> parent reads (drained)
+    // Pipes for the requested stdio streams only — creating all three
+    // would burn six descriptors per spawn, four of which are closed
+    // again immediately.
+    pipe_guard stdin_pipe;       // parent writes -> child reads
+    pipe_guard stdout_pipe;      // child writes  -> parent reads
+    pipe_guard stderr_pipe;      // child writes  -> parent reads (drained)
+    pipe_guard exec_status_pipe; // child reports execve() failure
+
+    auto create_pipe = [&](bool requested, pipe_guard& pipe) {
+      if (!requested)
+      {
+        return true;
+      }
+      if (pipe.create())
+      {
+        return true;
+      }
+      spawn_errno_ = errno;
+      return false;
+    };
     if (
-      (options.pipe_stdin && !stdin_pipe.valid()) || (options.pipe_stdout && !stdout_pipe.valid()) ||
-      (options.pipe_stderr && !stderr_pipe.valid())
+      !create_pipe(options.pipe_stdin, stdin_pipe) || !create_pipe(options.pipe_stdout, stdout_pipe) ||
+      !create_pipe(options.pipe_stderr, stderr_pipe)
     )
     {
       return spawn_status::pipe_failed;
     }
+    if (!exec_status_pipe.create())
+    {
+      spawn_errno_ = errno;
+      return spawn_status::pipe_failed;
+    }
+    // The write end must close when execve() succeeds; that is how the
+    // parent learns the child got past exec.
+    set_cloexec(exec_status_pipe.write_fd());
 
     // Build argv and envp. The storage must live across fork/exec, so
     // it is prepared here (before fork) rather than allocated in the
@@ -191,12 +389,16 @@ namespace mistral::common
 
     if (pid == 0)
     {
-      // Child: wire up the requested stdio streams and exec.
+      // Child. Everything below runs between fork() and execve() in a
+      // process that may have had other threads at fork time, so it
+      // must stay async-signal-safe: no allocation, no locks, no
+      // std::string work. The argv/envp buffers were built above for
+      // exactly this reason.
       ::setpgid(0, 0);
 
       if (options.pipe_stdin)
       {
-        ::dup2(stdin_pipe.read_fd(), STDIN_FILENO);
+        child_dup2(stdin_pipe.read_fd(), STDIN_FILENO);
       }
       else
       {
@@ -204,21 +406,21 @@ namespace mistral::common
         int devnull_fd = ::open("/dev/null", O_RDONLY);
         if (devnull_fd >= 0)
         {
-          ::dup2(devnull_fd, STDIN_FILENO);
+          child_dup2(devnull_fd, STDIN_FILENO);
           ::close(devnull_fd);
         }
       }
       if (options.pipe_stdout)
       {
-        ::dup2(stdout_pipe.write_fd(), STDOUT_FILENO);
+        child_dup2(stdout_pipe.write_fd(), STDOUT_FILENO);
       }
       if (options.pipe_stderr)
       {
-        ::dup2(stderr_pipe.write_fd(), STDERR_FILENO);
+        child_dup2(stderr_pipe.write_fd(), STDERR_FILENO);
       }
 
-      // Close all pipe fds (they're dup'd now). Unrequested pipes
-      // have fd -1, which ::close ignores.
+      // Close the parent-side pipe ends (they're dup'd now). Unrequested
+      // pipes have fd -1, which ::close ignores.
       ::close(stdin_pipe.read_fd());
       ::close(stdin_pipe.write_fd());
       ::close(stdout_pipe.read_fd());
@@ -226,33 +428,19 @@ namespace mistral::common
       ::close(stderr_pipe.read_fd());
       ::close(stderr_pipe.write_fd());
 
-      // Close ALL other inherited file descriptors (kqueue fd from
-      // the dripcore event loop, wakeup pipe fds, other children's
-      // stdio pipe fds, etc.). Without this, the child holds the
-      // parent's wakeup pipe write ends open — when the parent closes
-      // its write ends during shutdown, the pipes never see EOF, the
-      // dripcore tasks block forever on readable(), and sched.run()
-      // never returns (CTRL-C hang). Note: wakeup_pipe now sets
-      // FD_CLOEXEC, but the kqueue fd (macOS) has no CLOEXEC variant,
-      // so we close everything here.
-      long max_fd = ::sysconf(_SC_OPEN_MAX);
-      if (max_fd < 0)
-        max_fd = 1024;
-      for (long fd = 3; fd < max_fd; ++fd)
-      {
-        ::close(static_cast<int>(fd));
-      }
+      // Close every other inherited descriptor, keeping the exec-status
+      // write end so the failures below can still be reported.
+      int report_fd = exec_status_pipe.write_fd();
+      close_inherited_fds(report_fd);
 
       if (!options.cwd.empty() && ::chdir(options.cwd.c_str()) != 0)
       {
-        ::write(STDERR_FILENO, "chdir failed\n", 13);
-        ::_exit(127);
+        child_fail("chdir failed\n", sizeof("chdir failed\n") - 1, report_fd, errno);
       }
 
       ::execve(exec_path.c_str(), argv.data(), envp.data());
       // If we get here, exec failed.
-      ::write(STDERR_FILENO, "execve failed\n", 14);
-      ::_exit(127);
+      child_fail("execve failed\n", sizeof("execve failed\n") - 1, report_fd, errno);
     }
 
     // Parent: put the child in its own process group from this side
@@ -261,11 +449,24 @@ namespace mistral::common
     // storybook -> esbuild, etc.) must be killable as a group.
     ::setpgid(pid, pid);
 
-    pid_ = pid;
-    spawn_errno_ = 0;
-    status_ = 0;
-    reaped_ = false;
-    killed_ = false;
+    // Close the child's end of the status pipe, then read the exec
+    // result: EOF means execve() succeeded, a reported errno means the
+    // child gave up before exec'ing.
+    exec_status_pipe.close_write();
+    int exec_errno = read_exec_status(exec_status_pipe.read_fd());
+    if (exec_errno != 0)
+    {
+      // The child has already called _exit(); collect it so no zombie
+      // is left behind and pid() does not report a dead child.
+      int st = 0;
+      while (::waitpid(pid, &st, 0) == -1 && errno == EINTR)
+      {
+      }
+      spawn_errno_ = exec_errno;
+      return spawn_status::exec_failed;
+    }
+
+    pid_ = pid; // the rest of the state was reset at the top
 
     // Take the parent-side pipe fds (pipe_guard closes the remaining
     // — child-side — ends on scope exit, so the parent never holds a
@@ -297,46 +498,77 @@ namespace mistral::common
     }
   }
 
-  bool subprocess::try_reap(int* status)
+  std::optional<int> subprocess::try_reap()
+  {
+    if (!reap_wnohang())
+    {
+      return std::nullopt; // still running, or interrupted (EINTR)
+    }
+    return status_;
+  }
+
+  bool subprocess::reap_wnohang()
   {
     if (pid_ <= 0 || reaped_)
     {
-      return false;
+      return reaped_;
     }
     int st = 0;
-    if (::waitpid(pid_, &st, WNOHANG) != pid_)
+    pid_t result = ::waitpid(pid_, &st, WNOHANG);
+    if (result == pid_)
     {
-      return false; // still running (or transient waitpid error)
+      reaped_ = true;
+      status_ = st;
+      return true;
     }
-    reaped_ = true;
-    status_ = st;
-    if (status)
+    if (result == -1 && errno == ECHILD)
     {
-      *status = st;
+      // Reaped by someone else (or SIGCHLD is ignored, so the kernel
+      // auto-reaps): the status is unrecoverable, but the child is
+      // definitively gone. Mark it reaped so pid_ is never touched
+      // again — it may already have been recycled.
+      reaped_ = true;
+      return true;
     }
-    return true;
+    return false;
   }
 
-  bool subprocess::wait(int* status)
+  std::optional<int> subprocess::wait()
   {
     if (pid_ <= 0)
     {
-      return false;
+      return std::nullopt;
     }
     if (!reaped_)
     {
       int st = 0;
-      if (::waitpid(pid_, &st, 0) == pid_)
+      while (true)
       {
-        reaped_ = true;
-        status_ = st;
+        pid_t result = ::waitpid(pid_, &st, 0);
+        if (result == pid_)
+        {
+          reaped_ = true;
+          status_ = st;
+          break;
+        }
+        if (result == -1 && errno == EINTR)
+        {
+          // Interrupted by a signal handler (SIGINT is installed
+          // without SA_RESTART): retry rather than reporting failure.
+          continue;
+        }
+        if (result == -1 && errno == ECHILD)
+        {
+          reaped_ = true; // gone, status unrecoverable
+        }
+        break;
       }
     }
-    if (status)
+    if (!reaped_)
     {
-      *status = status_;
+      return std::nullopt;
     }
-    return reaped_;
+    return status_;
   }
 
   void subprocess::kill()
@@ -351,22 +583,20 @@ namespace mistral::common
       {
         ::kill(pid_, SIGKILL);
       }
-      // Reap without blocking. kill() runs in two contexts:
-      //   1. error paths in dripcore coroutines — a blocking waitpid()
-      //      here would freeze the entire event loop (TUI hang);
-      //   2. the destructor during process exit — a blocking
-      //      waitpid() here would hang the process exit if the child
-      //      is stuck (e.g. D-state, slow shutdown).
-      // The child will be reaped by init(8) when it exits if we don't
-      // reap it here; a zombie is harmless.
-      int st = 0;
-      if (::waitpid(pid_, &st, WNOHANG) == pid_)
-      {
-        reaped_ = true;
-        status_ = st;
-      }
     }
     killed_ = true;
+
+    // Reap without blocking. kill() runs in two contexts:
+    //   1. error paths in dripcore coroutines — a blocking waitpid()
+    //      here would freeze the entire event loop (TUI hang);
+    //   2. the destructor during process exit — a blocking
+    //      waitpid() here would hang the process exit if the child
+    //      is stuck (e.g. D-state, slow shutdown).
+    // A child that is not dead yet stays a zombie until someone
+    // collects it (init(8) only reaps it once this process exits), so
+    // every call retries the reap — not just the first one.
+    reap_wnohang();
+
     close_fds();
   }
 
