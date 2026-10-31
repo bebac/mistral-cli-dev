@@ -214,14 +214,17 @@ namespace mistral::tools
     class find_references_task : public dripcore::task
     {
     public:
-      find_references_task(code_tools& tools, std::string name, std::string path, json& out)
-        : tools_(tools), name_(std::move(name)), path_(std::move(path)), out_(out)
+      find_references_task(
+        code_tools& tools, std::string name, std::string path, bool include_definitions, json& out
+      )
+        : tools_(tools), name_(std::move(name)), path_(std::move(path)),
+          include_definitions_(include_definitions), out_(out)
       {
       }
 
       dripcore::awaitable<> body() override
       {
-        out_ = co_await tools_.find_references(name_, path_);
+        out_ = co_await tools_.find_references(name_, path_, include_definitions_);
         co_return;
       }
 
@@ -229,6 +232,7 @@ namespace mistral::tools
       code_tools& tools_;
       std::string name_;
       std::string path_;
+      bool include_definitions_;
       json& out_;
     };
 
@@ -241,11 +245,13 @@ namespace mistral::tools
       return result;
     }
 
-    json run_find_references(code_tools& tools, const std::string& name, const std::string& path)
+    json run_find_references(
+      code_tools& tools, const std::string& name, const std::string& path, bool include_definitions = true
+    )
     {
       json result;
       dripcore::scheduler scheduler;
-      scheduler.spawn<find_references_task>(tools, name, path, result);
+      scheduler.spawn<find_references_task>(tools, name, path, include_definitions, result);
       scheduler.run();
       return result;
     }
@@ -430,19 +436,173 @@ TEST_CASE("code_tools: find_symbol handles paths with trailing slashes")
   CHECK(result["matches"][0]["name"] == "gamma");
 }
 
-TEST_CASE("code_tools: find_references finds usage sites, not definitions")
+TEST_CASE("code_tools: find_symbol accepts a single file")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+  const std::string file = (project.root / "a.cpp").string();
+
+  auto result = mistral::tools::run_find_symbol(tools, "alpha", file);
+
+  REQUIRE(result.contains("matches"));
+  CHECK(result["match"] == "exact");
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["name"] == "alpha");
+  CHECK(result["matches"][0]["kind"] == "function");
+  CHECK(result["matches"][0]["line_start"].get<int>() == 1);
+  // The matched line is included, so no follow-up read is needed.
+  CHECK(result["matches"][0]["text"].get<std::string>() == "int alpha() { return 1; }");
+
+  // Symbols defined in sibling files are not returned.
+  result = mistral::tools::run_find_symbol(tools, "gamma", file);
+  CHECK(result["count"].get<int>() == 0);
+
+  // Substring fallback works for a single file too.
+  result = mistral::tools::run_find_symbol(tools, "alp", file);
+  CHECK(result["match"] == "substring");
+  REQUIRE(result["count"].get<int>() == 1);
+
+  // A non-C/C++ file is rejected by the parser.
+  const fs::path not_code = project.root / "notes.txt";
+  {
+    std::ofstream out(not_code);
+    out << "int alpha() { return 1; }\n";
+  }
+  result = mistral::tools::run_find_symbol(tools, "alpha", not_code.string());
+  CHECK(result.contains("error"));
+}
+
+TEST_CASE("code_tools: find_symbol explains a zero result")
 {
   mistral::tools::code_tools tools;
   mistral::tools::sample_project project;
 
+  // Defined elsewhere, used here: the hint says so instead of leaving
+  // "count: 0" to be misread as "does not exist".
+  const fs::path caller_file = project.root / "caller.cpp";
+  {
+    std::ofstream out(caller_file);
+    out << "int use() { return alpha(); }\n"
+        << "int use2() { return alpha(); }\n";
+  }
+
+  auto result = mistral::tools::run_find_symbol(tools, "alpha", caller_file.string());
+  REQUIRE(result["count"].get<int>() == 0);
+  REQUIRE(result.contains("hint"));
+  const std::string hint = result["hint"].get<std::string>();
+  CHECK(hint.find("used 2 time(s)") != std::string::npos);
+  CHECK(hint.find("find_references") != std::string::npos);
+
+  // Absent entirely: the hint says that instead.
+  result = mistral::tools::run_find_symbol(tools, "nosuchsymbol", caller_file.string());
+  REQUIRE(result["count"].get<int>() == 0);
+  REQUIRE(result.contains("hint"));
+  CHECK(result["hint"].get<std::string>().find("no definition or usage") != std::string::npos);
+
+  // Directory mode with source files: the hint reports how many were
+  // searched, so a zero is known to be meaningful.
+  result = mistral::tools::run_find_symbol(tools, "nosuchsymbol", project.root.string());
+  REQUIRE(result["count"].get<int>() == 0);
+  REQUIRE(result.contains("hint"));
+  CHECK(result["hint"].get<std::string>().find("source file(s) searched") != std::string::npos);
+
+  // Directory mode with no C/C++ files at all: the search was vacuous, and
+  // the hint says so rather than implying the symbol does not exist.
+  const fs::path empty_dir = project.root / "empty";
+  fs::create_directories(empty_dir);
+  {
+    std::ofstream out(empty_dir / "notes.md");
+    out << "no code here\n";
+  }
+  result = mistral::tools::run_find_symbol(tools, "nosuchsymbol", empty_dir.string());
+  REQUIRE(result["count"].get<int>() == 0);
+  REQUIRE(result.contains("hint"));
+  CHECK(result["hint"].get<std::string>().find("no C/C++ source files") != std::string::npos);
+
+  // A successful lookup carries no hint.
+  result = mistral::tools::run_find_symbol(tools, "alpha", project.root.string());
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK_FALSE(result.contains("hint"));
+}
+
+TEST_CASE("code_tools: find_references accepts a single file")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+  const std::string file = (project.root / "a.cpp").string();
+
+  // Definition and usage both come back from one call.
+  auto result = mistral::tools::run_find_references(tools, "alpha", file);
+
+  REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 2);
+  int definitions = 0;
+  int usages = 0;
+  for (const auto& match : result["matches"])
+  {
+    if (match.contains("is_definition"))
+    {
+      ++definitions;
+      CHECK(match["line"].get<int>() == 1);
+    }
+    else
+    {
+      ++usages;
+      CHECK(match["line"].get<int>() == 2);
+    }
+  }
+  CHECK(definitions == 1);
+  CHECK(usages == 1);
+
+  // Usages only.
+  result = mistral::tools::run_find_references(tools, "alpha", file, false);
+  REQUIRE(result["count"].get<int>() == 1);
+  CHECK(result["matches"][0]["line"].get<int>() == 2);
+
+  // Symbols used only in sibling files are not reported.
+  result = mistral::tools::run_find_references(tools, "gamma", file);
+  CHECK(result["count"].get<int>() == 0);
+}
+
+TEST_CASE("code_tools: find_references includes definitions by default")
+{
+  mistral::tools::code_tools tools;
+  mistral::tools::sample_project project;
+  const auto expected_a = fs::relative(project.root / "a.cpp", fs::current_path()).string();
+
+  // Default: definitions come back too, flagged, so one call answers
+  // "where is X defined and used?".
   auto result = mistral::tools::run_find_references(tools, "alpha", project.root.string());
 
   REQUIRE(result.contains("matches"));
+  REQUIRE(result["count"].get<int>() == 2);
+
+  int definitions = 0;
+  int usages = 0;
+  for (const auto& match : result["matches"])
+  {
+    CHECK(match["file"].get<std::string>() == expected_a);
+    if (match.contains("is_definition"))
+    {
+      ++definitions;
+      CHECK(match["line"].get<int>() == 1);
+      CHECK(match["text"].get<std::string>() == "int alpha() { return 1; }");
+    }
+    else
+    {
+      ++usages;
+      CHECK(match["line"].get<int>() == 2);
+      CHECK(match["text"].get<std::string>() == "int caller() { return alpha(); }");
+    }
+  }
+  CHECK(definitions == 1);
+  CHECK(usages == 1);
+
+  // Opting out restores the usages-only behaviour.
+  result = mistral::tools::run_find_references(tools, "alpha", project.root.string(), false);
   REQUIRE(result["count"].get<int>() == 1);
   CHECK(result["matches"][0]["line"].get<int>() == 2);
-  CHECK(result["matches"][0]["text"].get<std::string>() == "int caller() { return alpha(); }");
-  const auto expected_a = fs::relative(project.root / "a.cpp", fs::current_path()).string();
-  CHECK(result["matches"][0]["file"].get<std::string>() == expected_a);
+  CHECK_FALSE(result["matches"][0].contains("is_definition"));
 }
 
 TEST_CASE("code_tools: qualified names select a specific method")
@@ -521,7 +681,7 @@ TEST_CASE("code_tools: find_references searches qualified names by bare name")
   mistral::tools::code_tools tools;
   mistral::tools::qualified_sample sample;
 
-  auto result = mistral::tools::run_find_references(tools, "widget::draw", sample.root.string());
+  auto result = mistral::tools::run_find_references(tools, "widget::draw", sample.root.string(), false);
 
   REQUIRE(result.contains("matches"));
   REQUIRE(result["count"].get<int>() == 1);
@@ -551,8 +711,8 @@ TEST_CASE("code_tools: find_references results are capped at max_results")
   mistral::tools::code_tools tools(settings);
   mistral::tools::sample_project project;
 
-  // Add call sites of alpha (4 usages total in a.cpp; the definition
-  // itself is excluded).
+  // Add call sites of alpha (5 sites total in a.cpp: the definition plus
+  // 4 usages).
   {
     std::ofstream out(project.root / "a.cpp", std::ios::app);
     out << "int more() { alpha(); alpha(); alpha(); }\n";

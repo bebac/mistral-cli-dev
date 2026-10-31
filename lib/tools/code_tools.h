@@ -33,14 +33,22 @@ namespace mistral::tools
     // same-named definitions in different scopes.
     dripcore::awaitable<json> read_symbol(std::string path, std::string name);
 
-    // Find symbol definitions by name across a directory tree. Falls
-    // back to substring matching when no exact match exists. The name
-    // may be qualified (Class::method or ns::Class::method).
+    // Find symbol definitions by name in a directory tree or in a single
+    // file. Falls back to substring matching when no exact match exists.
+    // The name may be qualified (Class::method or ns::Class::method).
+    // Each match carries the text of its first line, so callers do not
+    // need a follow-up read just to see what the hit looks like.
+    //
+    // A zero result carries a "hint" distinguishing "not defined here",
+    // "does not exist" and "nothing was searched", so the caller does not
+    // have to guess.
     dripcore::awaitable<json> find_symbol(std::string name, std::string path);
 
     // Find usage sites (calls, type usages, member access) of a named
-    // symbol across a directory tree. Definition sites are excluded.
-    dripcore::awaitable<json> find_references(std::string name, std::string path);
+    // symbol in a directory tree or in a single file. Definition sites
+    // are included by default, flagged "is_definition": true, so one call
+    // answers "where is X defined and used?"; pass false for usages only.
+    dripcore::awaitable<json> find_references(std::string name, std::string path, bool include_definitions = true);
 
     // Run a tree-sitter query against a file or directory tree.
     dripcore::awaitable<json> ast_search(std::string query, std::string path);

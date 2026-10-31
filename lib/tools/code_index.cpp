@@ -1042,6 +1042,22 @@ namespace mistral::tools
     return hits;
   }
 
+  std::size_t symbol_index::file_count(const std::string& root) const
+  {
+    std::error_code ec;
+    const fs::path root_abs = fs::absolute(fs::path(root), ec).lexically_normal();
+
+    std::size_t count = 0;
+    for (const auto& entry : files_)
+    {
+      if (is_under(entry.first, root_abs))
+      {
+        ++count;
+      }
+    }
+    return count;
+  }
+
 } // namespace mistral::tools
 
 #endif // MISTRAL_ENABLE_TREE_SITTER

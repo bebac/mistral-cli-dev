@@ -771,25 +771,30 @@ namespace mistral::agent
 
     global_tools_.register_tool(
       "find_symbol",
-      "Find symbol definitions (classes, structs, functions, methods, types) by name across a "
-      "directory tree. Falls back to substring matching when no exact match exists. Returns "
-      "file, kind, scope and line range for each definition. Names may be qualified "
-      "(Class::method or ns::Class::method) to narrow same-named symbols.",
+      "Find symbol definitions (classes, structs, functions, methods, types) by name in a "
+      "directory tree or in a single file. Falls back to substring matching when no exact "
+      "match exists. Returns file, kind, scope, line range and the matched line's text for "
+      "each definition. Names may be qualified (Class::method or ns::Class::method) to "
+      "narrow same-named symbols. A zero result includes a \"hint\" saying whether the "
+      "symbol is absent, defined elsewhere, or that no C/C++ files were found.",
       &code_tools,
       &mistral::tools::code_tools::find_symbol,
       arg("name", "Symbol name to find; may be qualified (Class::method)"),
-      arg("path", "Directory to search (workspace root by default)", std::string("."))
+      arg("path", "File or directory to search (workspace root by default)", std::string("."))
     );
 
     global_tools_.register_tool(
       "find_references",
-      "Find usage sites of a named symbol (calls, type usages, member access) across a "
-      "directory tree. Definition sites are excluded. Syntactic match: same-named overloads "
-      "all match; a qualified name (Class::method) is searched by its bare name.",
+      "Find where a named symbol is defined and used (calls, type usages, member access) in a "
+      "directory tree or in a single file. Definition sites are included by default and "
+      "flagged \"is_definition\": true; pass include_definitions=false for usages only. "
+      "Matches by name without type resolution, so same-named symbols in unrelated scopes "
+      "also match; use read_symbol to confirm which overload a hit belongs to.",
       &code_tools,
       &mistral::tools::code_tools::find_references,
       arg("name", "Symbol name to find references for"),
-      arg("path", "Directory to search (workspace root by default)", std::string("."))
+      arg("path", "File or directory to search (workspace root by default)", std::string(".")),
+      arg("include_definitions", "Include definition sites, flagged \"is_definition\": true", true)
     );
 
     global_tools_.register_tool(

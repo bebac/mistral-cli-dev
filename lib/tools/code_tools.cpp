@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -52,6 +53,26 @@ namespace mistral::tools
         return file;
       }
       return relative.string();
+    }
+
+    // Text of a 1-indexed line of a file, reading each file at most once
+    // per call (the index stores definitions, not source). Returns an
+    // empty string when the file cannot be read, e.g. because it was
+    // removed between indexing and reporting.
+    std::string line_of_file(const std::string& file, int line, std::map<std::string, std::string>& cache)
+    {
+      auto it = cache.find(file);
+      if (it == cache.end())
+      {
+        std::ifstream in(file);
+        std::ostringstream buffer;
+        if (in)
+        {
+          buffer << in.rdbuf();
+        }
+        it = cache.emplace(file, buffer.str()).first;
+      }
+      return std::string(line_text(it->second, line));
     }
   } // namespace
 
@@ -150,7 +171,8 @@ namespace mistral::tools
       co_return {{"error", "name must not be empty"}};
     }
     // A qualified request must still name a symbol ("Foo::" is rejected).
-    if (qualified_name::parse(name).name.empty())
+    const qualified_name requested = qualified_name::parse(name);
+    if (requested.name.empty())
     {
       co_return {{"error", std::format("qualified name '{}' must name a symbol", name)}};
     }
@@ -161,33 +183,120 @@ namespace mistral::tools
     {
       co_return {{"error", std::format("path '{}' does not exist", path)}};
     }
-    if (!fs::is_directory(root, ec))
-    {
-      co_return {
-        {"error", std::format("path '{}' is not a directory; use outline or read_symbol for single files", path)}
-      };
-    }
 
-    co_await index_.refresh(path);
-
-    auto hits = index_.find(path, name);
+    std::vector<symbol_index::hit> hits;
     std::string match_type = "exact";
-    if (hits.empty())
+    std::string hint;
+
+    if (fs::is_regular_file(root, ec))
     {
-      hits = index_.find_substring(path, name);
-      if (!hits.empty())
+      // Single file: parse it directly instead of walking a tree.
+      parsed_source parsed;
+      std::string error;
+      if (!parsed.load(path, error))
       {
-        match_type = "substring";
+        co_return {{"error", error}};
+      }
+
+      const std::string file = fs::absolute(root, ec).lexically_normal().string();
+      for (const auto& definition : parsed.definitions())
+      {
+        if (requested.matches(definition))
+        {
+          hits.push_back({file, definition});
+        }
+      }
+      if (hits.empty())
+      {
+        for (const auto& definition : parsed.definitions())
+        {
+          if (definition.name.find(requested.name) != std::string::npos)
+          {
+            hits.push_back({file, definition});
+          }
+        }
+        if (!hits.empty())
+        {
+          match_type = "substring";
+        }
+      }
+
+      if (hits.empty())
+      {
+        // A zero result is ambiguous: "not defined here" is not the same
+        // as "does not exist". Say which one this is. The file is
+        // already parsed, so counting its usages is free.
+        int usages = 0;
+        for (const auto& site : parsed.usages_of(requested.name))
+        {
+          if (!site.is_definition)
+          {
+            ++usages;
+          }
+        }
+        if (usages == 0)
+        {
+          hint = std::format("no definition or usage of '{}' in '{}'", name, path);
+        }
+        else
+        {
+          hint = std::format(
+            "no definition of '{}' in '{}', but it is used {} time(s) there; it is defined "
+            "elsewhere - search the parent directory or use find_references",
+            name,
+            path,
+            usages
+          );
+        }
       }
     }
+    else if (fs::is_directory(root, ec))
+    {
+      co_await index_.refresh(path);
 
-    std::sort(hits.begin(), hits.end(), [](const symbol_index::hit& a, const symbol_index::hit& b) {
-      if (a.file != b.file)
+      hits = index_.find(path, name);
+      if (hits.empty())
       {
-        return a.file < b.file;
+        hits = index_.find_substring(path, name);
+        if (!hits.empty())
+        {
+          match_type = "substring";
+        }
       }
-      return a.symbol.line_start < b.symbol.line_start;
-    });
+
+      std::sort(hits.begin(), hits.end(), [](const symbol_index::hit& a, const symbol_index::hit& b) {
+        if (a.file != b.file)
+        {
+          return a.file < b.file;
+        }
+        return a.symbol.line_start < b.symbol.line_start;
+      });
+
+      if (hits.empty())
+      {
+        // Distinguish "searched and not found" from "nothing to search":
+        // a directory with no C/C++ sources makes the zero meaningless.
+        const std::size_t searched = index_.file_count(path);
+        if (searched == 0)
+        {
+          hint = std::format(
+            "no C/C++ source files under '{}'; the code tools index C/C++ only - use exec with "
+            "grep or find for other file types",
+            path
+          );
+        }
+        else
+        {
+          hint = std::format(
+            "no definition of '{}' under '{}' ({} source file(s) searched)", name, path, searched
+          );
+        }
+      }
+    }
+    else
+    {
+      co_return {{"error", std::format("path '{}' is not a file or directory", path)}};
+    }
 
     bool truncated = false;
     if (static_cast<int>(hits.size()) > settings_.max_results)
@@ -196,6 +305,9 @@ namespace mistral::tools
       truncated = true;
     }
 
+    // Include the matched line so the caller does not need a follow-up
+    // read just to see what the hit looks like.
+    std::map<std::string, std::string> source_cache;
     json matches = json::array();
     for (const auto& hit : hits)
     {
@@ -204,7 +316,8 @@ namespace mistral::tools
         {"name", hit.symbol.name},
         {"file", display_path(hit.file)},
         {"line_start", hit.symbol.line_start},
-        {"line_end", hit.symbol.line_end}
+        {"line_end", hit.symbol.line_end},
+        {"text", line_of_file(hit.file, hit.symbol.line_start, source_cache)}
       };
       if (!hit.symbol.scope.empty())
       {
@@ -213,16 +326,23 @@ namespace mistral::tools
       matches.push_back(std::move(match));
     }
 
-    co_return {
+    json result = {
       {"name", name},
       {"match", match_type},
       {"matches", std::move(matches)},
       {"count", static_cast<int>(hits.size())},
       {"truncated", truncated}
     };
+    if (!hint.empty())
+    {
+      result["hint"] = hint;
+    }
+    co_return result;
   }
 
-  dripcore::awaitable<json> code_tools::find_references(std::string name, std::string path)
+  dripcore::awaitable<json> code_tools::find_references(
+    std::string name, std::string path, bool include_definitions
+  )
   {
     if (name.empty())
     {
@@ -244,34 +364,17 @@ namespace mistral::tools
     {
       co_return {{"error", std::format("path '{}' does not exist", path)}};
     }
-    if (!fs::is_directory(root, ec))
-    {
-      co_return {{"error", std::format("path '{}' is not a directory", path)}};
-    }
-
-    const fs::path root_abs = fs::absolute(root, ec).lexically_normal();
 
     json matches = json::array();
     int count = 0;
     bool truncated = false;
 
-    co_await for_each_source_file(root_abs, [&](const fs::path& file, std::string&& source) {
-      // Cheap textual prefilter before parsing.
-      if (source.find(bare) == std::string::npos)
-      {
-        return true;
-      }
-
-      parsed_source parsed;
-      std::string error;
-      if (!parsed.load(file.string(), std::move(source), error))
-      {
-        return true;
-      }
-
+    // Collects the sites of one file. Returns false when the result cap
+    // was hit, so directory walks can stop early.
+    auto append_sites = [&](const parsed_source& parsed, const std::string& file) {
       for (const auto& site : parsed.usages_of(bare))
       {
-        if (site.is_definition)
+        if (site.is_definition && !include_definitions)
         {
           continue;
         }
@@ -280,15 +383,57 @@ namespace mistral::tools
           truncated = true;
           return false;
         }
-        matches.push_back(
-          {{"file", display_path(file.string())},
-           {"line", site.line},
-           {"text", std::string(line_text(parsed.source(), site.line))}}
-        );
+        json match = {
+          {"file", file},
+          {"line", site.line},
+          {"text", std::string(line_text(parsed.source(), site.line))}
+        };
+        if (site.is_definition)
+        {
+          match["is_definition"] = true;
+        }
+        matches.push_back(std::move(match));
         ++count;
       }
       return true;
-    });
+    };
+
+    if (fs::is_regular_file(root, ec))
+    {
+      // Single file: parse it directly instead of walking a tree.
+      parsed_source parsed;
+      std::string error;
+      if (!parsed.load(path, error))
+      {
+        co_return {{"error", error}};
+      }
+      append_sites(parsed, display_path(path));
+    }
+    else if (fs::is_directory(root, ec))
+    {
+      const fs::path root_abs = fs::absolute(root, ec).lexically_normal();
+
+      co_await for_each_source_file(root_abs, [&](const fs::path& file, std::string&& source) {
+        // Cheap textual prefilter before parsing.
+        if (source.find(bare) == std::string::npos)
+        {
+          return true;
+        }
+
+        parsed_source parsed;
+        std::string error;
+        if (!parsed.load(file.string(), std::move(source), error))
+        {
+          return true;
+        }
+
+        return append_sites(parsed, display_path(file.string()));
+      });
+    }
+    else
+    {
+      co_return {{"error", std::format("path '{}' is not a file or directory", path)}};
+    }
 
     co_return {{"name", name}, {"matches", std::move(matches)}, {"count", count}, {"truncated", truncated}};
   }

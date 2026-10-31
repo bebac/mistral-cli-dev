@@ -6,6 +6,7 @@
 #include "tree_sitter/api.h"
 #include <dripcore/awaitable.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -194,6 +195,10 @@ namespace mistral::tools
 
     // Definitions under root whose name contains name.
     std::vector<hit> find_substring(const std::string& root, const std::string& name) const;
+
+    // Number of indexed files under root. Zero means a search of root was
+    // vacuous (no C/C++ sources), not that the symbol does not exist.
+    std::size_t file_count(const std::string& root) const;
 
   private:
     struct file_entry

@@ -25,12 +25,53 @@ Every tool call's `arguments` field must be a **single valid JSON object**. Call
 Wrong (rejected as malformed JSON):
 
 - `{"command": "git", "args": log", "-1}` — unescaped quote breaks the JSON
-- `{"command":"grep","args":["[\"-n\",\"foo\"]","file"]}` — double-encoded; use `["-n","foo","file"]`
+- `{"command":"find","args":["[\"-name\",\"*.cpp\"]","."]}` — double-encoded; use `["-name","*.cpp","."]`
 
 ---
+## Codebase Searching
+
+For **C/C++ questions use the code tools, not `grep`.** They parse the source, so they
+match real code only — never comments, strings or preprocessor directives — and return
+line numbers plus the matched line's text.
+
+| Question | Tool |
+|----------|------|
+| "where is X defined?" | `find_symbol` |
+| "where is X defined and used?" | `find_references` |
+| "what is in this file?" | `outline` |
+| "show me the code of X" | `read_symbol` |
+| "match an AST pattern" | `ast_search` |
+
+Examples:
+
+- `find_symbol` — `{"name":"register_tool","path":"lib/agent/tool_registry.h"}`
+- `find_references` — `{"name":"on_event","path":"lib/tui"}`
+- `read_symbol` — `{"path":"lib/tools/code_tools.h","name":"find_symbol"}`
+- `outline` — `{"path":"lib/mcp/mcp_manager.h"}`
+
+`path` accepts **a file or a directory**, and defaults to the workspace root. Prefer a
+narrow path over `.`: a tree-wide search is slower and caps at 200 hits.
+
+- `outline(path)` — list the symbols defined in a file with their line ranges; see a file's structure before reading parts of it.
+- `read_symbol(path, name)` — extract the exact source text of a definition. Returns every matching definition (overloads); qualify the name (`Class::method`) to pick among same-named definitions.
+- `find_symbol(name, path)` — "where is X defined?"; exact match first, then substring fallback. Qualified names (`ns::Class::method`) narrow same-named symbols. Each hit includes the matched line's text. A zero result carries a `hint` explaining whether the symbol is absent, defined elsewhere, or that no C/C++ files were found.
+- `find_references(name, path, include_definitions=true)` — "where is X defined and used?". Definitions are included by default and flagged `"is_definition": true`; pass `false` for usages only. Matches by name without type resolution, so same-named symbols in unrelated scopes also match.
+- `ast_search(query, path)` — run a tree-sitter query for anything else, e.g. `((call_expression function: (identifier) @fn) (#eq? @fn "foo"))`. Predicates: `#eq?`, `#not-eq?`, `#any-eq?`, `#match?`, `#not-match?`, `#is?`, `#is-not?` (plus `#any-`/`#not-any-` variants).
+
+All code tools are read-only, skip the configured exclude directories, and cap the number of results (`"truncated": true` when the cap is hit).
+
+**Use `exec` instead for:** non-C/C++ files (Markdown, JSON, CMake, scripts), and
+questions these tools cannot express, such as "which files mention this string at all".
+`grep` via `exec` is right for those.
+
+{{> sys_prompt_xerj.md if=xerj_enabled}}
+
+---
+
 ## Exec Tool
 
-Use the `exec` tool for `git` commands, non-code files (scripts, configs, docs) and file management.
+Use the `exec` tool for `git` commands, for non-C/C++ files (scripts, configs, docs), and
+for file management. For C/C++ code questions use the code tools above.
 
 **Important:** The `exec` tool calls `execvp()` directly — there is **no shell**. This means:
 - `command` must be the executable name only (e.g., `"git"`, not `"git status"`)
@@ -54,21 +95,6 @@ Wrong (pre-checked and failed, or will not work):
 - `{"command":"grep","args":"-nr pattern ."}` — args must be an array, not a string
 - `{"command":"make","args":["&&","make test"]}` — no shell, `&&` is passed literally to make
 - `{"command":"./tests","args":[]}` — fails fast if the path does not exist; check with `ls` first
-
----
-## Codebase Searching
-
-**Prefer the syntax-aware code tools over `grep` for code questions.** They only match real code (never comments, strings or preprocessor directives) and return structured file/line results. They support C/C++ sources only; use `exec` for other file types.
-
-- `outline(path)` — list the symbols defined in a file with their line ranges; see a file's structure before reading parts of it.
-- `read_symbol(path, name)` — extract the exact source text of a definition. Returns every matching definition (overloads); qualify the name (`Class::method`) to pick among same-named definitions.
-- `find_symbol(name, path)` — "where is X defined?" across a directory tree; exact match first, then substring fallback. Qualified names (`ns::Class::method`) narrow same-named symbols.
-- `find_references(name, path)` — "where is X used?" across a directory tree; definition sites are excluded. Syntactic match without type resolution: same-named overloads all match, and a qualified name is searched by its bare name.
-- `ast_search(query, path)` — run a tree-sitter query for anything else, e.g. `((call_expression function: (identifier) @fn) (#eq? @fn "foo"))`. Predicates: `#eq?`, `#not-eq?`, `#any-eq?`, `#match?`, `#not-match?`, `#is?`, `#is-not?` (plus `#any-`/`#not-any-` variants).
-
-All code tools are read-only, skip the configured exclude directories, and cap the number of results (`"truncated": true` when the cap is hit).
-
-{{> sys_prompt_xerj.md if=xerj_enabled}}
 
 ---
 ## C++ Coding Style
