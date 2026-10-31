@@ -1411,3 +1411,54 @@ TEST_CASE("Exec rule with cwd does not match a different binary")
 }
 
 TEST_SUITE_END();
+
+TEST_SUITE_BEGIN("policy_rule_loading");
+
+TEST_CASE("Rules with an unknown or missing type are ignored")
+{
+  // A typo in "type" used to leave policy_rule::type indeterminate, and
+  // evaluate() switches on it. Such rules must be skipped instead.
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(
+    mistral::agent::json{
+      {"default", "deny"},
+      {"allow",
+       mistral::agent::json::array({
+         mistral::agent::json{{"type", "executble"}, {"tool", "exec"}, {"command", "ls"}},
+         mistral::agent::json{{"tool", "exec"}, {"command", "ls"}},
+       })}
+    }
+  );
+
+  CHECK(engine.rule_count() == 0);
+  REQUIRE(engine.warnings().size() == 2);
+  CHECK(engine.warnings()[0].find("unknown type") != std::string::npos);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{{"command", "ls"}, {"args", mistral::agent::json::array()}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("A valid rule still loads next to an ignored one")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(
+    mistral::agent::json{
+      {"default", "deny"},
+      {"allow",
+       mistral::agent::json::array({
+         mistral::agent::json{{"type", "executble"}, {"tool", "exec"}, {"command", "ls"}},
+         mistral::agent::json{{"type", "executable"}, {"tool", "exec"}, {"command", "ls"}},
+       })}
+    }
+  );
+
+  CHECK(engine.rule_count() == 1);
+  CHECK(engine.warnings().size() == 1);
+}
+
+TEST_SUITE_END();

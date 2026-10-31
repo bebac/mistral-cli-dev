@@ -84,6 +84,11 @@ namespace mistral::agent
         policy_rule rule;
         rule.action = rule_action::ALLOW;
         parse_rule_fields(rule, rule_json);
+        if (rule.type == rule_type::UNKNOWN)
+        {
+          warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
+          continue;
+        }
         rules_.push_back(std::move(rule));
       }
     }
@@ -96,6 +101,11 @@ namespace mistral::agent
         policy_rule rule;
         rule.action = rule_action::REQUIRE_APPROVAL;
         parse_rule_fields(rule, rule_json);
+        if (rule.type == rule_type::UNKNOWN)
+        {
+          warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
+          continue;
+        }
         rules_.push_back(std::move(rule));
       }
     }
@@ -1030,6 +1040,7 @@ namespace mistral::agent
   {
     rules_.clear();
     rejection_messages_.clear();
+    warnings_.clear();
     regex_cache_.clear();
   }
 

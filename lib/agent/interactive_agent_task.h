@@ -85,6 +85,17 @@ namespace mistral::agent
     {
       auto tools_schema = tools_.get_schema();
 
+      // Surface non-fatal policy problems (e.g. a rule with an unknown
+      // "type") in the transcript. Writing them to stderr from the
+      // policy engine would corrupt the TUI.
+      if (sink_)
+      {
+        for (const auto& warning : policy_engine_.warnings())
+        {
+          sink_->output_warning(warning);
+        }
+      }
+
       if (resume_)
       {
         co_await resume_latest_session();

@@ -75,8 +75,11 @@ namespace mistral::agent
 
   struct policy_rule
   {
-    rule_action action;
-    rule_type type;
+    // Defaults keep an unparsed rule inert. An unknown or missing "type"
+    // in policy.json must not leave the enum indeterminate, because
+    // evaluate() switches on it.
+    rule_action action = rule_action::REQUIRE_APPROVAL;
+    rule_type type = rule_type::UNKNOWN;
     std::string tool_name;
     std::string path;
     std::vector<std::string> exclusions;
@@ -158,6 +161,15 @@ namespace mistral::agent
       return rules_.size();
     }
 
+    // Non-fatal problems found while loading the configuration, e.g. a
+    // rule with an unknown "type". The caller decides how to surface
+    // them - the TUI renders them in the transcript - so the engine must
+    // not write to stderr itself.
+    const std::vector<std::string>& warnings() const
+    {
+      return warnings_;
+    }
+
   private:
     // Parse rule fields from JSON (used by load_configuration)
     void parse_rule_fields(policy_rule& rule, const json& rule_json) const;
@@ -212,6 +224,7 @@ namespace mistral::agent
     std::vector<policy_rule> rules_;
     policy_decision default_policy_ = policy_decision::DENY;
     std::map<std::string, std::string> rejection_messages_;
+    std::vector<std::string> warnings_;
     mutable std::map<std::string, std::regex> regex_cache_;
   };
 
