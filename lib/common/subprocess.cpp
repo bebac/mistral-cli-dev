@@ -314,7 +314,7 @@ namespace mistral::common
     reaped_ = false;
     killed_ = false;
 
-    std::string exec_path = utils::find_executable(options.command);
+    std::string exec_path = options.exec_path.empty() ? utils::find_executable(options.command) : options.exec_path;
     if (exec_path.empty())
     {
       return spawn_status::command_not_found;
@@ -359,8 +359,10 @@ namespace mistral::common
     // Build argv and envp. The storage must live across fork/exec, so
     // it is prepared here (before fork) rather than allocated in the
     // child after fork().
+    // argv[0] is the command as the caller wrote it; exec_path may be a
+    // different (absolute) path when the caller resolved it separately.
     std::vector<std::string> argv_storage;
-    argv_storage.push_back(exec_path);
+    argv_storage.push_back(options.exec_path.empty() ? exec_path : options.command);
     for (const auto& arg : options.args)
     {
       argv_storage.push_back(arg);

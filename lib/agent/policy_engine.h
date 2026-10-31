@@ -41,6 +41,9 @@ namespace mistral::agent
     std::optional<std::string> command_name;
     // For EXECUTABLE rule type - extracted command args from exec tool arguments
     std::optional<std::vector<std::string>> command_args;
+    // For EXECUTABLE rule type - absolute path of the resolved executable
+    // (PATH lookup for bare names, process-cwd-relative for paths)
+    std::optional<std::string> resolved_command_path;
   };
 
   // ---- Policy Result ----
@@ -200,6 +203,10 @@ namespace mistral::agent
 
     // Check if cwd matches
     bool cwd_matches(const std::optional<std::string>& rule_cwd, const std::optional<std::string>& test_cwd) const;
+
+    // Check if the resolved executable is the binary a rule names
+    // (<rule.cwd>/<rule.command>)
+    bool executable_path_matches(const policy_rule& rule, const std::string& resolved_path) const;
 
   private:
     std::vector<policy_rule> rules_;

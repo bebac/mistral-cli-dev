@@ -608,7 +608,13 @@ namespace mistral::agent
       }
     }
 
-    return mistral::tools::exec_tools::validate(command, args);
+    std::string cwd;
+    if (tool_args.contains("cwd") && tool_args["cwd"].is_string())
+    {
+      cwd = tool_args["cwd"].get<std::string>();
+    }
+
+    return mistral::tools::exec_tools::validate(command, args, cwd);
   }
 
   api::json agent_task_base::build_tool_rejection(const std::string& status, const std::string& message)

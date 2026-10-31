@@ -3,8 +3,13 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace mistral::agent
 {
@@ -1305,6 +1310,104 @@ TEST_CASE("MCP server tool rule matches only connected server tools")
   };
   auto result2 = engine.evaluate(ctx2);
   CHECK(result2.decision == mistral::agent::policy_decision::DENY);
+}
+
+namespace
+{
+  // RAII temporary directory for tests that need a real executable.
+  class temp_dir
+  {
+  public:
+    temp_dir()
+    {
+      std::string tmpl = (std::filesystem::temp_directory_path() / "mistral_policy_XXXXXX").string();
+      std::vector<char> buf(tmpl.begin(), tmpl.end());
+      buf.push_back('\0');
+      char* result = ::mkdtemp(buf.data());
+      REQUIRE(result != nullptr);
+      path_ = result;
+    }
+
+    ~temp_dir()
+    {
+      std::filesystem::remove_all(path_);
+    }
+
+    const std::string& path() const
+    {
+      return path_;
+    }
+
+  private:
+    std::string path_;
+  };
+
+  void write_executable(const std::string& file)
+  {
+    std::ofstream f(file);
+    REQUIRE(f.is_open());
+    f << "#!/bin/sh\n";
+    f.close();
+    REQUIRE(::chmod(file.c_str(), 0755) == 0);
+  }
+} // namespace
+
+TEST_CASE("Exec rule with cwd matches a path-qualified command")
+{
+  // The default policy pins "tests" to build/. A bare "tests" is not on
+  // PATH, so the agent has to spell the path out - the rule must match
+  // every spelling of the same binary.
+  temp_dir dir;
+  write_executable(dir.path() + "/tests");
+
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "tests", {}, dir.path());
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", dir.path() + "/tests"}, {"args", mistral::agent::json::array()}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Exec rule with cwd matches a bare command run in that cwd")
+{
+  temp_dir dir;
+  write_executable(dir.path() + "/tests");
+
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "tests", {}, dir.path());
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", "tests"}, {"args", mistral::agent::json::array()}, {"cwd", dir.path()}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Exec rule with cwd does not match a different binary")
+{
+  temp_dir dir;
+  write_executable(dir.path() + "/tests");
+  write_executable(dir.path() + "/other");
+
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "tests", {}, dir.path());
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", dir.path() + "/other"}, {"args", mistral::agent::json::array()}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::DENY);
 }
 
 TEST_SUITE_END();

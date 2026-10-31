@@ -159,4 +159,63 @@ TEST_CASE("find_executable returns empty when PATH is not set")
   CHECK(mistral::utils::find_executable("anything_at_all").empty());
 }
 
+TEST_CASE("resolve_executable returns an absolute path for a relative path")
+{
+  temp_dir dir;
+  std::string exe = dir.path() + "/mytool";
+  write_file(exe, "#!/bin/sh\n");
+  make_executable(exe);
+
+  std::string relative = fs::relative(fs::weakly_canonical(exe), fs::current_path()).string();
+  std::string resolved = mistral::utils::resolve_executable(relative);
+
+  CHECK(fs::path(resolved).is_absolute());
+  CHECK(fs::equivalent(resolved, exe));
+}
+
+TEST_CASE("resolve_executable returns an absolute path for a PATH lookup")
+{
+  temp_dir dir;
+  std::string exe = dir.path() + "/mytool";
+  write_file(exe, "#!/bin/sh\n");
+  make_executable(exe);
+
+  path_override po(dir.path());
+  std::string resolved = mistral::utils::resolve_executable("mytool");
+
+  CHECK(fs::path(resolved).is_absolute());
+  CHECK(fs::equivalent(resolved, exe));
+}
+
+TEST_CASE("resolve_executable falls back to cwd for a bare name")
+{
+  temp_dir dir;
+  std::string exe = dir.path() + "/mytool";
+  write_file(exe, "#!/bin/sh\n");
+  make_executable(exe);
+
+  // Not on PATH: the cwd fallback is what finds it.
+  path_override po("");
+  std::string resolved = mistral::utils::resolve_executable("mytool", dir.path());
+
+  CHECK(fs::path(resolved).is_absolute());
+  CHECK(fs::equivalent(resolved, exe));
+}
+
+TEST_CASE("resolve_executable does not use the cwd fallback for paths")
+{
+  temp_dir dir;
+  std::string exe = dir.path() + "/mytool";
+  write_file(exe, "#!/bin/sh\n");
+  make_executable(exe);
+
+  // A path is resolved against the process cwd, never against `cwd`.
+  CHECK(mistral::utils::resolve_executable("./mytool", dir.path()).empty());
+}
+
+TEST_CASE("resolve_executable returns empty for a missing command")
+{
+  CHECK(mistral::utils::resolve_executable("definitely_not_on_path_xyz").empty());
+}
+
 TEST_SUITE_END();

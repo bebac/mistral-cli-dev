@@ -45,7 +45,11 @@ namespace mistral::tools
     }
   } // namespace
 
-  std::optional<std::string> exec_tools::validate(const std::string& command, const std::vector<std::string>& args)
+  std::optional<std::string> exec_tools::validate(
+    const std::string& command,
+    const std::vector<std::string>& args,
+    const std::string& cwd
+  )
   {
     if (command.empty())
     {
@@ -82,7 +86,20 @@ namespace mistral::tools
       }
     }
 
-    if (utils::find_executable(command).empty())
+    // A cwd that does not exist only fails later, in the child's chdir()
+    // after approval has been granted - reject it here instead.
+    if (!cwd.empty())
+    {
+      std::error_code ec;
+      if (!fs::is_directory(cwd, ec))
+      {
+        return std::format("working directory does not exist: {}", cwd);
+      }
+    }
+
+    // Resolve exactly the way exec() will, so a call that passes this
+    // check cannot fail at execve().
+    if (utils::resolve_executable(command, cwd).empty())
     {
       return std::format("command not found: {}", command);
     }
@@ -97,8 +114,10 @@ namespace mistral::tools
     int timeout_seconds
   )
   {
-    // Find the executable path
-    std::string exec_path = utils::find_executable(command);
+    // Resolve to an absolute path: the child chdirs to `cwd` before
+    // exec, so a relative path would otherwise be resolved against the
+    // wrong directory. `command` stays argv[0].
+    std::string exec_path = utils::resolve_executable(command, cwd);
     if (exec_path.empty())
     {
       co_return {{"error", std::format("command not found: {}", command)}, {"exit_code", -1}};
@@ -110,7 +129,8 @@ namespace mistral::tools
     // close-on-exec, and makes the child close all inherited
     // descriptors above stderr before exec.
     common::subprocess_options spawn_options;
-    spawn_options.command = exec_path; // already resolved by find_executable
+    spawn_options.command = command;     // argv[0] as the caller wrote it
+    spawn_options.exec_path = exec_path; // absolute, resolved above
     spawn_options.args = args;
     spawn_options.cwd = cwd;
 

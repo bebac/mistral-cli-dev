@@ -10,7 +10,11 @@
 #include <fstream>
 #include <signal.h>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
+#include <vector>
+
+#include <unistd.h>
 
 namespace mistral::tools
 {
@@ -438,4 +442,98 @@ TEST_CASE("exec_tools: validate accepts existing command")
 
   CHECK_FALSE(exec_tools::validate("echo", {"hello"}).has_value());
   CHECK_FALSE(exec_tools::validate("ls", {"-la"}).has_value());
+}
+
+namespace
+{
+  // RAII temporary directory for tests that need a real executable.
+  class temp_dir
+  {
+  public:
+    temp_dir()
+    {
+      std::string tmpl = (std::filesystem::temp_directory_path() / "mistral_exec_tools_XXXXXX").string();
+      std::vector<char> buf(tmpl.begin(), tmpl.end());
+      buf.push_back('\0');
+      char* result = ::mkdtemp(buf.data());
+      REQUIRE(result != nullptr);
+      path_ = result;
+    }
+
+    ~temp_dir()
+    {
+      std::filesystem::remove_all(path_);
+    }
+
+    const std::string& path() const
+    {
+      return path_;
+    }
+
+  private:
+    std::string path_;
+  };
+
+  void write_executable(const std::string& file)
+  {
+    std::ofstream f(file);
+    REQUIRE(f.is_open());
+    f << "#!/bin/sh\n";
+    f.close();
+    REQUIRE(::chmod(file.c_str(), 0755) == 0);
+  }
+} // namespace
+
+TEST_CASE("exec_tools: validate accepts a bare command found in cwd")
+{
+  using namespace mistral::tools;
+
+  temp_dir dir;
+  write_executable(dir.path() + "/mytool");
+
+  // Not on PATH: the cwd fallback is what makes it resolvable.
+  CHECK(exec_tools::validate("mytool", {}).has_value());
+  CHECK_FALSE(exec_tools::validate("mytool", {}, dir.path()).has_value());
+}
+
+TEST_CASE("exec_tools: validate rejects a missing working directory")
+{
+  using namespace mistral::tools;
+
+  temp_dir dir;
+  auto error = exec_tools::validate("echo", {}, dir.path() + "/does_not_exist");
+  REQUIRE(error.has_value());
+  CHECK(error->find("working directory") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: exec runs a bare command found in the requested cwd")
+{
+  using namespace mistral::tools;
+
+  temp_dir dir;
+  write_executable(dir.path() + "/mytool");
+
+  exec_tools tools;
+  auto result = run_async_exec(tools, "mytool", {}, dir.path());
+  CHECK(result["exit_code"].get<int>() == 0);
+}
+
+TEST_CASE("exec_tools: exec resolves a relative command path against the process cwd")
+{
+  using namespace mistral::tools;
+
+  temp_dir dir;
+  write_executable(dir.path() + "/mytool");
+
+  // The path is relative to the process cwd, not to the child's cwd:
+  // the child chdirs before exec, so exec must pass an absolute path.
+  std::string relative = std::filesystem::relative(
+                           std::filesystem::weakly_canonical(dir.path() + "/mytool"),
+                           std::filesystem::current_path()
+  )
+                           .string();
+
+  exec_tools tools;
+  auto result = run_async_exec(tools, relative, {}, dir.path());
+  CHECK(result["exit_code"].get<int>() == 0);
 }

@@ -27,8 +27,16 @@ namespace mistral::common
   struct subprocess_options
   {
     // Executable name (resolved via utils::find_executable) or path.
+    // Also used as argv[0].
     std::string command;
     std::vector<std::string> args;
+
+    // Optional absolute path to execve(). When set, `command` is only
+    // used as argv[0] and is not resolved. Needed when the executable
+    // must be resolved independently of the child's cwd: the child
+    // chdirs before exec, which would otherwise re-resolve a relative
+    // path against the wrong directory.
+    std::string exec_path;
 
     // Environment entries applied over the inherited parent environment
     // (existing entries with the same key are replaced). Ignored when

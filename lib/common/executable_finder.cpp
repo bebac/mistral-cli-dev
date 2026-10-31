@@ -56,4 +56,47 @@ namespace mistral::utils
 
     return "";
   }
+
+  std::string resolve_executable(const std::string& command, const std::string& cwd)
+  {
+    namespace fs = std::filesystem;
+
+    std::string found = find_executable(command);
+
+    // A bare name that is not on PATH may still be the binary a policy
+    // rule pinned to a directory: try <cwd>/<command>. This only fires
+    // when the caller asked for a working directory, so a bare name
+    // without one keeps the plain PATH semantics.
+    if (found.empty() && !cwd.empty() && command.find('/') == std::string::npos)
+    {
+      fs::path candidate = fs::path(cwd) / command;
+      std::error_code ec;
+      if (fs::exists(candidate, ec) && fs::is_regular_file(candidate, ec) &&
+          ::access(candidate.string().c_str(), X_OK) == 0)
+      {
+        found = candidate.string();
+      }
+    }
+
+    if (found.empty())
+    {
+      return "";
+    }
+
+    std::error_code ec;
+    fs::path absolute = fs::absolute(found, ec);
+    if (ec)
+    {
+      return found;
+    }
+
+    // Canonicalize so policy matching compares real paths - the policy
+    // engine normalizes its rule paths the same way.
+    fs::path resolved = fs::weakly_canonical(absolute, ec);
+    if (ec)
+    {
+      return absolute.lexically_normal().string();
+    }
+    return resolved.string();
+  }
 } // namespace mistral::utils

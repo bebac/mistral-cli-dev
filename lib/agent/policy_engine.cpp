@@ -1,4 +1,5 @@
 #include "agent/policy_engine.h"
+#include "common/executable_finder.h"
 #include "common/string_utils.h"
 #include "mcp/mcp_manager.h"
 
@@ -516,16 +517,32 @@ namespace mistral::agent
       // If not specified in tool arguments and not already set from
       // working_directory, default to current working directory — the
       // exec tool runs in the process's cwd when cwd is empty.
+      std::string raw_cwd;
+      if (ctx.tool_arguments.contains("cwd") && ctx.tool_arguments["cwd"].is_string())
+      {
+        raw_cwd = ctx.tool_arguments["cwd"].get<std::string>();
+      }
+
       if (!normalized.normalized_cwd)
       {
-        if (ctx.tool_arguments.contains("cwd") && !ctx.tool_arguments["cwd"].get<std::string>().empty())
+        if (!raw_cwd.empty())
         {
-          normalized.normalized_cwd = normalize_path(ctx.tool_arguments["cwd"].get<std::string>());
+          normalized.normalized_cwd = normalize_path(raw_cwd);
         }
         else
         {
           normalized.normalized_cwd = normalize_path(".");
         }
+      }
+
+      // Resolve the command to an absolute path, so a rule that pins a
+      // cwd can match every spelling of the same binary: "tests" with
+      // cwd="build", "./build/tests" and "/abs/build/tests" all resolve
+      // to the same file.
+      std::string resolved = resolve_executable(*normalized.command_name, raw_cwd);
+      if (!resolved.empty())
+      {
+        normalized.resolved_command_path = normalize_path(resolved);
       }
     }
 
@@ -640,6 +657,35 @@ namespace mistral::agent
     if (norm_test.find(norm_rule) == 0)
     {
       return true;
+    }
+
+    return false;
+  }
+
+  bool policy_engine::executable_path_matches(const policy_rule& rule, const std::string& resolved_path) const
+  {
+    if (!rule.cwd)
+    {
+      return false;
+    }
+
+    // The rule names <cwd>/<command>; both sides are normalized paths.
+    std::string expected = normalize_path((fs::path(*rule.cwd) / rule.command).string());
+    if (expected == resolved_path)
+    {
+      return true;
+    }
+
+    // Glob patterns in the command apply to the file name inside the
+    // rule's directory.
+    if (rule.command.find('*') != std::string::npos || rule.command.find('?') != std::string::npos)
+    {
+      fs::path resolved(resolved_path);
+      if (normalize_path(resolved.parent_path().string()) != normalize_path(*rule.cwd))
+      {
+        return false;
+      }
+      return command_matches(rule.command, resolved.filename().string());
     }
 
     return false;
@@ -818,8 +864,20 @@ namespace mistral::agent
       if (!ctx.command_name)
         return false;
 
-      // Check command matches
-      if (!command_matches(rule.command, *ctx.command_name))
+      // A rule that pins a cwd names a binary by location, so it also
+      // matches path-qualified spellings of that binary: either the
+      // command name matches and it runs in the constrained directory,
+      // or the resolved executable is exactly <cwd>/<command>.
+      if (rule.cwd)
+      {
+        bool name_and_cwd = command_matches(rule.command, *ctx.command_name) && cwd_matches(rule.cwd, ctx.normalized_cwd);
+        bool path_matches_rule = ctx.resolved_command_path && executable_path_matches(rule, *ctx.resolved_command_path);
+        if (!name_and_cwd && !path_matches_rule)
+        {
+          return false;
+        }
+      }
+      else if (!command_matches(rule.command, *ctx.command_name))
       {
         return false;
       }
@@ -830,17 +888,6 @@ namespace mistral::agent
         if (!ctx.command_args)
           return false;
         if (!args_match(rule.args, *ctx.command_args))
-        {
-          return false;
-        }
-      }
-
-      // Check cwd if specified in rule
-      if (rule.cwd)
-      {
-        if (!ctx.normalized_cwd)
-          return false;
-        if (!cwd_matches(rule.cwd, ctx.normalized_cwd))
         {
           return false;
         }

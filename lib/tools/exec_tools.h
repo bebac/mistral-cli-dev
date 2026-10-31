@@ -27,10 +27,16 @@ namespace mistral::tools
 
     // Pre-check an exec tool call before it is executed (or approved).
     // Returns an error message if the command is empty, contains shell
-    // syntax (execvp() is called directly with no shell), or does not
-    // exist (PATH lookup, or - for explicit paths - is not an executable
-    // file). Returns std::nullopt when the call looks valid.
-    static std::optional<std::string> validate(const std::string& command, const std::vector<std::string>& args);
+    // syntax (execvp() is called directly with no shell), the working
+    // directory does not exist, or the command does not exist (PATH
+    // lookup, then <cwd>/<command> for a bare name, or - for explicit
+    // paths - not an executable file). Returns std::nullopt when the
+    // call looks valid.
+    static std::optional<std::string> validate(
+      const std::string& command,
+      const std::vector<std::string>& args,
+      const std::string& cwd = ""
+    );
   };
 
 } // namespace mistral::tools
