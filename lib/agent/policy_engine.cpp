@@ -4,6 +4,7 @@
 #include "mcp/mcp_manager.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <format>
 #include <ranges>
@@ -18,7 +19,18 @@ namespace mistral::agent
   namespace
   {
     using namespace mistral::utils;
-  }
+
+    // Append a trailing separator so prefix comparisons respect
+    // directory boundaries: "build" must not match "build-other".
+    std::string with_trailing_slash(std::string path)
+    {
+      if (!path.empty() && path.back() != '/')
+      {
+        path += '/';
+      }
+      return path;
+    }
+  } // namespace
 
   // ---- policy_engine Implementation ----
 
@@ -89,7 +101,7 @@ namespace mistral::agent
           warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
           continue;
         }
-        rules_.push_back(std::move(rule));
+        push_rule(std::move(rule));
       }
     }
 
@@ -106,7 +118,7 @@ namespace mistral::agent
           warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
           continue;
         }
-        rules_.push_back(std::move(rule));
+        push_rule(std::move(rule));
       }
     }
   }
@@ -125,22 +137,15 @@ namespace mistral::agent
       {
         rule.type = rule_type::DIRECTORY;
         rule.tool_name = rule_json.contains("tool") ? rule_json["tool"].get<std::string>() : "*";
-        rule.path = rule_json["path"].get<std::string>();
-        rule.path_negated = rule.path.starts_with("!");
-        if (rule.path_negated)
-        {
-          rule.path = normalize_path(rule.path.substr(1));
-        }
-        else
-        {
-          rule.path = normalize_path(rule.path);
-        }
+        set_rule_path(rule, rule_json["path"].get<std::string>());
         if (rule_json.contains("exclude"))
         {
+          std::vector<std::string> exclude;
           for (const auto& excl : rule_json["exclude"])
           {
-            rule.exclusions.push_back(fs::path(rule.path) / excl.get<std::string>());
+            exclude.push_back(excl.get<std::string>());
           }
+          add_exclusions(rule, exclude);
         }
       }
       else if (type == "path_prefix")
@@ -188,22 +193,51 @@ namespace mistral::agent
     policy_rule rule = parse_dsl_rule(rule_dsl);
     if (rule.type != rule_type::UNKNOWN)
     {
-      if (rule.id.empty())
-      {
-        rule.id = generate_rule_id(rule);
-      }
-      rules_.push_back(std::move(rule));
+      push_rule(std::move(rule));
     }
+  }
+
+  void policy_engine::push_rule(policy_rule rule)
+  {
+    if (rule.id.empty())
+    {
+      rule.id = generate_rule_id(rule);
+    }
+    rules_.push_back(std::move(rule));
+  }
+
+  void policy_engine::set_rule_path(policy_rule& rule, const std::string& path) const
+  {
+    rule.path_negated = path.starts_with("!");
+    rule.path = normalize_path(rule.path_negated ? path.substr(1) : path);
+  }
+
+  void policy_engine::add_exclusions(policy_rule& rule, const std::vector<std::string>& exclude) const
+  {
+    // Store exclusions normalized, so matching does not have to touch
+    // the filesystem on every evaluation.
+    for (const auto& entry : exclude)
+    {
+      rule.exclusions.push_back(normalize_path((fs::path(rule.path) / entry).string()));
+    }
+  }
+
+  void policy_engine::add_directory_rule(
+    rule_action action,
+    const std::string& tool_name,
+    const std::string& path,
+    const std::vector<std::string>& exclude
+  )
+  {
+    policy_rule rule{.action = action, .type = rule_type::DIRECTORY, .tool_name = tool_name};
+    set_rule_path(rule, path);
+    add_exclusions(rule, exclude);
+    push_rule(std::move(rule));
   }
 
   void policy_engine::allow_tool(const std::string& tool_name)
   {
-    policy_rule rule;
-    rule.action = rule_action::ALLOW;
-    rule.type = rule_type::TOOL;
-    rule.tool_name = tool_name;
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    push_rule(policy_rule{.action = rule_action::ALLOW, .type = rule_type::TOOL, .tool_name = tool_name});
   }
 
   void policy_engine::allow_directory(
@@ -212,64 +246,45 @@ namespace mistral::agent
     const std::vector<std::string>& exclude
   )
   {
-    policy_rule rule;
-    rule.action = rule_action::ALLOW;
-    rule.type = rule_type::DIRECTORY;
-    rule.tool_name = tool_name;
-    rule.path = normalize_path(path); // Normalize the path when storing
-    rule.path_negated = false;
-
-    // Prepend rule.path to each entry in exclude
-    std::vector<std::string> transformed_exclusions;
-    transformed_exclusions.reserve(exclude.size());
-    for (const auto& entry : exclude)
-    {
-      transformed_exclusions.push_back(fs::path(rule.path) / entry);
-    }
-    rule.exclusions = std::move(transformed_exclusions);
-
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    add_directory_rule(rule_action::ALLOW, tool_name, path, exclude);
   }
 
   void policy_engine::require_approval_tool(const std::string& tool_name)
   {
-    policy_rule rule;
-    rule.action = rule_action::REQUIRE_APPROVAL;
-    rule.type = rule_type::TOOL;
-    rule.tool_name = tool_name;
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    push_rule(policy_rule{.action = rule_action::REQUIRE_APPROVAL, .type = rule_type::TOOL, .tool_name = tool_name});
   }
 
   void policy_engine::require_approval_directory(const std::string& tool_name, const std::string& path_pattern)
   {
-    policy_rule rule;
-    rule.action = rule_action::REQUIRE_APPROVAL;
-    rule.type = rule_type::DIRECTORY;
-    rule.tool_name = tool_name;
-    rule.path_negated = path_pattern.starts_with("!");
-    if (rule.path_negated)
-    {
-      rule.path = normalize_path(path_pattern.substr(1));
-    }
-    else
-    {
-      rule.path = normalize_path(path_pattern);
-    }
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    add_directory_rule(rule_action::REQUIRE_APPROVAL, tool_name, path_pattern, {});
   }
 
   void policy_engine::require_approval_path_prefix(const std::string& tool_name, const std::string& prefix)
   {
-    policy_rule rule;
-    rule.action = rule_action::REQUIRE_APPROVAL;
-    rule.type = rule_type::PATH_PREFIX;
-    rule.tool_name = tool_name;
-    rule.path_prefix = normalize_path(prefix); // Normalize the prefix when storing
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    push_rule(policy_rule{
+      .action = rule_action::REQUIRE_APPROVAL,
+      .type = rule_type::PATH_PREFIX,
+      .tool_name = tool_name,
+      .path_prefix = normalize_path(prefix)
+    });
+  }
+
+  void policy_engine::add_executable_rule(
+    rule_action action,
+    const std::string& tool_name,
+    const std::string& command,
+    const std::vector<std::string>& args,
+    const std::optional<std::string>& cwd
+  )
+  {
+    policy_rule rule{
+      .action = action, .type = rule_type::EXECUTABLE, .tool_name = tool_name, .command = command, .args = args
+    };
+    if (cwd)
+    {
+      rule.cwd = normalize_path(*cwd);
+    }
+    push_rule(std::move(rule));
   }
 
   void policy_engine::allow_executable(
@@ -279,18 +294,7 @@ namespace mistral::agent
     const std::optional<std::string>& cwd
   )
   {
-    policy_rule rule;
-    rule.action = rule_action::ALLOW;
-    rule.type = rule_type::EXECUTABLE;
-    rule.tool_name = tool_name;
-    rule.command = command;
-    rule.args = args;
-    if (cwd)
-    {
-      rule.cwd = normalize_path(*cwd);
-    }
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    add_executable_rule(rule_action::ALLOW, tool_name, command, args, cwd);
   }
 
   void policy_engine::require_approval_executable(
@@ -300,18 +304,7 @@ namespace mistral::agent
     const std::optional<std::string>& cwd
   )
   {
-    policy_rule rule;
-    rule.action = rule_action::REQUIRE_APPROVAL;
-    rule.type = rule_type::EXECUTABLE;
-    rule.tool_name = tool_name;
-    rule.command = command;
-    rule.args = args;
-    if (cwd)
-    {
-      rule.cwd = normalize_path(*cwd);
-    }
-    rule.id = generate_rule_id(rule);
-    rules_.push_back(std::move(rule));
+    add_executable_rule(rule_action::REQUIRE_APPROVAL, tool_name, command, args, cwd);
   }
 
   void policy_engine::set_default_policy(policy_decision default_policy)
@@ -324,168 +317,78 @@ namespace mistral::agent
     rejection_messages_[rule_id] = message;
   }
 
+  policy_result policy_engine::make_result(const policy_rule& rule) const
+  {
+    if (rule.action == rule_action::ALLOW)
+    {
+      return policy_result{policy_decision::ALLOW, std::format("Allowed by rule: {}", rule.id), std::nullopt};
+    }
+
+    std::optional<std::string> msg = rule.custom_message;
+    if (!msg && !rule.id.empty())
+    {
+      auto it = rejection_messages_.find(rule.id);
+      if (it != rejection_messages_.end())
+      {
+        msg = it->second;
+      }
+    }
+
+    return policy_result{
+      policy_decision::REQUIRE_APPROVAL, std::format("Requires approval by rule: {}", rule.id), msg
+    };
+  }
+
   policy_result policy_engine::evaluate(const policy_context& ctx) const
   {
     policy_context normalized_ctx = normalize_context(ctx);
 
-    // Priority order: DIRECTORY > PATH_PREFIX > EXECUTABLE > TOOL
-    // Within each type, check in reverse order (most recently added first)
+    // Priority order: DIRECTORY > PATH_PREFIX > EXECUTABLE > TOOL.
+    // Within each type, check in reverse order (most recently added first).
+    static constexpr std::array<rule_type, 4> priority{
+      rule_type::DIRECTORY, rule_type::PATH_PREFIX, rule_type::EXECUTABLE, rule_type::TOOL
+    };
 
-    // Check DIRECTORY rules first (most specific)
-    for (auto it = rules_.rbegin(); it != rules_.rend(); ++it)
+    for (rule_type type : priority)
     {
-      const auto& rule = *it;
-      if (rule.type == rule_type::DIRECTORY && rule_matches(rule, normalized_ctx))
+      for (const auto& rule : rules_ | std::views::reverse)
       {
-        std::optional<std::string> msg = rule.custom_message;
-        if (!msg && !rule.id.empty())
+        if (rule.type == type && rule_matches(rule, normalized_ctx))
         {
-          auto it2 = rejection_messages_.find(rule.id);
-          if (it2 != rejection_messages_.end())
-          {
-            msg = it2->second;
-          }
-        }
-        if (rule.action == rule_action::ALLOW)
-        {
-          return policy_result{policy_decision::ALLOW, std::format("Allowed by rule: {}", rule.id), std::nullopt};
-        }
-        else
-        {
-          return policy_result{
-            policy_decision::REQUIRE_APPROVAL, std::format("Requires approval by rule: {}", rule.id), msg
-          };
+          return make_result(rule);
         }
       }
     }
 
-    // Check PATH_PREFIX rules
-    for (auto it = rules_.rbegin(); it != rules_.rend(); ++it)
+    // Apply the default policy.
+    switch (default_policy_)
     {
-      const auto& rule = *it;
-      if (rule.type == rule_type::PATH_PREFIX && rule_matches(rule, normalized_ctx))
-      {
-        std::optional<std::string> msg = rule.custom_message;
-        if (!msg && !rule.id.empty())
-        {
-          auto it2 = rejection_messages_.find(rule.id);
-          if (it2 != rejection_messages_.end())
-          {
-            msg = it2->second;
-          }
-        }
-        if (rule.action == rule_action::ALLOW)
-        {
-          return policy_result{policy_decision::ALLOW, std::format("Allowed by rule: {}", rule.id), std::nullopt};
-        }
-        else
-        {
-          return policy_result{
-            policy_decision::REQUIRE_APPROVAL, std::format("Requires approval by rule: {}", rule.id), msg
-          };
-        }
-      }
-    }
-
-    // Check EXECUTABLE rules
-    for (auto it = rules_.rbegin(); it != rules_.rend(); ++it)
-    {
-      const auto& rule = *it;
-      if (rule.type == rule_type::EXECUTABLE && rule_matches(rule, normalized_ctx))
-      {
-        std::optional<std::string> msg = rule.custom_message;
-        if (!msg && !rule.id.empty())
-        {
-          auto it2 = rejection_messages_.find(rule.id);
-          if (it2 != rejection_messages_.end())
-          {
-            msg = it2->second;
-          }
-        }
-        if (rule.action == rule_action::ALLOW)
-        {
-          return policy_result{policy_decision::ALLOW, std::format("Allowed by rule: {}", rule.id), std::nullopt};
-        }
-        else
-        {
-          return policy_result{
-            policy_decision::REQUIRE_APPROVAL, std::format("Requires approval by rule: {}", rule.id), msg
-          };
-        }
-      }
-    }
-
-    // Check TOOL rules
-    for (auto it = rules_.rbegin(); it != rules_.rend(); ++it)
-    {
-      const auto& rule = *it;
-      if (rule.type == rule_type::TOOL && rule_matches(rule, normalized_ctx))
-      {
-        std::optional<std::string> msg = rule.custom_message;
-        if (!msg && !rule.id.empty())
-        {
-          auto it2 = rejection_messages_.find(rule.id);
-          if (it2 != rejection_messages_.end())
-          {
-            msg = it2->second;
-          }
-        }
-        if (rule.action == rule_action::ALLOW)
-        {
-          return policy_result{policy_decision::ALLOW, std::format("Allowed by rule: {}", rule.id), std::nullopt};
-        }
-        else
-        {
-          return policy_result{
-            policy_decision::REQUIRE_APPROVAL, std::format("Requires approval by rule: {}", rule.id), msg
-          };
-        }
-      }
-    }
-
-    // Step 3: Apply default policy
-    if (default_policy_ == policy_decision::ALLOW)
-    {
+    case policy_decision::ALLOW:
       return policy_result{policy_decision::ALLOW, "Default policy: allow", std::nullopt};
-    }
-    else if (default_policy_ == policy_decision::REQUIRE_APPROVAL)
-    {
+    case policy_decision::REQUIRE_APPROVAL:
       return policy_result{policy_decision::REQUIRE_APPROVAL, "Default policy: require approval", std::nullopt};
-    }
-    else
-    {
+    case policy_decision::DENY:
+    default:
       return policy_result{policy_decision::DENY, "Default policy: deny", std::nullopt};
     }
   }
 
   std::string policy_engine::normalize_path(const std::string& path)
   {
-    try
+    std::error_code ec;
+    fs::path absolute = fs::absolute(path, ec);
+    if (ec)
     {
-      fs::path p = path;
-
-      // If relative, make absolute first
-      if (p.is_relative())
-      {
-        p = fs::absolute(p);
-      }
-
-      // Use weakly_canonical to normalize (resolves symlinks where possible)
-      fs::path normalized = fs::weakly_canonical(p);
-      return normalized.string();
+      return path;
     }
-    catch (const fs::filesystem_error& e)
+
+    // weakly_canonical resolves ".." and symlinks where the path exists.
+    fs::path normalized = fs::weakly_canonical(absolute, ec);
+    if (ec)
     {
-      // Fallback to absolute path if normalization fails
-      try
-      {
-        return fs::absolute(path).string();
-      }
-      catch (...)
-      {
-        return path;
-      }
+      return absolute.lexically_normal().string();
     }
+    return normalized.string();
   }
 
   policy_context policy_engine::normalize_context(const policy_context& ctx) const
@@ -559,31 +462,29 @@ namespace mistral::agent
     return normalized;
   }
 
+  bool policy_engine::glob_match(const std::string& pattern, const std::string& text) const
+  {
+    // No wildcards: a plain comparison, no regex needed.
+    if (pattern.find_first_of("*?") == std::string::npos)
+    {
+      return pattern == text;
+    }
+
+    try
+    {
+      return std::regex_match(text, get_cached_regex(glob_to_regex(pattern)));
+    }
+    catch (const std::regex_error&)
+    {
+      // Pathological patterns can fail at match time; fall back to an
+      // exact comparison rather than propagating.
+      return pattern == text;
+    }
+  }
+
   bool policy_engine::command_matches(const std::string& rule_command, const std::string& test_command) const
   {
-    // Exact match
-    if (rule_command == test_command)
-    {
-      return true;
-    }
-
-    // Glob pattern matching
-    if (rule_command.find('*') != std::string::npos || rule_command.find('?') != std::string::npos)
-    {
-      std::string pattern = glob_to_regex(rule_command);
-      try
-      {
-        const std::regex& re = get_cached_regex(pattern);
-        return std::regex_match(test_command, re);
-      }
-      catch (...)
-      {
-        // If regex compilation fails, fall back to exact match
-        return rule_command == test_command;
-      }
-    }
-
-    return false;
+    return glob_match(rule_command, test_command);
   }
 
   bool policy_engine::args_match(
@@ -591,40 +492,12 @@ namespace mistral::agent
     const std::vector<std::string>& test_args
   ) const
   {
-    // If rule has args, test_args must contain at least one matching arg
-    // This is "list match" - any of the test args must be in the rule args
-    for (const auto& test_arg : test_args)
-    {
-      for (const auto& rule_arg : rule_args)
-      {
-        if (test_arg == rule_arg)
-        {
-          return true;
-        }
-        // Support glob patterns in rule args
-        if (rule_arg.find('*') != std::string::npos || rule_arg.find('?') != std::string::npos)
-        {
-          std::string pattern = glob_to_regex(rule_arg);
-          try
-          {
-            const std::regex& re = get_cached_regex(pattern);
-            if (std::regex_match(test_arg, re))
-            {
-              return true;
-            }
-          }
-          catch (...)
-          {
-            // If regex compilation fails, fall back to exact match
-            if (test_arg == rule_arg)
-            {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
+    // "List match": any test arg matching any rule arg is enough.
+    return std::ranges::any_of(test_args, [&](const std::string& test_arg) {
+      return std::ranges::any_of(rule_args, [&](const std::string& rule_arg) {
+        return glob_match(rule_arg, test_arg);
+      });
+    });
   }
 
   bool policy_engine::cwd_matches(
@@ -637,39 +510,9 @@ namespace mistral::agent
       return false;
     }
 
-    // Exact match
-    if (*rule_cwd == *test_cwd)
-    {
-      return true;
-    }
-
-    // Check if test_cwd starts with rule_cwd (for directory matching)
-    // rule_cwd = "build", test_cwd = "build/" or "build/subdir"
-    std::string norm_rule = *rule_cwd;
-    std::string norm_test = *test_cwd;
-
-    if (!norm_rule.empty() && norm_rule.back() != '/')
-    {
-      norm_rule += '/';
-    }
-    if (!norm_test.empty() && norm_test.back() != '/')
-    {
-      norm_test += '/';
-    }
-
-    // Exact match with trailing slash
-    if (norm_rule == norm_test)
-    {
-      return true;
-    }
-
-    // Prefix match - test_cwd starts with rule_cwd
-    if (norm_test.find(norm_rule) == 0)
-    {
-      return true;
-    }
-
-    return false;
+    // Directory-boundary prefix match: "build" matches "build" and
+    // "build/sub", but not "build-other".
+    return with_trailing_slash(*test_cwd).starts_with(with_trailing_slash(*rule_cwd));
   }
 
   bool policy_engine::executable_path_matches(const policy_rule& rule, const std::string& resolved_path) const
@@ -752,16 +595,7 @@ namespace mistral::agent
       if (dir_part.starts_with("dir="))
       {
         rule.type = rule_type::DIRECTORY;
-        std::string path = dir_part.substr(4);
-        rule.path_negated = path.starts_with("!");
-        if (rule.path_negated)
-        {
-          rule.path = normalize_path(path.substr(1));
-        }
-        else
-        {
-          rule.path = normalize_path(path);
-        }
+        set_rule_path(rule, dir_part.substr(4));
       }
     }
     else if (selector.starts_with("write:path_prefix=") || selector.starts_with("read:path_prefix="))
@@ -788,11 +622,7 @@ namespace mistral::agent
     {
       if (parts[i].starts_with("exclude="))
       {
-        std::string excl_str = parts[i].substr(8);
-        for (const auto& excl : split_comma(excl_str))
-        {
-          rule.exclusions.push_back(fs::path(rule.path) / excl);
-        }
+        add_exclusions(rule, split_comma(parts[i].substr(8)));
       }
       else if (rule.type == rule_type::EXECUTABLE)
       {
@@ -919,18 +749,8 @@ namespace mistral::agent
     const std::vector<std::string>& exclusions
   ) const
   {
-    // Both paths should already be normalized at this point
-    std::string norm_rule = rule_path;
-    std::string norm_test = test_path;
-
-    // Ensure both end with separator for directory matching
-    if (!norm_rule.empty() && norm_rule.back() != '/')
-    {
-      norm_rule += '/';
-    }
-
-    // Check if test path starts with rule path
-    bool matches = norm_test.starts_with(norm_rule);
+    // Both paths are already normalized at this point.
+    bool matches = test_path.starts_with(with_trailing_slash(rule_path));
 
     if (negated)
     {
@@ -940,7 +760,7 @@ namespace mistral::agent
     // Check exclusions
     if (matches && !exclusions.empty())
     {
-      if (is_excluded(norm_test, exclusions))
+      if (is_excluded(test_path, exclusions))
       {
         return false;
       }
@@ -951,35 +771,19 @@ namespace mistral::agent
 
   bool policy_engine::is_excluded(const std::string& path, const std::vector<std::string>& exclusions) const
   {
+    // Exclusions are stored normalized by add_exclusions().
     for (const auto& excl : exclusions)
     {
-      std::string norm_excl = normalize_path(excl);
-      if (!norm_excl.empty() && norm_excl.back() != '/')
-      {
-        norm_excl += '/';
-      }
-
-      if (path.starts_with(norm_excl) || path.starts_with(norm_excl.substr(0, norm_excl.size() - 1)))
+      // The excluded directory itself, or anything below it.
+      if (path.starts_with(excl))
       {
         return true;
       }
 
-      // Also check for glob pattern matching
-      if (excl.find('*') != std::string::npos || excl.find('?') != std::string::npos)
+      // Glob patterns are matched against the whole path.
+      if (glob_match(excl, path))
       {
-        std::string pattern = glob_to_regex(excl);
-        try
-        {
-          const std::regex& re = get_cached_regex(pattern);
-          if (std::regex_match(path, re))
-          {
-            return true;
-          }
-        }
-        catch (...)
-        {
-          // If regex compilation fails, skip
-        }
+        return true;
       }
     }
     return false;

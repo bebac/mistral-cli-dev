@@ -1462,3 +1462,132 @@ TEST_CASE("A valid rule still loads next to an ignored one")
 }
 
 TEST_SUITE_END();
+
+namespace
+{
+  mistral::agent::policy_context path_ctx(const std::string& tool, const std::string& path)
+  {
+    return mistral::agent::policy_context{
+      .tool_name = tool,
+      .tool_arguments = mistral::agent::json{{"path", path}, {"content", "code"}},
+      .working_directory = "/home/user"
+    };
+  }
+} // namespace
+
+TEST_SUITE_BEGIN("policy_rule_matching");
+
+TEST_CASE("Path prefix rule matches only on a directory boundary")
+{
+  mistral::agent::policy_engine engine;
+  engine.require_approval_path_prefix("write", "/home/user/project");
+
+  // Below the prefix.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/src/main.cpp")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // The prefix itself.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // A sibling that merely starts with the same characters.
+  CHECK(engine.evaluate(path_ctx("write", "/home/user/project2/file.txt")).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Directory exclusion supports glob patterns")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_directory("write", "/home/user/project", {"*.tmp"});
+
+  // Matches the exclusion glob.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/scratch.tmp")).decision == mistral::agent::policy_decision::DENY
+  );
+
+  // Does not match it.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/main.cpp")).decision == mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("Exclusion covers the directory itself and everything below it")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_directory("write", "/home/user/project", {"build"});
+
+  // The excluded directory itself.
+  CHECK(engine.evaluate(path_ctx("write", "/home/user/project/build")).decision == mistral::agent::policy_decision::DENY);
+
+  // Anything below it.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/build/output.txt")).decision ==
+    mistral::agent::policy_decision::DENY
+  );
+
+  // A different directory.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/src/main.cpp")).decision == mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("Exclusions are normalized when the rule is built")
+{
+  mistral::agent::policy_engine engine;
+
+  // A ".." in the exclusion must be resolved before matching, otherwise
+  // the stored path never matches the normalized test path.
+  engine.allow_directory("write", "/home/user/project", {"sub/../build"});
+
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/build/output.txt")).decision ==
+    mistral::agent::policy_decision::DENY
+  );
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/src/main.cpp")).decision == mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("Exec cwd constraint respects directory boundaries")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "cmake", {}, "build");
+
+  auto ctx_for = [](const std::string& cwd) {
+    return mistral::agent::policy_context{
+      .tool_name = "exec",
+      .tool_arguments =
+        mistral::agent::json{{"command", "cmake"}, {"args", mistral::agent::json::array()}, {"cwd", cwd}},
+      .working_directory = ""
+    };
+  };
+
+  CHECK(engine.evaluate(ctx_for("build")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(ctx_for("build/debug")).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Shares the prefix but is not inside it.
+  CHECK(engine.evaluate(ctx_for("build-other")).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("Rule message overrides the rejection message")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(
+    mistral::agent::json{
+      {"default", "deny"},
+      {"require_approval",
+       mistral::agent::json::array({
+         mistral::agent::json{{"type", "tool"}, {"tool", "write"}, {"message", "Ask before writing"}},
+       })}
+    }
+  );
+
+  auto result = engine.evaluate(path_ctx("write", "/tmp/file.txt"));
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  REQUIRE(result.rejection_message.has_value());
+  CHECK(*result.rejection_message == "Ask before writing");
+}
+
+TEST_SUITE_END();

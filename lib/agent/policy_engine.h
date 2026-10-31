@@ -174,6 +174,30 @@ namespace mistral::agent
     // Parse rule fields from JSON (used by load_configuration)
     void parse_rule_fields(policy_rule& rule, const json& rule_json) const;
 
+    // Append a rule, generating its id when it has none
+    void push_rule(policy_rule rule);
+
+    // Builders shared by the allow_* / require_approval_* pairs
+    void add_directory_rule(
+      rule_action action,
+      const std::string& tool_name,
+      const std::string& path,
+      const std::vector<std::string>& exclude
+    );
+    void add_executable_rule(
+      rule_action action,
+      const std::string& tool_name,
+      const std::string& command,
+      const std::vector<std::string>& args,
+      const std::optional<std::string>& cwd
+    );
+
+    // Set rule.path from a raw path, honouring a leading "!" negation
+    void set_rule_path(policy_rule& rule, const std::string& path) const;
+
+    // Append exclusions, prefixed with rule.path and normalized
+    void add_exclusions(policy_rule& rule, const std::vector<std::string>& exclude) const;
+
     // Parse DSL rule body (selector + additional parts)
     void parse_dsl_rule_body(
       policy_rule& rule,
@@ -189,6 +213,12 @@ namespace mistral::agent
 
     // Check if a rule matches the context
     bool rule_matches(const policy_rule& rule, const policy_context& ctx) const;
+
+    // Build the result for a matching rule (custom message lookup included)
+    policy_result make_result(const policy_rule& rule) const;
+
+    // Glob match (* and ?), falling back to exact comparison
+    bool glob_match(const std::string& pattern, const std::string& text) const;
 
     // Check if command matches (supports glob patterns)
     bool command_matches(const std::string& rule_command, const std::string& test_command) const;
