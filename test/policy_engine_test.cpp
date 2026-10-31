@@ -1533,6 +1533,36 @@ TEST_CASE("Exclusion covers the directory itself and everything below it")
   );
 }
 
+TEST_CASE("Exclusion does not match a sibling that shares the prefix")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_directory("write", "/home/user/project", {"build"});
+
+  // "buildfoo" and "build.old" are different directories, not the
+  // excluded "build".
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/buildfoo/x.txt")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/build.old")).decision == mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("Directory rule path respects directory boundaries")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_directory("write", "/home/user/project");
+
+  // Inside the directory.
+  CHECK(
+    engine.evaluate(path_ctx("write", "/home/user/project/src/main.cpp")).decision == mistral::agent::policy_decision::ALLOW
+  );
+
+  // Shares the prefix but is not inside it.
+  CHECK(engine.evaluate(path_ctx("write", "/home/user/project2/file.txt")).decision == mistral::agent::policy_decision::DENY);
+}
+
 TEST_CASE("Exclusions are normalized when the rule is built")
 {
   mistral::agent::policy_engine engine;

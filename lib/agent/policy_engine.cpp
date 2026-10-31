@@ -772,10 +772,14 @@ namespace mistral::agent
   bool policy_engine::is_excluded(const std::string& path, const std::vector<std::string>& exclusions) const
   {
     // Exclusions are stored normalized by add_exclusions().
+    const std::string path_with_slash = with_trailing_slash(path);
+
     for (const auto& excl : exclusions)
     {
-      // The excluded directory itself, or anything below it.
-      if (path.starts_with(excl))
+      // The excluded directory itself, or anything below it. Comparing
+      // with trailing separators keeps "build" from excluding
+      // "buildfoo", the same way rule paths are compared.
+      if (path_with_slash.starts_with(with_trailing_slash(excl)))
       {
         return true;
       }
