@@ -29,15 +29,7 @@ namespace mistral::agent
     tool_name.required = true;
     // Completion offers the tools available to the current agent. Execution
     // stays unrestricted, so a tool outside that set can still be typed.
-    tool_name.completer = [](const std::string&)
-    {
-      std::vector<completion_item> items;
-      for (const auto& name : agent_system::instance().current_agent_tool_names())
-      {
-        items.push_back({name, ""});
-      }
-      return items;
-    };
+    tool_name.source = candidate_source::agent_tools;
 
     arg_spec json_arguments;
     json_arguments.name = "json_arguments";

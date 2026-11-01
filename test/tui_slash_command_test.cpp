@@ -153,10 +153,8 @@ namespace
 
       arg_spec server;
       server.name = "server";
-      server.completer = [](const std::string&)
-      {
-        return std::vector<completion_item>{{"alpha", ""}, {"beta", ""}};
-      };
+      server.source = candidate_source::literal;
+      server.literals = {{"alpha", ""}, {"beta", ""}};
 
       command_spec connect;
       connect.name = "connect";
@@ -345,7 +343,7 @@ namespace
 
       input->set_slash_popup(slash_popup.get());
       input->set_slash_divider(slash_divider.get());
-      input->set_slash_registry(registry.get());
+      input->set_command_catalog(registry->build_catalog());
       input->is_agent_busy = [this]() { return agent_busy.load(std::memory_order_acquire); };
       input->on_slash_command = [this](std::string cmd, std::string args) {
         slash_command_called.store(true, std::memory_order_release);
@@ -817,7 +815,7 @@ TEST_CASE("SlashCommand: enter on arrow-selected command")
   input->height = 5;
   input->set_slash_popup(popup.get());
   input->set_slash_divider(divider.get());
-  input->set_slash_registry(registry.get());
+  input->set_command_catalog(registry->build_catalog());
   input->is_agent_busy = []() { return false; };
 
   std::string last_cmd, last_args;
@@ -886,7 +884,7 @@ TEST_CASE("SlashCommand: subcommand and argument completion")
   input->height = 5;
   input->set_slash_popup(popup.get());
   input->set_slash_divider(divider.get());
-  input->set_slash_registry(registry.get());
+  input->set_command_catalog(registry->build_catalog());
   input->is_agent_busy = []() { return false; };
 
   std::string last_cmd, last_args;
@@ -956,7 +954,7 @@ TEST_CASE("SlashCommand: execute-on-complete runs a runnable command")
   input->height = 5;
   input->set_slash_popup(popup.get());
   input->set_slash_divider(divider.get());
-  input->set_slash_registry(registry.get());
+  input->set_command_catalog(registry->build_catalog());
   input->is_agent_busy = []() { return false; };
 
   std::string last_cmd, last_args;
@@ -1071,7 +1069,7 @@ struct test_exec_app
 
     input->set_slash_popup(slash_popup.get());
     input->set_slash_divider(slash_divider.get());
-    input->set_slash_registry(registry.get());
+    input->set_command_catalog(registry->build_catalog());
     input->is_agent_busy = [this]() { return agent_busy.load(std::memory_order_acquire); };
 
     // Response handler: updates the status label with the response text.

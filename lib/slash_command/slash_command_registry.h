@@ -33,9 +33,10 @@ namespace mistral::slash_command
     // Get all command names (for completion)
     std::vector<std::string> get_command_names() const;
 
-    // Completion for a command line: the text after the leading '/', e.g.
-    // "mcp connect st". Returns candidates for the token being typed.
-    completion_state complete(const std::string& line) const;
+    // Build the static completion catalog: every command's spec plus the
+    // command names. The caller owns the result and fills the dynamic part
+    // of the context (MCP servers, agent tools) itself.
+    command_catalog build_catalog() const;
 
     // Parse a command line (the text after the leading '/') against the
     // command's spec.

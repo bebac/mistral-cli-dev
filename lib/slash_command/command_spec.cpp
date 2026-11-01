@@ -1,5 +1,6 @@
 #include "slash_command/command_spec.h"
 
+#include <cctype>
 #include <utility>
 
 namespace mistral::slash_command
@@ -49,6 +50,59 @@ namespace mistral::slash_command
       return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
     }
 
+    bool starts_with_ci(const std::string& text, const std::string& prefix)
+    {
+      if (prefix.size() > text.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < prefix.size(); ++i)
+      {
+        if (
+          std::tolower(static_cast<unsigned char>(text[i])) != std::tolower(static_cast<unsigned char>(prefix[i]))
+        )
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // A command line split into its command name and the remaining text.
+    struct split_line
+    {
+      std::string command;
+      std::string rest;
+      bool has_space = false;
+    };
+
+    split_line split_command(const std::string& line)
+    {
+      split_line out;
+      const size_t space = line.find_first_of(" \t");
+      if (space == std::string::npos)
+      {
+        out.command = line;
+        return out;
+      }
+      out.command = line.substr(0, space);
+      out.rest = line.substr(space + 1);
+      out.has_space = true;
+      return out;
+    }
+
+    const command_spec* find_command(const command_catalog& catalog, const std::string& name)
+    {
+      for (const auto& spec : catalog.commands)
+      {
+        if (spec.name == name)
+        {
+          return &spec;
+        }
+      }
+      return nullptr;
+    }
+
     const command_spec* find_subcommand(const command_spec& spec, const std::string& name)
     {
       for (const auto& sub : spec.subcommands)
@@ -72,6 +126,30 @@ namespace mistral::slash_command
         }
       }
       return items;
+    }
+
+    // Candidates for an argument, resolved from the declarative source.
+    const std::vector<completion_item>& source_items(
+      const arg_spec& arg,
+      const completion_context& context
+    )
+    {
+      switch (arg.source)
+      {
+      case candidate_source::literal:
+        return arg.literals;
+      case candidate_source::command_names:
+        return context.command_names;
+      case candidate_source::mcp_servers:
+        return context.mcp_servers;
+      case candidate_source::agent_tools:
+        return context.agent_tools;
+      case candidate_source::none:
+        break;
+      }
+
+      static const std::vector<completion_item> empty;
+      return empty;
     }
 
     // Result of descending the subcommand chain.
@@ -175,7 +253,7 @@ namespace mistral::slash_command
     return out;
   }
 
-  completion_state command_spec::complete(const std::string& args) const
+  completion_state command_spec::complete(const std::string& args, const completion_context& context) const
   {
     completion_state out;
     const tokenized_line line = tokenize(args);
@@ -221,15 +299,11 @@ namespace mistral::slash_command
 
     if (arg_index < walk.node->args.size())
     {
-      const arg_spec& arg = walk.node->args[arg_index];
-      if (arg.completer)
+      for (const auto& item : source_items(walk.node->args[arg_index], context))
       {
-        for (auto& item : arg.completer(current))
+        if (starts_with(item.text, current))
         {
-          if (starts_with(item.text, current))
-          {
-            out.items.push_back(std::move(item));
-          }
+          out.items.push_back(item);
         }
       }
     }
@@ -266,5 +340,44 @@ namespace mistral::slash_command
   std::string command_spec::usage() const
   {
     return usage_inline(*this);
+  }
+
+  completion_state complete_line(const command_catalog& catalog, const std::string& line)
+  {
+    completion_state out;
+    const split_line split = split_command(line);
+
+    if (!split.has_space)
+    {
+      // Completing the command name itself.
+      out.command_names = true;
+      for (const auto& item : catalog.context.command_names)
+      {
+        if (starts_with_ci(item.text, split.command))
+        {
+          out.items.push_back(item);
+        }
+      }
+
+      // An exact command name is complete when the command's own spec is
+      // satisfied, so "/mcp" runs while "/tool" waits for its arguments.
+      for (const auto& item : out.items)
+      {
+        if (item.text == split.command)
+        {
+          const command_spec* spec = find_command(catalog, item.text);
+          out.complete = spec ? spec->complete("", catalog.context).complete : true;
+          break;
+        }
+      }
+      return out;
+    }
+
+    const command_spec* spec = find_command(catalog, split.command);
+    if (!spec)
+    {
+      return out;
+    }
+    return spec->complete(split.rest, catalog.context);
   }
 } // namespace mistral::slash_command

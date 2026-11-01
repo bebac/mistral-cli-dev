@@ -1,3 +1,4 @@
+#include "agent/agent_system.h"
 #include "agent/mcp_command.h"
 #include "mcp/mcp_manager.h"
 #include "slash_command/slash_command_registry.h"
@@ -5,7 +6,9 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
+using mistral::slash_command::command_catalog;
 using mistral::slash_command::slash_command_registry;
 
 namespace
@@ -17,6 +20,17 @@ namespace
     return registry;
   }
 
+  // Build a catalog with the dynamic context filled from agent_system,
+  // mirroring what a frontend does at startup.
+  command_catalog make_catalog(const slash_command_registry& registry)
+  {
+    auto catalog = registry.build_catalog();
+    auto context = mistral::agent::agent_system::instance().build_completion_context();
+    catalog.context.mcp_servers = std::move(context.mcp_servers);
+    catalog.context.agent_tools = std::move(context.agent_tools);
+    return catalog;
+  }
+
   void configure_servers()
   {
     mistral::agent::mcp_server_config storybook;
@@ -26,14 +40,18 @@ namespace
     xerj.command = "xerj";
 
     mistral::mcp::mcp_manager::instance().configure({{"storybook", storybook}, {"xerj", xerj}});
+
+    // Publish the tool catalog so build_completion_context() sees the servers.
+    mistral::agent::agent_system::instance().refresh_tool_catalog();
   }
 } // namespace
 
 TEST_CASE("slash_command_registry: completes command names")
 {
   auto registry = make_registry();
+  const auto catalog = make_catalog(*registry);
 
-  const auto state = registry->complete("mc");
+  const auto state = mistral::slash_command::complete_line(catalog, "mc");
   REQUIRE(state.command_names);
   REQUIRE(state.items.size() == 1);
   CHECK(state.items[0].text == "mcp");
@@ -43,8 +61,9 @@ TEST_CASE("slash_command_registry: completes command names")
 TEST_CASE("slash_command_registry: completes mcp subcommands")
 {
   auto registry = make_registry();
+  const auto catalog = make_catalog(*registry);
 
-  const auto state = registry->complete("mcp ");
+  const auto state = mistral::slash_command::complete_line(catalog, "mcp ");
   REQUIRE(!state.command_names);
   REQUIRE(state.items.size() == 2);
   CHECK(state.items[0].text == "connect");
@@ -57,18 +76,19 @@ TEST_CASE("slash_command_registry: completes mcp server names")
 {
   configure_servers();
   auto registry = make_registry();
+  const auto catalog = make_catalog(*registry);
 
-  const auto all = registry->complete("mcp connect ");
+  const auto all = mistral::slash_command::complete_line(catalog, "mcp connect ");
   REQUIRE(all.items.size() == 2);
   CHECK(all.items[0].text == "storybook");
   CHECK(all.items[1].text == "xerj");
 
-  const auto partial = registry->complete("mcp connect x");
+  const auto partial = mistral::slash_command::complete_line(catalog, "mcp connect x");
   REQUIRE(partial.items.size() == 1);
   CHECK(partial.items[0].text == "xerj");
   CHECK(!partial.complete);
 
-  CHECK(registry->complete("mcp connect xerj").complete);
+  CHECK(mistral::slash_command::complete_line(catalog, "mcp connect xerj").complete);
 }
 
 TEST_CASE("slash_command_registry: validates subcommands")

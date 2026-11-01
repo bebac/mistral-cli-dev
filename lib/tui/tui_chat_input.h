@@ -1,7 +1,7 @@
 #ifndef MISTRAL_TUI_CHAT_INPUT_H
 #define MISTRAL_TUI_CHAT_INPUT_H
 
-#include "slash_command/slash_command_registry.h"
+#include "slash_command/command_spec.h"
 #include "tui/tui_slash_command_popup.h"
 #include "tui/tui_widgets.h"
 
@@ -54,9 +54,19 @@ namespace mistral::tui
     {
       slash_divider_ = divider;
     }
-    void set_slash_registry(const mistral::slash_command::slash_command_registry* registry)
+    // Static completion catalog (command specs + command names), built once
+    // at startup. The input owns it, so completion needs no registry lookup.
+    void set_command_catalog(mistral::slash_command::command_catalog catalog)
     {
-      registry_ = registry;
+      catalog_ = std::move(catalog);
+    }
+
+    // Dynamic completion data (MCP servers, agent tools), refreshed by the
+    // app when the agent's tool catalog changes.
+    void set_completion_context(mistral::slash_command::completion_context context)
+    {
+      catalog_.context.mcp_servers = std::move(context.mcp_servers);
+      catalog_.context.agent_tools = std::move(context.agent_tools);
     }
     bool slash_mode_active() const
     {
@@ -287,7 +297,7 @@ namespace mistral::tui
     // hide the popup accordingly.
     void refresh_slash_state()
     {
-      if (!registry_)
+      if (catalog_.commands.empty())
       {
         exit_slash_mode();
         return;
@@ -300,7 +310,8 @@ namespace mistral::tui
         return;
       }
 
-      mistral::slash_command::completion_state state = registry_->complete(text.substr(1));
+      mistral::slash_command::completion_state state =
+        mistral::slash_command::complete_line(catalog_, text.substr(1));
       line_complete_ = state.complete;
 
       if (state.items.empty())
@@ -381,7 +392,7 @@ namespace mistral::tui
     bool line_complete_ = false;
     SlashCommandPopup* popup_ = nullptr;
     Divider* slash_divider_ = nullptr;
-    const mistral::slash_command::slash_command_registry* registry_ = nullptr;
+    mistral::slash_command::command_catalog catalog_;
   };
 
 } // namespace mistral::tui

@@ -307,7 +307,12 @@ int main(int argc, char* argv[])
 
   // Spawn console task with slash command channels
   sched.spawn<mistral::console::console_task>(
-    prompt_ch, input_ch, slash_cmd_request_ch, slash_cmd_response_ch, agent_system.slash_commands()
+    prompt_ch,
+    input_ch,
+    slash_cmd_request_ch,
+    slash_cmd_response_ch,
+    agent_system.slash_commands()->build_catalog(),
+    []() { return mistral::agent::agent_system::instance().build_completion_context(); }
   );
 
   auto sink = std::make_shared<mistral::agent::console_render_sink>();

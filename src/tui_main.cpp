@@ -167,6 +167,7 @@ int main(int argc, char* argv[])
     .agent_id = agent_id,
     .theme_name = theme_name,
     .resolved_model = resolved_model,
+    .command_catalog = agent_system.slash_commands()->build_catalog(),
     .prompt_ch = prompt_ch,
     .input_ch = input_ch,
     .agent_response_ch = agent_response_ch,

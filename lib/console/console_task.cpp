@@ -12,14 +12,17 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace mistral::console
@@ -52,8 +55,14 @@ namespace mistral::console
 
     std::thread thread;
 
-    // Slash command registry (shared with the isocline thread for completion/validation)
-    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry;
+    // Static completion catalog (command specs + command names), built once
+    // at startup before the isocline thread starts.
+    slash_command::command_catalog catalog;
+
+    // Dynamic completion data (MCP servers, agent tools). Called on the
+    // isocline thread when completion runs; returns a mutex-protected
+    // snapshot.
+    std::function<slash_command::completion_context()> completion_context_provider;
 
     // Input line being completed. Only touched by the isocline thread: the
     // word callback cannot capture context, so slash_command_completer
@@ -153,7 +162,7 @@ namespace mistral::console
   static void slash_command_word_completer(ic_completion_env_t* cenv, const char*)
   {
     auto* state = static_cast<console_state*>(ic_completion_arg(cenv));
-    if (!state || !state->slash_cmd_registry || state->completion_line.empty())
+    if (!state || state->catalog.commands.empty() || state->completion_line.empty())
     {
       return;
     }
@@ -164,9 +173,17 @@ namespace mistral::console
       return;
     }
 
-    // The registry handles both the command name and, for commands that
-    // declare one, the arguments of the command's spec.
-    auto completion = state->slash_cmd_registry->complete(line.substr(1));
+    // Refresh the dynamic part of the context, then complete against the
+    // catalog the console owns.
+    auto catalog = state->catalog;
+    if (state->completion_context_provider)
+    {
+      auto context = state->completion_context_provider();
+      catalog.context.mcp_servers = std::move(context.mcp_servers);
+      catalog.context.agent_tools = std::move(context.agent_tools);
+    }
+
+    auto completion = slash_command::complete_line(catalog, line.substr(1));
     for (const auto& item : completion.items)
     {
       ic_add_completion_ex(
@@ -185,7 +202,7 @@ namespace mistral::console
     // Check if we're completing a slash command
     if (ic_starts_with(prefix, "/"))
     {
-      if (state && state->slash_cmd_registry)
+      if (state && !state->catalog.commands.empty())
       {
         state->completion_line = prefix;
         ic_complete_word(cenv, prefix, &slash_command_word_completer, &ic_char_is_nonseparator);
@@ -209,10 +226,12 @@ namespace mistral::console
     std::string command = (space_pos == std::string::npos) ? cmd_input : cmd_input.substr(0, space_pos);
     std::string args = (space_pos == std::string::npos) ? "" : cmd_input.substr(space_pos + 1);
 
-    if (!state->slash_cmd_registry)
-      return;
-    auto cmd = state->slash_cmd_registry->get_command(command);
-    if (!cmd)
+    const bool known = std::any_of(
+      state->catalog.commands.begin(), state->catalog.commands.end(), [&](const auto& spec) {
+        return spec.name == command;
+      }
+    );
+    if (!known)
     {
       std::cout << "Unknown command: /" << command << std::endl;
       std::cout << "Try /help for available commands" << std::endl;
@@ -355,11 +374,13 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch,
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
-    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry
+    slash_command::command_catalog command_catalog,
+    std::function<slash_command::completion_context()> completion_context_provider
   )
     : prompt_ch_(std::move(prompt_ch)), input_ch_(std::move(input_ch)),
       slash_cmd_request_ch_(std::move(slash_cmd_request_ch)), slash_cmd_response_ch_(std::move(slash_cmd_response_ch)),
-      slash_cmd_registry_(std::move(slash_cmd_registry))
+      command_catalog_(std::move(command_catalog)),
+      completion_context_provider_(std::move(completion_context_provider))
   {
   }
 
@@ -386,7 +407,8 @@ namespace mistral::console
     fcntl(state_->notify_read, F_SETFL, fcntl(state_->notify_read, F_GETFL) | O_NONBLOCK);
 
     // Pass the registry to the state for the input thread
-    state_->slash_cmd_registry = slash_cmd_registry_;
+    state_->catalog = command_catalog_;
+    state_->completion_context_provider = completion_context_provider_;
 
     // Start the input thread.
     state_->thread = std::thread([this]() { input_thread_func(state_.get()); });

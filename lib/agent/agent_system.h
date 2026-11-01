@@ -153,6 +153,11 @@ namespace mistral::agent
     // agent is active).
     std::vector<std::string> current_agent_tool_names() const;
 
+    // Project the tool catalog into the completion context a frontend needs:
+    // MCP server names and the current agent's tool names. Safe to call from
+    // any thread.
+    slash_command::completion_context build_completion_context() const;
+
     // Current interactive agent id. Registered by interactive_agent_task so
     // slash commands and completers can resolve "the agent the user is
     // talking to".

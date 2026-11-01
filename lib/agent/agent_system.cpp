@@ -584,16 +584,7 @@ namespace mistral::agent
         sc::arg_spec command;
         command.name = "command";
         command.description = "slash command to describe";
-        command.completer = [this](const std::string&)
-        {
-          std::vector<sc::completion_item> items;
-          for (const auto& name : registry_.get_command_names())
-          {
-            const auto* cmd = registry_.get_command(name);
-            items.push_back({name, cmd ? cmd->description() : ""});
-          }
-          return items;
-        };
+        command.source = sc::candidate_source::command_names;
 
         sc::command_spec out;
         out.name = name();
@@ -692,10 +683,8 @@ namespace mistral::agent
         sc::arg_spec all;
         all.name = "all";
         all.description = "list every registered tool";
-        all.completer = [](const std::string&)
-        {
-          return std::vector<sc::completion_item>{{"all", "list every registered tool"}};
-        };
+        all.source = sc::candidate_source::literal;
+        all.literals = {{"all", "list every registered tool"}};
 
         sc::command_spec out;
         out.name = name();
@@ -1767,6 +1756,35 @@ namespace mistral::agent
       return {};
     }
     return agent_tool_names(*agent_id);
+  }
+
+  slash_command::completion_context agent_system::build_completion_context() const
+  {
+    slash_command::completion_context context;
+
+    const auto catalog = tool_catalog_snapshot();
+    if (!catalog)
+    {
+      return context;
+    }
+
+    for (const auto& [server, tools] : catalog->mcp_by_server)
+    {
+      context.mcp_servers.push_back({server, ""});
+    }
+
+    if (const auto agent_id = current_agent_id())
+    {
+      const auto it = catalog->per_agent.find(*agent_id);
+      if (it != catalog->per_agent.end())
+      {
+        for (const auto& name : it->second)
+        {
+          context.agent_tools.push_back({name, ""});
+        }
+      }
+    }
+    return context;
   }
 
   void agent_system::set_shutdown_pipe_fd(int fd)

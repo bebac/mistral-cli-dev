@@ -41,6 +41,9 @@ namespace mistral::tui
     std::string agent_id;
     std::string theme_name;
     std::string resolved_model;
+    // Static completion catalog (command specs + command names), built once
+    // from the registry before the UI starts.
+    mistral::slash_command::command_catalog command_catalog;
     std::shared_ptr<dripcore::channel<std::string>> prompt_ch;
     std::shared_ptr<dripcore::channel<std::string>> input_ch;
     std::shared_ptr<dripcore::channel<std::string>> agent_response_ch;
@@ -224,6 +227,14 @@ namespace mistral::tui
     std::atomic<bool>& agent_ready()
     {
       return agent_ready_;
+    }
+
+    // Dynamic completion data for the slash command popup: MCP server names
+    // and the current agent's tool names. Reads a mutex-protected snapshot,
+    // so it is safe to call from the UI thread.
+    mistral::slash_command::completion_context completion_context() const
+    {
+      return mistral::agent::agent_system::instance().build_completion_context();
     }
 
   private:

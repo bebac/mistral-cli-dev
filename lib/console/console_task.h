@@ -8,6 +8,7 @@
 #include <dripcore/channel.h>
 #include <dripcore/task.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -38,7 +39,8 @@ namespace mistral::console
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch = nullptr,
       std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr,
-      std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry = nullptr
+      slash_command::command_catalog command_catalog = {},
+      std::function<slash_command::completion_context()> completion_context_provider = nullptr
     );
 
     ~console_task();
@@ -52,7 +54,8 @@ namespace mistral::console
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch_;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;
-    std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry_;
+    slash_command::command_catalog command_catalog_;
+    std::function<slash_command::completion_context()> completion_context_provider_;
     std::shared_ptr<console_state> state_;
   };
 

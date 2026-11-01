@@ -1,7 +1,6 @@
 #ifndef MISTRAL_SLASH_COMMAND_COMMAND_SPEC_H
 #define MISTRAL_SLASH_COMMAND_COMMAND_SPEC_H
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -17,6 +16,22 @@ namespace mistral::slash_command
   };
 
   /**
+   * @brief Where an argument's completion candidates come from.
+   *
+   * Declarative on purpose: a command_spec stays pure data (no lambdas, no
+   * singleton access), so a frontend can own a copy and resolve candidates
+   * against data it already holds.
+   */
+  enum class candidate_source
+  {
+    none,          ///< Free-form argument.
+    literal,       ///< arg_spec::literals.
+    command_names, ///< Every slash command name.
+    mcp_servers,   ///< Configured MCP servers.
+    agent_tools,   ///< Tools available to the current agent.
+  };
+
+  /**
    * @brief One positional argument of a command (or subcommand).
    */
   struct arg_spec
@@ -25,8 +40,8 @@ namespace mistral::slash_command
     std::string description; ///< Optional one-line description.
     bool required = false;   ///< Must be supplied for the command to run.
     bool variadic = false;   ///< Consumes the remaining tokens.
-    /// Candidates for the given (partial) token. Unset => free-form argument.
-    std::function<std::vector<completion_item>(const std::string& prefix)> completer;
+    candidate_source source = candidate_source::none;
+    std::vector<completion_item> literals; ///< Used when source == literal.
   };
 
   /**
@@ -52,6 +67,19 @@ namespace mistral::slash_command
     std::vector<completion_item> items; ///< Candidates for the token being typed.
     bool complete = false;              ///< The line can be executed as typed.
     bool command_names = false;         ///< Items are command names (display with '/').
+  };
+
+  /**
+   * @brief Dynamic completion data, owned by the frontend.
+   *
+   * command_names is filled when the catalog is built; mcp_servers and
+   * agent_tools are refreshed when the agent's tool catalog changes.
+   */
+  struct completion_context
+  {
+    std::vector<completion_item> command_names;
+    std::vector<completion_item> mcp_servers;
+    std::vector<completion_item> agent_tools;
   };
 
   /**
@@ -85,13 +113,33 @@ namespace mistral::slash_command
      * (no candidates at all). An empty token means "not typing anything", so
      * the popup acts as a hint and Enter runs the line as typed.
      */
-    completion_state complete(const std::string& args) const;
+    completion_state complete(const std::string& args, const completion_context& context) const;
 
     /**
      * @brief Render a usage line, e.g. "mcp [connect [server]|tools]".
      */
     std::string usage() const;
   };
+
+  /**
+   * @brief Everything a frontend needs to complete a slash command line.
+   *
+   * Built once from the registry (static part) and updated in place when the
+   * dynamic part changes. Owned by the frontend, so completion needs no
+   * registry lookup, no locks and no cross-thread calls.
+   */
+  struct command_catalog
+  {
+    std::vector<command_spec> commands;
+    completion_context context;
+  };
+
+  /**
+   * @brief Complete `line` (the text after the leading '/') against a catalog.
+   *
+   * Pure function: no registry, no locks, no singletons.
+   */
+  completion_state complete_line(const command_catalog& catalog, const std::string& line);
 } // namespace mistral::slash_command
 
 #endif // MISTRAL_SLASH_COMMAND_COMMAND_SPEC_H

@@ -24,10 +24,8 @@ namespace mistral::agent
     arg_spec reset;
     reset.name = "reset";
     reset.description = "reset the usage counters";
-    reset.completer = [](const std::string&)
-    {
-      return std::vector<completion_item>{{"reset", "reset the usage counters"}};
-    };
+    reset.source = candidate_source::literal;
+    reset.literals = {{"reset", "reset the usage counters"}};
 
     command_spec out;
     out.name = name();

@@ -26,15 +26,7 @@ namespace mistral::agent
     arg_spec server;
     server.name = "server";
     server.description = "configured MCP server";
-    server.completer = [](const std::string&)
-    {
-      std::vector<completion_item> items;
-      for (const auto& name : mistral::mcp::mcp_manager::instance().server_names())
-      {
-        items.push_back({name, ""});
-      }
-      return items;
-    };
+    server.source = candidate_source::mcp_servers;
 
     command_spec connect;
     connect.name = "connect";

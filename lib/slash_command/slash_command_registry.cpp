@@ -30,23 +30,6 @@ namespace mistral::slash_command
       return out;
     }
 
-    bool starts_with_ci(const std::string& text, const std::string& prefix)
-    {
-      if (prefix.size() > text.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < prefix.size(); ++i)
-      {
-        if (
-          std::tolower(static_cast<unsigned char>(text[i])) != std::tolower(static_cast<unsigned char>(prefix[i]))
-        )
-        {
-          return false;
-        }
-      }
-      return true;
-    }
   } // namespace
 
   void slash_command_registry::register_command(std::unique_ptr<slash_command> cmd)
@@ -88,45 +71,17 @@ namespace mistral::slash_command
     return names;
   }
 
-  completion_state slash_command_registry::complete(const std::string& line) const
+  command_catalog slash_command_registry::build_catalog() const
   {
-    completion_state out;
-    const split_line split = split_command(line);
+    command_catalog catalog;
 
-    if (!split.has_space)
+    std::lock_guard<std::mutex> lock(mtx_);
+    for (const auto& [name, cmd] : commands_)
     {
-      // Completing the command name itself.
-      out.command_names = true;
-      for (const auto& name : get_command_names())
-      {
-        if (!starts_with_ci(name, split.command))
-        {
-          continue;
-        }
-        const slash_command* cmd = get_command(name);
-        out.items.push_back({name, cmd ? cmd->description() : ""});
-      }
-
-      // An exact command name is complete when the command's own spec is
-      // satisfied, so "/mcp" runs while "/tool" waits for its arguments.
-      for (const auto& item : out.items)
-      {
-        if (item.text == split.command)
-        {
-          const slash_command* cmd = get_command(item.text);
-          out.complete = cmd ? cmd->spec().complete("").complete : true;
-          break;
-        }
-      }
-      return out;
+      catalog.commands.push_back(cmd->spec());
+      catalog.context.command_names.push_back({name, cmd->description()});
     }
-
-    const slash_command* cmd = get_command(split.command);
-    if (!cmd)
-    {
-      return out;
-    }
-    return cmd->spec().complete(split.rest);
+    return catalog;
   }
 
   invocation slash_command_registry::parse_line(const std::string& line) const
