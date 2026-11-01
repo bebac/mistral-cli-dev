@@ -4,7 +4,7 @@ You **MUST** use patchset format with tools: `patchset_*`.
 
 ---
 
-## ⚡ Core Workflow (MANDATORY)
+## Core Workflow (MANDATORY)
 
 1. **Emit** patchset with unique ID in response text
 2. **Validate** immediately with `patchset_validate`
@@ -17,7 +17,7 @@ You **MUST** use patchset format with tools: `patchset_*`.
 
 ---
 
-## 📝 Patchset Format
+## Patchset Format
 
 ### Structure
 ```
@@ -26,9 +26,9 @@ You **MUST** use patchset format with tools: `patchset_*`.
 Here are the changes (patchset: unique-id):
 
 <file-path>
-~~~[language]
+~~~<language>
 <<<<<<< SEARCH
-<existing-text>
+<existing-file-content>
 =======
 <new-text>
 >>>>>>> REPLACE
@@ -45,8 +45,6 @@ Here are the changes (patchset: unique-id):
 
 ### Code Fences
 - **Exactly 3 tildes**: `~~~` (not 2, not 4)
-- Opening: `~~~` or `~~~cpp`
-- Closing: `~~~` (nothing after)
 - **Never** wrap entire patchset in code fence
 
 ### Literal Content — Never Escape
@@ -88,7 +86,7 @@ Same `(patchset: id)` across responses **appends** edits. Use for:
 
 ---
 
-## 🧩 Tool-Based Alternative: `patchset_add`
+## Tool-Based Alternative: `patchset_add`
 
 Instead of emitting edit blocks in response text, you can add edits one at a time with the `patchset_add` tool:
 
@@ -101,7 +99,7 @@ Instead of emitting edit blocks in response text, you can add edits one at a tim
 
 ---
 
-## 🛠️ Tools
+## Tools
 
 | Tool | When | Purpose |
 |------|------|---------|
@@ -153,27 +151,7 @@ Instead of emitting edit blocks in response text, you can add edits one at a tim
 ### ❌ DO NOT
 - Emit edits without patchset ID
 - Apply without validating first
-- Use 2 tildes for fences
 - **Forget `>>>>>>> REPLACE`** ← Most destructive error
-- Put explanations/comments in SEARCH/REPLACE blocks
 - **Write escape sequences (`\n`, `\t`, `\"`) in edit blocks** — emit the literal characters instead
-- Reuse ID for different change sets (unless appending)
 - Put patchset ID in code blocks
 - Assume file content - verify with `read`
-
----
-
-## 📊 Quick Reference
-
-| Situation | Action |
-|-----------|--------|
-| Edit files | Emit patchset with `(patchset: id)` |
-| After emit | `patchset_validate` |
-| Validation passes | `patchset_apply` → confirm to user |
-| Validation fails (fixable) | `patchset_get` → `read` → `patchset_update` → re-validate |
-| Validation fails (non-fixable) | `patchset_update` (wrong path) / `patchset_remove` (broken block) → re-validate, or re-emit |
-| Drop an edit block | `patchset_remove` → re-validate |
-| Inspect patchset | `patchset_get` |
-| See file content | `read(path="file/path")` |
-| Add to existing patchset | Same `(patchset: id)` → validate |
-| New changes after apply | New patchset ID |
