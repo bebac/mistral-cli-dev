@@ -192,7 +192,7 @@ namespace
 
 TEST_CASE("console_task: single line input")
 {
-  auto prompt_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  auto prompt_ch = std::make_shared<dripcore::channel<mistral::agent::prompt_message>>(1);
   auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
 
   pty_terminal pty;
@@ -202,7 +202,7 @@ TEST_CASE("console_task: single line input")
   {
   public:
     collector_task(
-      std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
+      std::shared_ptr<dripcore::channel<mistral::agent::prompt_message>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::string& result
     )
@@ -212,7 +212,7 @@ TEST_CASE("console_task: single line input")
 
     dripcore::awaitable<> body() override
     {
-      prompt_ch_->try_send("mistral");
+      prompt_ch_->try_send({mistral::agent::prompt_message::kind::ready, "mistral"});
 
       auto val = co_await input_ch_->recv(this);
       if (val)
@@ -223,7 +223,7 @@ TEST_CASE("console_task: single line input")
     }
 
   private:
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
+    std::shared_ptr<dripcore::channel<mistral::agent::prompt_message>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::string& result_;
   };

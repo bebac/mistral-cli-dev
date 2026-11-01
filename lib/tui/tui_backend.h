@@ -5,6 +5,7 @@
 #include "agent/agent_system_stats_task.h"
 #include "agent/agent_system_task.h"
 #include "agent/interactive_agent_task.h"
+#include "agent/prompt_message.h"
 #include "api/types.h"
 #include "common/signal_watcher_task.h"
 #include "common/wakeup_pipe.h"
@@ -44,7 +45,7 @@ namespace mistral::tui
     // Static completion catalog (command specs + command names), built once
     // from the registry before the UI starts.
     mistral::slash_command::command_catalog command_catalog;
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch;
+    std::shared_ptr<dripcore::channel<mistral::agent::prompt_message>> prompt_ch;
     std::shared_ptr<dripcore::channel<std::string>> input_ch;
     std::shared_ptr<dripcore::channel<std::string>> agent_response_ch;
     std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch;
@@ -81,7 +82,7 @@ namespace mistral::tui
   //   - Provide thread-safe send_input() and send_slash_command() for the UI
   //     thread to push messages into the dripcore event loop
   //   - Own the agent_ready atomic shared between the dripcore thread
-  //     (prompt_bridge_task) and the UI thread (timers)
+  //     (ui_bridge_task<prompt_message>) and the UI thread (timers)
   //   - Coordinate clean shutdown (signal dripcore, join thread, close pipes)
   //
   // The UI callbacks (post, append_content, append_fragment, flush) allow
@@ -139,8 +140,12 @@ namespace mistral::tui
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
           cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch, agent_system.slash_commands()
         );
-        sched.spawn<mistral::tui::slash_command_response_receiver>(
-          cfg_.slash_cmd_response_ch, callbacks_.post, callbacks_.append_content
+        sched.spawn<mistral::tui::ui_bridge_task<std::string>>(
+          cfg_.slash_cmd_response_ch,
+          callbacks_.post,
+          [append = callbacks_.append_content](std::string text) {
+            append("\n" + text + "\n", mistral::tui::content_type::system);
+          }
         );
         sched.spawn<mistral::tui::pipe_bridge_task<mistral::slash_command::slash_command_request>>(
           slash_cmd_pipe_.read_fd(),
@@ -148,12 +153,10 @@ namespace mistral::tui
           std::ref(slash_cmd_queue_),
           [ch = cfg_.slash_cmd_response_ch]() { ch->close(); }
         );
-        sched.spawn<mistral::tui::prompt_bridge_task>(
+        sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::prompt_message>>(
           cfg_.prompt_ch,
-          std::ref(agent_ready_),
           callbacks_.post,
-          callbacks_.append_content,
-          callbacks_.on_approval_state
+          [this](mistral::agent::prompt_message msg) { apply_prompt_message(std::move(msg)); }
         );
 
         auto sink = std::make_shared<mistral::tui::tui_render_sink>(
@@ -238,6 +241,28 @@ namespace mistral::tui
     }
 
   private:
+    // Apply a prompt message on the UI thread.
+    void apply_prompt_message(mistral::agent::prompt_message msg)
+    {
+      switch (msg.type)
+      {
+      case mistral::agent::prompt_message::kind::ready:
+        agent_ready_.store(true, std::memory_order_release);
+        break;
+      case mistral::agent::prompt_message::kind::approval:
+        callbacks_.append_content(msg.text, mistral::tui::content_type::tool_approval);
+        callbacks_.on_approval_state(approval_state::single_key);
+        break;
+      case mistral::agent::prompt_message::kind::ask:
+        callbacks_.append_content(msg.text, mistral::tui::content_type::tool_approval);
+        callbacks_.on_approval_state(approval_state::ask);
+        break;
+      case mistral::agent::prompt_message::kind::text:
+        callbacks_.append_content(msg.text, mistral::tui::content_type::system);
+        break;
+      }
+    }
+
     tui_config cfg_;
     ui_callbacks callbacks_;
 

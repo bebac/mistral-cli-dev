@@ -370,7 +370,7 @@ namespace mistral::console
   }
 
   console_task::console_task(
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
+    std::shared_ptr<dripcore::channel<agent::prompt_message>> prompt_ch,
     std::shared_ptr<dripcore::channel<std::string>> input_ch,
     std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch,
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch,
@@ -420,30 +420,12 @@ namespace mistral::console
       if (!prompt)
         break; // Agent closed the prompt channel.
 
-      // Check for approval/ask markers
-      const std::string approval_prefix = "[APPROVAL_PROMPT]";
-      const std::string ask_prefix = "[ASK_USER]";
-      bool is_approval = false;
-      bool is_ask = false;
-      std::string display_prompt;
-
-      if (prompt->find(approval_prefix) == 0)
-      {
-        is_approval = true;
-        display_prompt = prompt->substr(approval_prefix.length());
-      }
-      else if (prompt->find(ask_prefix) == 0)
-      {
-        is_ask = true;
-        display_prompt = prompt->substr(ask_prefix.length());
-      }
-      else
-      {
-        display_prompt = *prompt;
-      }
+      // The producer tags the prompt, so no prefix parsing is needed.
+      const bool is_approval = prompt->type == agent::prompt_message::kind::approval;
+      const bool is_ask = prompt->type == agent::prompt_message::kind::ask;
 
       // Store the prompt and mode in the state for the input thread
-      state_->set_prompt(display_prompt, is_approval, is_ask);
+      state_->set_prompt(prompt->text, is_approval, is_ask);
 
       // Signal the thread to call readline (or readchar for approvals).
       state_->signal_prompt_go();
@@ -480,9 +462,9 @@ namespace mistral::console
           }
         }
 
-        // Slash command has completed. Send prompt to the prompt channel so that we immediately wake up to
-        // redisplay the prompt again.
-        prompt_ch_->try_send(display_prompt);
+        // Slash command has completed. Re-send the prompt so that we
+        // immediately wake up to redisplay it again.
+        prompt_ch_->try_send(*prompt);
       }
       else
       {

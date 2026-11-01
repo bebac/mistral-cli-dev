@@ -358,7 +358,7 @@ namespace mistral::tui
     // Consolidated approval state transition: updates ChatInput mode,
     // divider visibility, hint text, and scroll position in one place.
     // Called from:
-    //   - prompt_bridge_task (via posted callback) for single_key and ask
+    //   - the prompt bridge (via posted callback) for single_key and ask
     //   - on_approval_key for text_input ('r' key)
     //   - exit_approval_mode for idle
     void set_approval_state(approval_state state)

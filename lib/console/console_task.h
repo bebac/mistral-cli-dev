@@ -1,6 +1,7 @@
 #ifndef MISTRAL_CONSOLE_TASK_H
 #define MISTRAL_CONSOLE_TASK_H
 
+#include <agent/prompt_message.h>
 #include <slash_command/slash_command.h>
 #include <slash_command/slash_command_registry.h>
 
@@ -35,7 +36,7 @@ namespace mistral::console
   {
   public:
     console_task(
-      std::shared_ptr<dripcore::channel<std::string>> prompt_ch,
+      std::shared_ptr<dripcore::channel<agent::prompt_message>> prompt_ch,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch = nullptr,
       std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch = nullptr,
@@ -50,7 +51,7 @@ namespace mistral::console
     dripcore::awaitable<> teardown() override;
 
   private:
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
+    std::shared_ptr<dripcore::channel<agent::prompt_message>> prompt_ch_;
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<slash_command::slash_command_request>> slash_cmd_request_ch_;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch_;

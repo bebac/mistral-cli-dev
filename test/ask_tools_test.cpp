@@ -123,8 +123,8 @@ TEST_CASE("ask_tools: answered returns the human's answer")
   // Free-text answer: no option resolution.
   CHECK(r["matched_option"].is_null());
 
-  // The prompt carries the transport prefix and the formatted question.
-  CHECK(captured_prompt.find(mistral::tools::ask_prompt_prefix) == 0);
+  // The prompt carries the formatted question; the transport tag is added
+  // by the prompt handler, not by the tool.
   CHECK(captured_prompt.find("Which pagination?") != std::string::npos);
   CHECK(captured_prompt.find("The API offers both") != std::string::npos);
   CHECK(captured_prompt.find("1. cursor") != std::string::npos);
@@ -275,7 +275,6 @@ TEST_CASE("ask_tools: handler round-trip over real channels")
   CHECK(result["status"] == "answered");
   CHECK(result["answer"] == "option b");
   CHECK(result["matched_option"].is_null());
-  CHECK(received_prompt.find(mistral::tools::ask_prompt_prefix) == 0);
   CHECK(received_prompt.find("Which option?") != std::string::npos);
 }
 

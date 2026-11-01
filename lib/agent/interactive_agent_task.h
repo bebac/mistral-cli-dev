@@ -54,7 +54,7 @@ namespace mistral::agent
       const std::string& agent_id,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<std::string>> output_ch = nullptr,
-      std::shared_ptr<dripcore::channel<std::string>> prompt_ch = nullptr,
+      std::shared_ptr<dripcore::channel<prompt_message>> prompt_ch = nullptr,
       std::shared_ptr<render_sink> sink = nullptr,
       bool resume = false
     )
@@ -77,7 +77,7 @@ namespace mistral::agent
         [this](const std::string& prompt) -> dripcore::awaitable<std::string> {
           if (prompt_ch_)
           {
-            prompt_ch_->try_send(prompt);
+            prompt_ch_->try_send(prompt_message{prompt_message::kind::ask, prompt});
           }
           auto response = co_await input_ch_->recv(this);
           co_return response.value_or("");
@@ -107,10 +107,11 @@ namespace mistral::agent
 
       while (true)
       {
-        // Signal console to show prompt.
+        // Signal the frontend to show the prompt. The text is the prompt
+        // string the console passes to readline; the TUI only uses the tag.
         if (prompt_ch_)
         {
-          prompt_ch_->try_send("mistral");
+          prompt_ch_->try_send(prompt_message{prompt_message::kind::ready, "mistral"});
         }
 
         // Wait for user input.
@@ -258,7 +259,7 @@ namespace mistral::agent
 
           if (prompt_ch_)
           {
-            prompt_ch_->try_send("[APPROVAL_PROMPT]" + approval_prompt);
+            prompt_ch_->try_send(prompt_message{prompt_message::kind::approval, approval_prompt});
           }
 
           auto response = co_await input_ch_->recv(this);
@@ -275,7 +276,7 @@ namespace mistral::agent
           {
             if (prompt_ch_)
             {
-              prompt_ch_->try_send("[APPROVAL_PROMPT]" + get_approval_help_message());
+              prompt_ch_->try_send(prompt_message{prompt_message::kind::approval, get_approval_help_message()});
             }
 
             response = co_await input_ch_->recv(this);
@@ -298,7 +299,7 @@ namespace mistral::agent
             std::string message_prompt = "  Enter message for AI (or press Enter for default): ";
             if (prompt_ch_)
             {
-              prompt_ch_->try_send(message_prompt);
+              prompt_ch_->try_send(prompt_message{prompt_message::kind::text, message_prompt});
             }
 
             auto message_response = co_await input_ch_->recv(this);

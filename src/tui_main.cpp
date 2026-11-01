@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
 
   mistral::net::init_openssl();
 
-  auto prompt_ch = std::make_shared<dripcore::channel<std::string>>(4);
+  auto prompt_ch = std::make_shared<dripcore::channel<mistral::agent::prompt_message>>(4);
   auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
   auto agent_response_ch = std::make_shared<dripcore::channel<std::string>>(32);
   auto cmd_request_ch = std::make_shared<dripcore::channel<mistral::slash_command::slash_command_request>>(4);

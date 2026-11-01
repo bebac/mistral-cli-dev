@@ -6,6 +6,7 @@
 #include "agent/approval_manager.h"
 #include "agent/conversation.h"
 #include "agent/policy_engine.h"
+#include "agent/prompt_message.h"
 #include "agent/tool_registry.h"
 #include "api/provider.h"
 #include "api/provider_registry.h"
@@ -31,7 +32,7 @@ namespace mistral::agent
       const std::string& agent_id,
       std::shared_ptr<dripcore::channel<std::string>> input_ch,
       std::shared_ptr<dripcore::channel<std::string>> output_ch = nullptr,
-      std::shared_ptr<dripcore::channel<std::string>> prompt_ch = nullptr
+      std::shared_ptr<dripcore::channel<prompt_message>> prompt_ch = nullptr
     );
 
     virtual ~agent_task_base() = default;
@@ -125,7 +126,7 @@ namespace mistral::agent
     // Channels
     std::shared_ptr<dripcore::channel<std::string>> input_ch_;
     std::shared_ptr<dripcore::channel<std::string>> output_ch_;
-    std::shared_ptr<dripcore::channel<std::string>> prompt_ch_;
+    std::shared_ptr<dripcore::channel<prompt_message>> prompt_ch_;
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_;
     std::shared_ptr<dripcore::channel<api::api_event>> response_ch_;
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;

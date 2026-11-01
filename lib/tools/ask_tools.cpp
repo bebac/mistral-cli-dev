@@ -103,9 +103,9 @@ namespace mistral::tools
       };
     }
 
-    std::string answer = co_await prompt_handler_(
-      std::string(ask_prompt_prefix) + format_prompt(question, context, options, recommendation)
-    );
+    // The prompt handler tags the message as an ask prompt itself, so no
+    // transport prefix is needed here.
+    std::string answer = co_await prompt_handler_(format_prompt(question, context, options, recommendation));
 
     if (answer.empty())
     {

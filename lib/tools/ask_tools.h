@@ -14,11 +14,6 @@ namespace mistral::tools
 {
   using json = nlohmann::ordered_json;
 
-  // Transport prefix for ask prompts on the prompt channel. The console
-  // and TUI prompt consumers recognize it to render the question and
-  // switch the input into free-text answer mode.
-  inline constexpr std::string_view ask_prompt_prefix = "[ASK_USER]";
-
   // Human-in-the-loop question tool. When the agent hits a decision point
   // that changes the direction of the work, it calls ask_user with the
   // question, the discovered context, the viable options and a

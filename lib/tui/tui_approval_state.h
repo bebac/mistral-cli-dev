@@ -15,7 +15,7 @@ namespace mistral::tui
   // ask:         The ask_user tool is waiting for a free-text answer;
   //              Enter submits, Esc skips (sends an empty answer).
   //
-  // State transitions are event-driven: prompt_bridge_task posts
+  // State transitions are event-driven: the prompt bridge posts
   // transitions to the UI thread via App::post(), eliminating the
   // former 50ms polling timer and the dual atomic/enum sync.
   // ---------------------------------------------------------------------------
