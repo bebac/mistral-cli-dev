@@ -640,6 +640,261 @@ namespace mistral::tools
       CHECK(result->second[0].replace_text.find("**2. Create new file**") != std::string::npos);
     }
 
+    // ---------------------------------------------------------------------
+    // Characterization tests for find_closing_fence / parse_edit_blocks.
+    //
+    // These pin behaviour the suite above leaves unconstrained: before they
+    // were added, find_closing_fence had 100% line coverage but only 71%
+    // branch coverage, so the tests walked the happy path without exercising
+    // the branches that discriminate between correct and incorrect fence
+    // matching. Each case below was verified against the pre-rewrite parser.
+    // ---------------------------------------------------------------------
+
+    TEST_CASE("parse_edits_with_patchset - REPLACE marker from a previous block does not close the next block")
+    {
+      // Block 2 contains a nested ~~~ fence before its own REPLACE marker, so
+      // the first candidate closing fence for block 2 sees block 1's REPLACE
+      // marker. The parser must not use it: block 1 keeps its own content.
+      // Block 2 is dropped entirely — a known limitation, pinned deliberately.
+      std::string input =
+        "Here are the changes (patchset: cross-block):\n"
+        "\n"
+        "a.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n"
+        "\n"
+        "b.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "x\n"
+        "~~~\n"
+        "y\n"
+        "=======\n"
+        "z\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "cross-block");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "a.cpp");
+      CHECK(result->second[0].search_text == "old");
+      CHECK(result->second[0].replace_text == "new");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - tilde fence not at line start is literal text")
+    {
+      // A ~~~ inside a line must not be treated as a fence candidate.
+      std::string input =
+        "Here are the changes (patchset: inline-fence):\n"
+        "\n"
+        "a.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "x ~~~ y\n"
+        "=======\n"
+        "z\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "a.cpp");
+      CHECK(result->second[0].search_text == "x ~~~ y");
+      CHECK(result->second[0].replace_text == "z");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - whitespace between REPLACE marker and closing fence")
+    {
+      // Spaces, tabs and blank lines between >>>>>>> REPLACE and the closing
+      // fence are tolerated.
+      std::string input =
+        "Here are the changes (patchset: trailing-ws):\n"
+        "\n"
+        "a.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "   \n"
+        "\t\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].search_text == "old");
+      CHECK(result->second[0].replace_text == "new");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - multiple markerless fence blocks become new-file edits")
+    {
+      // A prose answer that shows ~~~ examples without SEARCH/REPLACE markers
+      // is treated as a series of new-file creations: every non-empty line
+      // preceding a fence is taken as a file path. This is the current
+      // behaviour and is pinned so a parser rewrite cannot change it silently.
+      std::string input =
+        "Here is an explanation (patchset: prose-fences):\n"
+        "\n"
+        "Example usage:\n"
+        "~~~cpp\n"
+        "int main() { return 0; }\n"
+        "~~~\n"
+        "\n"
+        "And another one:\n"
+        "~~~bash\n"
+        "make test\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "prose-fences");
+      REQUIRE(result->second.size() == 2);
+      CHECK(result->second[0].file_path == "Example usage:");
+      CHECK(result->second[0].search_text == "");
+      CHECK(result->second[0].replace_text == "int main() { return 0; }");
+      CHECK(result->second[1].file_path == "And another one:");
+      CHECK(result->second[1].search_text == "");
+      CHECK(result->second[1].replace_text == "make test");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - file path is trimmed of surrounding whitespace")
+    {
+      std::string input =
+        "Here are the changes (patchset: padded-path):\n"
+        "\n"
+        "   src/main.cpp   \n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "src/main.cpp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - whitespace-only path line is skipped")
+    {
+      std::string input =
+        "Here are the changes (patchset: blank-path):\n"
+        "\n"
+        "   \n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "blank-path");
+      CHECK(result->second.empty());
+    }
+
+    TEST_CASE("parse_edits_with_patchset - indented opening fence after file path")
+    {
+      std::string input =
+        "Here are the changes (patchset: indented-fence):\n"
+        "\n"
+        "src/main.cpp\n"
+        "   ~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "src/main.cpp");
+      CHECK(result->second[0].search_text == "old");
+      CHECK(result->second[0].replace_text == "new");
+    }
+
+    TEST_CASE("parse_edit_blocks - trailing text after the last block without a final newline")
+    {
+      // The scan for the next file path runs out of newlines and must stop
+      // cleanly rather than treating the trailing text as a path.
+      std::string input =
+        "Here are the changes.\n"
+        "\n"
+        "src/main.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n"
+        "\n"
+        "patchset_apply(patchset_id=\"x\")";
+
+      auto result = parse_edit_blocks(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->size() == 1);
+      CHECK((*result)[0].file_path == "src/main.cpp");
+    }
+
+    TEST_CASE("parse_edit_blocks - trailing blank lines after the last block")
+    {
+      std::string input =
+        "Here are the changes.\n"
+        "\n"
+        "src/main.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n"
+        "\n"
+        "\n"
+        "\n";
+
+      auto result = parse_edit_blocks(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->size() == 1);
+      CHECK((*result)[0].file_path == "src/main.cpp");
+    }
+
+    TEST_CASE("parse_edit_blocks - first line of the input is never treated as a file path")
+    {
+      // The scan always advances past the first newline before looking at a
+      // candidate path, so a block that starts at offset 0 is not recognised.
+      // Pinned here because it is easy to change accidentally.
+      std::string input =
+        "src/main.cpp\n"
+        "~~~\n"
+        "<<<<<<< SEARCH\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "~~~\n";
+
+      auto result = parse_edit_blocks(input);
+      CHECK(!result.has_value());
+    }
+
     TEST_CASE("parse_edit_blocks - basic case without patchset ID")
     {
       std::string input =
