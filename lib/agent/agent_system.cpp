@@ -1832,10 +1832,13 @@ namespace mistral::agent
       status.mcp_finished = mcp_mgr.auto_connect_finished();
     }
 
+    // The usage object is whatever the API returned, so a non-numeric
+    // total_tokens must not throw out of the stats task's coroutine.
     const json stats = get_usage_stats();
-    if (stats.contains("total_tokens"))
+    const auto tokens = stats.find("total_tokens");
+    if (tokens != stats.end() && tokens->is_number())
     {
-      status.total_tokens = stats["total_tokens"].get<int>();
+      status.total_tokens = tokens->get<int>();
     }
 
     // A full snapshot supersedes any queued one, so a dropped send is fine.
