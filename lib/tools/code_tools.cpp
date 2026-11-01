@@ -6,11 +6,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <format>
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -43,12 +42,49 @@ namespace mistral::tools
       return std::string_view(source).substr(start, end - start);
     }
 
+    // Text of the line containing byte offset `offset`, without the
+    // newline. Unlike line_text() this does not scan from the start of the
+    // source, so it costs O(line length) instead of O(source size).
+    std::string_view line_text_at(const std::string& source, std::uint32_t offset)
+    {
+      const std::size_t position = std::min<std::size_t>(offset, source.size());
+      std::size_t start = position;
+      while (start > 0 && source[start - 1] != '\n')
+      {
+        --start;
+      }
+      std::size_t end = source.find('\n', position);
+      if (end == std::string::npos)
+      {
+        end = source.size();
+      }
+      return std::string_view(source).substr(start, end - start);
+    }
+
     // Path relative to the current working directory for tool output.
     std::string display_path(const std::string& file)
     {
+      // fs::relative canonicalizes its base on every call; the base is the
+      // same for all files of one tool call, so canonicalize it once.
+      static const fs::path base = [] {
+        std::error_code ec;
+        const fs::path cwd = fs::current_path(ec);
+        if (ec)
+        {
+          return fs::path{};
+        }
+        const fs::path canonical = fs::weakly_canonical(cwd, ec);
+        return ec ? cwd : canonical;
+      }();
+
       std::error_code ec;
-      const fs::path relative = fs::relative(file, fs::current_path(ec));
-      if (ec || relative.empty())
+      const fs::path canonical = fs::weakly_canonical(file, ec);
+      if (ec)
+      {
+        return file;
+      }
+      const fs::path relative = canonical.lexically_relative(base);
+      if (relative.empty())
       {
         return file;
       }
@@ -64,13 +100,9 @@ namespace mistral::tools
       auto it = cache.find(file);
       if (it == cache.end())
       {
-        std::ifstream in(file);
-        std::ostringstream buffer;
-        if (in)
-        {
-          buffer << in.rdbuf();
-        }
-        it = cache.emplace(file, buffer.str()).first;
+        std::string content;
+        read_source_file(file, content); // Empty when the file is unreadable.
+        it = cache.emplace(file, std::move(content)).first;
       }
       return std::string(line_text(it->second, line));
     }
@@ -386,7 +418,7 @@ namespace mistral::tools
         json match = {
           {"file", file},
           {"line", site.line},
-          {"text", std::string(line_text(parsed.source(), site.line))}
+          {"text", std::string(line_text_at(parsed.source(), site.start))}
         };
         if (site.is_definition)
         {
@@ -551,15 +583,13 @@ namespace mistral::tools
           continue;
         }
 
-        std::ifstream in(file);
-        if (!in)
+        std::string source;
+        if (!read_source_file(file, source))
         {
           continue;
         }
-        std::ostringstream buffer;
-        buffer << in.rdbuf();
 
-        if (!visit(file, buffer.str()))
+        if (!visit(file, std::move(source)))
         {
           break;
         }

@@ -11,11 +11,12 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <regex>
 #include <set>
-#include <sstream>
+#include <unordered_set>
 
 // Declared in the grammar's bindings (tree-sitter-cpp.h). Declared inline
 // to avoid adding a grammar-specific include path to the build.
@@ -77,6 +78,21 @@ namespace mistral::tools
         tree_sitter_cpp(), source.data(), static_cast<std::uint32_t>(source.size()), &error_offset, &error_type
       );
       return query_ptr(query, ts_query_delete);
+    }
+
+    // One parser per thread: a TSParser keeps no state between parses, and
+    // creating one per file is measurable when indexing a large tree.
+    TSParser* shared_parser()
+    {
+      thread_local parser_ptr parser = [] {
+        parser_ptr created(ts_parser_new(), ts_parser_delete);
+        if (created && !ts_parser_set_language(created.get(), tree_sitter_cpp()))
+        {
+          created.reset();
+        }
+        return created;
+      }();
+      return parser.get();
     }
 
     // Process-lifetime compiled queries; a TSQuery is tied to the language,
@@ -330,22 +346,78 @@ namespace mistral::tools
       return false;
     }
 
-    bool regex_matches(const std::string& pattern, const std::string& text)
+    // Compiling a std::regex costs far more than searching with it, and the
+    // same pattern is evaluated for every match, so compiled expressions
+    // are cached for the lifetime of the thread. A pattern that fails to
+    // compile is cached as an empty optional so it is not retried.
+    const std::optional<std::regex>& compiled_regex(const std::string& pattern)
     {
+      constexpr std::size_t max_cached = 64;
+      thread_local std::vector<std::pair<std::string, std::optional<std::regex>>> cache;
+
+      for (const auto& entry : cache)
+      {
+        if (entry.first == pattern)
+        {
+          return entry.second;
+        }
+      }
+      if (cache.size() >= max_cached)
+      {
+        cache.clear();
+      }
+      std::optional<std::regex> compiled;
       try
       {
-        return std::regex_search(text, std::regex(pattern));
+        compiled.emplace(pattern);
       }
       catch (const std::regex_error&)
       {
-        return false;
       }
+      cache.emplace_back(pattern, std::move(compiled));
+      return cache.back().second;
     }
 
-    // Evaluate all predicates of the match's pattern.
-    bool predicates_hold(const TSQuery* query, const TSQueryMatch& match, const std::string& source)
+    bool regex_matches(const std::string& pattern, const std::string& text)
     {
-      for (const auto& pred : parse_predicates(query, match.pattern_index))
+      const std::optional<std::regex>& compiled = compiled_regex(pattern);
+      return compiled.has_value() && std::regex_search(text, *compiled);
+    }
+
+    // Predicates belong to a pattern, not to a match, so a search would
+    // otherwise re-parse them for every match. One cache per search call.
+    class predicate_cache
+    {
+    public:
+      explicit predicate_cache(const TSQuery* query)
+        : query_(query), patterns_(ts_query_pattern_count(query))
+      {
+      }
+
+      const std::vector<predicate>& get(std::uint32_t pattern_index)
+      {
+        if (pattern_index >= patterns_.size())
+        {
+          static const std::vector<predicate> empty;
+          return empty;
+        }
+        std::optional<std::vector<predicate>>& slot = patterns_[pattern_index];
+        if (!slot)
+        {
+          slot = parse_predicates(query_, pattern_index);
+        }
+        return *slot;
+      }
+
+    private:
+      const TSQuery* query_;
+      std::vector<std::optional<std::vector<predicate>>> patterns_;
+    };
+
+    // Evaluate all predicates of the match's pattern.
+    bool predicates_hold(const TSQueryMatch& match, const std::string& source, predicate_cache& cache)
+    {
+      for (const auto& pred : cache.get(match.pattern_index))
       {
         if (pred.op == "#set!")
         {
@@ -468,6 +540,26 @@ namespace mistral::tools
     }
   } // namespace
 
+  bool read_source_file(const fs::path& path, std::string& out)
+  {
+    out.clear();
+    std::ifstream in(path);
+    if (!in)
+    {
+      return false;
+    }
+    // Reserve the exact size so the buffer is allocated once instead of
+    // growing, and read in one pass without an intermediate stream copy.
+    std::error_code ec;
+    const std::uintmax_t size = fs::file_size(path, ec);
+    if (!ec)
+    {
+      out.reserve(static_cast<std::size_t>(size));
+    }
+    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return true;
+  }
+
   // ---- parsed_source ----
 
   bool parsed_source::load(const std::string& path, std::string& error)
@@ -484,30 +576,28 @@ namespace mistral::tools
       return false;
     }
 
-    std::ifstream in(file);
-    if (!in)
+    std::string source_text;
+    if (!read_source_file(file, source_text))
     {
       error = std::format("cannot open '{}'", path);
       return false;
     }
-    std::ostringstream buffer;
-    buffer << in.rdbuf();
-    return load(path, buffer.str(), error);
+    return load(path, std::move(source_text), error);
   }
 
   bool parsed_source::load(const std::string& path, std::string source_text, std::string& error)
   {
     source_ = std::move(source_text);
 
-    parser_ptr parser(ts_parser_new(), ts_parser_delete);
-    if (!ts_parser_set_language(parser.get(), tree_sitter_cpp()))
+    TSParser* parser = shared_parser();
+    if (parser == nullptr)
     {
       error = "failed to configure parser";
       return false;
     }
 
     tree_ = tree_ptr(
-      ts_parser_parse_string(parser.get(), nullptr, source_.data(), static_cast<std::uint32_t>(source_.size())),
+      ts_parser_parse_string(parser, nullptr, source_.data(), static_cast<std::uint32_t>(source_.size())),
       ts_tree_delete
     );
     if (!tree_)
@@ -648,6 +738,19 @@ namespace mistral::tools
       return sites;
     }
 
+    // Byte ranges of the definition name nodes, packed as
+    // (start << 32 | end), so a usage site is flagged as a definition
+    // without scanning every definition for every capture.
+    std::unordered_set<std::uint64_t> definition_ranges;
+    definition_ranges.reserve(definition_name_nodes_.size());
+    for (const auto& definition_name : definition_name_nodes_)
+    {
+      definition_ranges.insert(
+        (static_cast<std::uint64_t>(ts_node_start_byte(definition_name)) << 32) |
+        static_cast<std::uint64_t>(ts_node_end_byte(definition_name))
+      );
+    }
+
     const TSNode root = ts_tree_root_node(tree_.get());
 
     cursor_ptr cursor(ts_query_cursor_new(), ts_query_cursor_delete);
@@ -670,14 +773,9 @@ namespace mistral::tools
 
         // Flag definition sites so callers can exclude them.
         const std::uint32_t end = ts_node_end_byte(node);
-        for (const auto& definition_name : definition_name_nodes_)
-        {
-          if (ts_node_start_byte(definition_name) == site.start && ts_node_end_byte(definition_name) == end)
-          {
-            site.is_definition = true;
-            break;
-          }
-        }
+        site.is_definition = definition_ranges.contains(
+          (static_cast<std::uint64_t>(site.start) << 32) | static_cast<std::uint64_t>(end)
+        );
 
         sites.push_back(site);
       }
@@ -745,12 +843,25 @@ namespace mistral::tools
     }
     // The requested scope must be a suffix of the definition's scope, so
     // "Class::method" also matches a definition scoped "ns::Class".
-    const std::vector<std::string> parts = split_scope(definition.scope);
-    if (parts.size() < scope.size())
+    // Compared component by component from the end, without splitting the
+    // definition's scope: this runs once per definition of every indexed
+    // file, so it must not allocate.
+    std::size_t end = definition.scope.size();
+    for (auto part = scope.rbegin(); part != scope.rend(); ++part)
     {
-      return false;
+      if (end == 0)
+      {
+        return false;
+      }
+      const std::size_t separator = definition.scope.rfind("::", end - 1);
+      const std::size_t start = separator == std::string::npos ? 0 : separator + 2;
+      if (std::string_view(definition.scope).substr(start, end - start) != *part)
+      {
+        return false;
+      }
+      end = separator == std::string::npos ? 0 : separator;
     }
-    return std::equal(scope.begin(), scope.end(), parts.end() - scope.size());
+    return true;
   }
 
   // ---- compiled_query ----
@@ -832,6 +943,8 @@ namespace mistral::tools
     cursor_ptr cursor(ts_query_cursor_new(), ts_query_cursor_delete);
     ts_query_cursor_exec(cursor.get(), q, ts_tree_root_node(tree_.get()));
 
+    predicate_cache predicates(q);
+
     TSQueryMatch match;
     while (ts_query_cursor_next_match(cursor.get(), &match))
     {
@@ -839,7 +952,7 @@ namespace mistral::tools
       {
         continue;
       }
-      if (!predicates_hold(q, match, source_))
+      if (!predicates_hold(match, source_, predicates))
       {
         continue;
       }
@@ -874,8 +987,16 @@ namespace mistral::tools
 
   // ---- symbol_index ----
 
-  symbol_index::symbol_index(code_index_settings settings) : settings_(std::move(settings))
+  symbol_index::symbol_index(code_index_settings settings)
   {
+    // Pre-build the excluded names as paths: is_excluded() runs for every
+    // file of a walk, and comparing a path component against a std::string
+    // would construct a path per comparison.
+    excluded_dirs_.reserve(settings.exclude_dirs.size());
+    for (const auto& dir : settings.exclude_dirs)
+    {
+      excluded_dirs_.emplace_back(dir);
+    }
   }
 
   bool symbol_index::is_supported_source(const fs::path& path)
@@ -898,7 +1019,7 @@ namespace mistral::tools
   {
     for (const auto& part : path)
     {
-      for (const auto& dir : settings_.exclude_dirs)
+      for (const auto& dir : excluded_dirs_)
       {
         if (part == dir)
         {
@@ -961,7 +1082,7 @@ namespace mistral::tools
         std::string error;
         if (parsed.load(key, error))
         {
-          files_[key] = file_entry{mtime_stamp, size, parsed.definitions()};
+          files_[key] = file_entry{mtime_stamp, size, parsed.take_definitions()};
           seen.insert(key);
         }
 

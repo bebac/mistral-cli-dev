@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mistral::tools
@@ -67,6 +68,11 @@ namespace mistral::tools
 
   class compiled_query;
 
+  // Read the whole of path into out, reserving the file size up front so
+  // the buffer is allocated once. Returns false when the file cannot be
+  // read; out is then empty.
+  bool read_source_file(const std::filesystem::path& path, std::string& out);
+
   // ---- Parsed source ----
   // Owns the parse tree of a C/C++ source file and provides symbol
   // extraction on top of the embedded tree-sitter queries.
@@ -90,6 +96,13 @@ namespace mistral::tools
     const std::vector<symbol_definition>& definitions() const
     {
       return definitions_;
+    }
+
+    // Definitions, moved out of the parsed source. The index keeps them,
+    // so handing them over avoids copying every symbol.
+    std::vector<symbol_definition> take_definitions()
+    {
+      return std::move(definitions_);
     }
 
     // True if the parse produced ERROR nodes (e.g. macros or generated
@@ -208,8 +221,8 @@ namespace mistral::tools
       std::vector<symbol_definition> definitions;
     };
 
-    code_index_settings settings_;
-    std::map<std::string, file_entry> files_; // absolute path -> entry
+    std::vector<std::filesystem::path> excluded_dirs_; // from the settings
+    std::map<std::string, file_entry> files_;          // absolute path -> entry
   };
 
 } // namespace mistral::tools
