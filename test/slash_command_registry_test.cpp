@@ -5,6 +5,8 @@
 #include <dripcore/awaitable.h>
 #include <dripcore/task.h>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -78,6 +80,45 @@ namespace mistral::slash_command
       }
       co_return "Help for: " + args;
     }
+  };
+
+  // A command whose spec() asks the registry for something. build_catalog()
+  // calls spec() with the registry lock released precisely so this works.
+  class test_self_referencing_command : public slash_command
+  {
+  public:
+    explicit test_self_referencing_command(slash_command_registry& registry) : registry_(registry)
+    {
+    }
+
+    std::string name() const override
+    {
+      return "test_self_ref";
+    }
+    std::string description() const override
+    {
+      return "Queries the registry from spec()";
+    }
+    command_spec spec() const override
+    {
+      command_spec out;
+      out.name = name();
+      out.summary = description();
+      // Any registry call takes the same mutex build_catalog() used to hold.
+      if (!registry_.get_command_names().empty())
+      {
+        out.summary += " (registry reachable)";
+      }
+      return out;
+    }
+
+    dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent::agent_system&) override
+    {
+      co_return "";
+    }
+
+  private:
+    slash_command_registry& registry_;
   };
 
 } // namespace mistral::slash_command
@@ -484,4 +525,41 @@ TEST_CASE("slash_command_registry: get_command_names returns sorted list")
   CHECK(has_alpha);
   CHECK(has_middle);
   CHECK(has_zebra);
+}
+
+TEST_CASE("slash_command_registry: build_catalog tolerates a command that queries the registry")
+{
+  // spec() and description() are command-supplied code. build_catalog() used
+  // to call them with the registry mutex held, so a command that asked the
+  // registry for anything deadlocked on the non-recursive mutex.
+  auto registry = std::make_shared<mistral::slash_command::slash_command_registry>();
+  registry->register_command(std::make_unique<mistral::slash_command::test_self_referencing_command>(*registry));
+
+  // Watchdog: a regression deadlocks instead of failing, and a hung test is
+  // worse than a red one. The worker owns everything it touches, so
+  // detaching it on timeout is safe.
+  auto catalog = std::make_shared<mistral::slash_command::command_catalog>();
+  auto done = std::make_shared<std::atomic<bool>>(false);
+  std::thread worker([registry, catalog, done]() {
+    *catalog = registry->build_catalog();
+    done->store(true, std::memory_order_release);
+  });
+
+  for (int i = 0; i < 500 && !done->load(std::memory_order_acquire); ++i)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  if (!done->load(std::memory_order_acquire))
+  {
+    worker.detach();
+    FAIL("build_catalog() deadlocked on the registry mutex");
+  }
+
+  worker.join();
+  REQUIRE(catalog->commands.size() == 1);
+  CHECK(catalog->commands[0].name == "test_self_ref");
+  CHECK(catalog->commands[0].summary.find("registry reachable") != std::string::npos);
+  REQUIRE(catalog->context.command_names.size() == 1);
+  CHECK(catalog->context.command_names[0].text == "test_self_ref");
 }

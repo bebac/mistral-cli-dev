@@ -68,29 +68,6 @@ namespace mistral::slash_command
       return true;
     }
 
-    // A command line split into its command name and the remaining text.
-    struct split_line
-    {
-      std::string command;
-      std::string rest;
-      bool has_space = false;
-    };
-
-    split_line split_command(const std::string& line)
-    {
-      split_line out;
-      const size_t space = line.find_first_of(" \t");
-      if (space == std::string::npos)
-      {
-        out.command = line;
-        return out;
-      }
-      out.command = line.substr(0, space);
-      out.rest = line.substr(space + 1);
-      out.has_space = true;
-      return out;
-    }
-
     const command_spec* find_command(const command_catalog& catalog, const std::string& name)
     {
       for (const auto& spec : catalog.commands)
@@ -230,6 +207,21 @@ namespace mistral::slash_command
       return out;
     }
   } // namespace
+
+  split_line split_command(const std::string& line)
+  {
+    split_line out;
+    const size_t space = line.find_first_of(" \t");
+    if (space == std::string::npos)
+    {
+      out.command = line;
+      return out;
+    }
+    out.command = line.substr(0, space);
+    out.rest = line.substr(space + 1);
+    out.has_space = true;
+    return out;
+  }
 
   invocation command_spec::parse(const std::string& args) const
   {

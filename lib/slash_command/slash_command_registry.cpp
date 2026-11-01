@@ -1,37 +1,10 @@
 #include "slash_command/slash_command_registry.h"
 
-#include <cctype>
 #include <stdexcept>
+#include <utility>
 
 namespace mistral::slash_command
 {
-  namespace
-  {
-    // A command line split into its command name and the remaining text.
-    struct split_line
-    {
-      std::string command;
-      std::string rest;
-      bool has_space = false;
-    };
-
-    split_line split_command(const std::string& line)
-    {
-      split_line out;
-      const size_t space = line.find_first_of(" \t");
-      if (space == std::string::npos)
-      {
-        out.command = line;
-        return out;
-      }
-      out.command = line.substr(0, space);
-      out.rest = line.substr(space + 1);
-      out.has_space = true;
-      return out;
-    }
-
-  } // namespace
-
   void slash_command_registry::register_command(std::unique_ptr<slash_command> cmd)
   {
     if (!cmd)
@@ -39,12 +12,15 @@ namespace mistral::slash_command
       return;
     }
 
-    std::lock_guard<std::mutex> lock(mtx_);
+    // name() is command-supplied code: call it before taking the lock, for
+    // the same reason build_catalog() does.
     std::string name = cmd->name();
     if (name.empty())
     {
       throw std::invalid_argument("Command name cannot be empty");
     }
+
+    std::lock_guard<std::mutex> lock(mtx_);
     commands_[std::move(name)] = std::move(cmd);
   }
 
@@ -73,10 +49,26 @@ namespace mistral::slash_command
 
   command_catalog slash_command_registry::build_catalog() const
   {
-    command_catalog catalog;
+    // Copy the map contents under the lock, then call the virtuals with the
+    // lock released. spec() and description() are command-supplied code, and
+    // a command that asked the registry for anything would deadlock on the
+    // non-recursive mutex. The pointers stay valid because commands are
+    // registered at startup only, which is the contract get_command() and
+    // parse_line() already rely on.
+    std::vector<std::pair<std::string, const slash_command*>> commands;
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      commands.reserve(commands_.size());
+      for (const auto& [name, cmd] : commands_)
+      {
+        commands.emplace_back(name, cmd.get());
+      }
+    }
 
-    std::lock_guard<std::mutex> lock(mtx_);
-    for (const auto& [name, cmd] : commands_)
+    command_catalog catalog;
+    catalog.commands.reserve(commands.size());
+    catalog.context.command_names.reserve(commands.size());
+    for (const auto& [name, cmd] : commands)
     {
       catalog.commands.push_back(cmd->spec());
       catalog.context.command_names.push_back({name, cmd->description()});

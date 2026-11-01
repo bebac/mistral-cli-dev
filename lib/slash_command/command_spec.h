@@ -135,6 +135,24 @@ namespace mistral::slash_command
   };
 
   /**
+   * @brief A command line split into its command name and the remaining text.
+   *
+   * Shared by complete_line() and the registry so both agree on where the
+   * command name ends.
+   */
+  struct split_line
+  {
+    std::string command;    ///< Text before the first space or tab.
+    std::string rest;       ///< Everything after it.
+    bool has_space = false; ///< False when the line has no separator.
+  };
+
+  /**
+   * @brief Split `line` at the first space or tab.
+   */
+  split_line split_command(const std::string& line);
+
+  /**
    * @brief Complete `line` (the text after the leading '/') against a catalog.
    *
    * Pure function: no registry, no locks, no singletons.

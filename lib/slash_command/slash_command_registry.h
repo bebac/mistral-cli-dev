@@ -36,6 +36,10 @@ namespace mistral::slash_command
     // Build the static completion catalog: every command's spec plus the
     // command names. The caller owns the result and fills the dynamic part
     // of the context (MCP servers, agent tools) itself.
+    //
+    // spec() and description() are called with the registry lock released, so
+    // a command may query the registry from them. Registration must not race
+    // with this call (commands are registered at startup).
     command_catalog build_catalog() const;
 
     // Parse a command line (the text after the leading '/') against the
