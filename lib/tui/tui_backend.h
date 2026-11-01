@@ -153,7 +153,7 @@ namespace mistral::tui
           agent_system.shutdown_signal()
         );
         sched.spawn<mistral::tui::pipe_bridge_task<mistral::slash_command::slash_command_request>>(
-          std::ref(slash_cmd_q_), cfg_.cmd_request_ch, [ch = cfg_.slash_cmd_response_ch]() { ch->close(); }
+          std::ref(slash_cmd_q_), cfg_.cmd_request_ch
         );
         sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::prompt_message>>(
           cfg_.prompt_ch,

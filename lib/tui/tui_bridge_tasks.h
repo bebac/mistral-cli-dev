@@ -89,20 +89,18 @@ namespace mistral::tui
   //               for (auto& item : items) target_ch->try_send(std::move(item));
   //
   // On pipe EOF (write end closed during shutdown), the target channel is
-  // closed and the optional on_eof callback is invoked (e.g. to close
-  // additional channels). The task then exits.
+  // closed and the task exits. Channels that other bridges are waiting on
+  // are released through common::shutdown_signal, not from here, so this
+  // task needs no cleanup callback.
   //
   // This replaces the former input_bridge_task and slash_command_bridge_task
-  // which were structurally identical except for the element type and the
-  // set of channels to close on EOF.
+  // which were structurally identical except for the element type.
   // ---------------------------------------------------------------------------
   template <typename T> class pipe_bridge_task : public dripcore::task
   {
   public:
-    using cleanup_fn = std::function<void()>;
-
-    pipe_bridge_task(wakeup_queue<T>& queue, std::shared_ptr<dripcore::channel<T>> target_ch, cleanup_fn on_eof = nullptr)
-      : queue_(queue), target_ch_(std::move(target_ch)), on_eof_(std::move(on_eof))
+    pipe_bridge_task(wakeup_queue<T>& queue, std::shared_ptr<dripcore::channel<T>> target_ch)
+      : queue_(queue), target_ch_(std::move(target_ch))
     {
     }
 
@@ -119,8 +117,6 @@ namespace mistral::tui
         {
           // EOF — pipe write end closed, shutdown.
           target_ch_->close();
-          if (on_eof_)
-            on_eof_();
           co_return;
         }
 
@@ -138,7 +134,6 @@ namespace mistral::tui
   private:
     wakeup_queue<T>& queue_;
     std::shared_ptr<dripcore::channel<T>> target_ch_;
-    cleanup_fn on_eof_;
   };
 
 } // namespace mistral::tui
