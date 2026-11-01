@@ -31,6 +31,9 @@ namespace mistral::tui
       }
       // Notify after releasing the lock: the consumer only ever takes the
       // lock to drain, so holding it across the write would be pointless.
+      //
+      // The result is not checked: notify() already retries on EINTR, so the
+      // only remaining failure is a closed reader, which means shutdown.
       pipe_.notify();
     }
 

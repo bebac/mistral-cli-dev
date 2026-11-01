@@ -1,8 +1,10 @@
 #include "doctest/doctest.h"
+#include "tui/tui_bridge_tasks.h"
 #include "tui/tui_render_sink.h"
 #include "tui/tui_wakeup_queue.h"
 
 #include <atomic>
+#include <cerrno>
 #include <functional>
 #include <mutex>
 #include <poll.h>
@@ -169,6 +171,27 @@ TEST_CASE("concurrent push from multiple threads")
     th.join();
   auto items = q.drain();
   CHECK(items.size() == static_cast<size_t>(N * T));
+}
+
+TEST_CASE("pipe_bridge: a signal-interrupted read is not EOF")
+{
+  using mistral::tui::classify_pipe_read;
+  using mistral::tui::pipe_read_outcome;
+
+  CHECK(classify_pipe_read(1, 0) == pipe_read_outcome::data);
+  CHECK(classify_pipe_read(16, 0) == pipe_read_outcome::data);
+
+  // The write end closed: the only real EOF.
+  CHECK(classify_pipe_read(0, 0) == pipe_read_outcome::eof);
+
+  // SIGINT has no SA_RESTART, so read() can return EINTR without consuming a
+  // byte. Treating that as EOF closes the target channel and ends the agent
+  // task on a spurious wakeup.
+  CHECK(classify_pipe_read(-1, EINTR) == pipe_read_outcome::retry);
+
+  // The read end is gone: nothing more can arrive.
+  CHECK(classify_pipe_read(-1, EBADF) == pipe_read_outcome::failed);
+  CHECK(classify_pipe_read(-1, EAGAIN) == pipe_read_outcome::failed);
 }
 
 TEST_SUITE_END();

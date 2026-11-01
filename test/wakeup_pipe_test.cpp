@@ -4,8 +4,12 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <csignal>
+#include <fcntl.h>
+#include <pthread.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 TEST_CASE("wakeup_pipe construction creates valid pipe")
 {
@@ -78,9 +82,12 @@ TEST_CASE("wakeup_pipe destructor closes both ends")
     REQUIRE(write_fd >= 0);
   }
   char buf = '1';
-  ssize_t n = ::write(write_fd, &buf, 1);
+  const ssize_t n = ::write(write_fd, &buf, 1);
+  // Capture errno before any assertion runs: doctest's success output (with
+  // -s) does I/O that can overwrite it.
+  const int write_errno = errno;
   REQUIRE(n == -1);
-  REQUIRE(errno == EBADF);
+  REQUIRE(write_errno == EBADF);
 }
 
 TEST_CASE("wakeup_pipe move constructor transfers ownership")
@@ -120,9 +127,12 @@ TEST_CASE("wakeup_pipe move assignment transfers ownership and closes old")
   REQUIRE(!pipe1.valid());
 
   char buf[16];
-  ssize_t n = ::read(pipe2_read, buf, sizeof(buf));
+  const ssize_t n = ::read(pipe2_read, buf, sizeof(buf));
+  // Capture errno before any assertion runs: doctest's success output (with
+  // -s) does I/O that can overwrite it.
+  const int read_errno = errno;
   REQUIRE(n == -1);
-  REQUIRE(errno == EBADF);
+  REQUIRE(read_errno == EBADF);
 }
 
 TEST_CASE("wakeup_pipe release gives up ownership")
@@ -210,4 +220,65 @@ TEST_CASE("wakeup_pipe close_write signals EOF to blocked reader thread")
 
   reader.join();
   REQUIRE(got_eof.load());
+}
+
+TEST_CASE("wakeup_pipe notify retries when a signal interrupts the write")
+{
+  // A lost wakeup byte stalls the consumer until the next push, so notify()
+  // must retry on EINTR. SIGINT is installed with sa_flags = 0 (no
+  // SA_RESTART), which is what makes EINTR reachable in production.
+  mistral::common::wakeup_pipe pipe;
+
+  // Fill the pipe so the next write blocks, then restore blocking mode.
+  const int write_fd = pipe.write_fd();
+  const int original_flags = ::fcntl(write_fd, F_GETFL);
+  REQUIRE(original_flags >= 0);
+  REQUIRE(::fcntl(write_fd, F_SETFL, original_flags | O_NONBLOCK) == 0);
+
+  std::vector<char> chunk(4096, 'x');
+  errno = 0;
+  while (::write(write_fd, chunk.data(), chunk.size()) > 0)
+  {
+  }
+  const int fill_errno = errno;
+  REQUIRE(fill_errno == EAGAIN);
+
+  REQUIRE(::fcntl(write_fd, F_SETFL, original_flags) == 0);
+
+  // A handler without SA_RESTART, so the blocked write returns EINTR.
+  struct sigaction interrupt{};
+  interrupt.sa_handler = [](int) {};
+  sigemptyset(&interrupt.sa_mask);
+  interrupt.sa_flags = 0;
+
+  struct sigaction previous{};
+  REQUIRE(::sigaction(SIGUSR1, &interrupt, &previous) == 0);
+
+  // CHECK, not REQUIRE, from here on: a thrown REQUIRE would leave the
+  // writer thread joinable and terminate the process.
+  std::atomic<bool> finished{false};
+  std::atomic<bool> notified{false};
+  std::thread writer([&pipe, &finished, &notified]() {
+    notified.store(pipe.notify());
+    finished.store(true);
+  });
+
+  // Let the writer block in ::write, then interrupt it.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK(!finished.load());
+  CHECK(::pthread_kill(writer.native_handle(), SIGUSR1) == 0);
+
+  // With the retry the write is still pending; without it notify() has
+  // already given up and returned false.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  CHECK(!finished.load());
+
+  // Draining the pipe lets the retried write through.
+  std::vector<char> drained(65536);
+  CHECK(::read(pipe.read_fd(), drained.data(), drained.size()) > 0);
+
+  writer.join();
+  CHECK(notified.load());
+
+  ::sigaction(SIGUSR1, &previous, nullptr);
 }

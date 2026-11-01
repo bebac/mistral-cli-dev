@@ -8,6 +8,7 @@
 #include <dripcore/channel.h>
 #include <dripcore/task.h>
 
+#include <cerrno>
 #include <functional>
 #include <memory>
 #include <unistd.h>
@@ -76,6 +77,34 @@ namespace mistral::tui
     std::shared_ptr<common::shutdown_signal> shutdown_;
   };
 
+  // What a read on a wakeup pipe means.
+  enum class pipe_read_outcome
+  {
+    data,   ///< Bytes were read: drain the queue.
+    eof,    ///< The write end is closed: shut down.
+    retry,  ///< Interrupted by a signal, nothing consumed: read again.
+    failed, ///< The read end is gone (EBADF) or unusable: shut down.
+  };
+
+  // Classify a ::read result on a wakeup pipe.
+  //
+  // A signal interrupts the read without consuming anything, so it must not
+  // be mistaken for EOF: that would close the target channel and end the
+  // agent task on a spurious wakeup. SIGINT is installed with sa_flags = 0
+  // (no SA_RESTART), so EINTR is reachable in production.
+  inline pipe_read_outcome classify_pipe_read(ssize_t n, int err)
+  {
+    if (n > 0)
+    {
+      return pipe_read_outcome::data;
+    }
+    if (n == 0)
+    {
+      return pipe_read_outcome::eof;
+    }
+    return err == EINTR ? pipe_read_outcome::retry : pipe_read_outcome::failed;
+  }
+
   // ---------------------------------------------------------------------------
   // pipe_bridge_task: generic dripcore task that bridges a wakeup_queue
   // (fed from the UI thread) to a dripcore channel (consumed in the agent
@@ -111,11 +140,20 @@ namespace mistral::tui
         co_await readable(queue_.read_fd());
 
         char buf[16];
-        ssize_t n = ::read(queue_.read_fd(), buf, sizeof(buf));
+        const ssize_t n = ::read(queue_.read_fd(), buf, sizeof(buf));
+        const pipe_read_outcome outcome = classify_pipe_read(n, errno);
 
-        if (n <= 0)
+        if (outcome == pipe_read_outcome::retry)
         {
-          // EOF — pipe write end closed, shutdown.
+          // Nothing was consumed, so the wakeup byte is still in the pipe and
+          // readable() fires again immediately.
+          continue;
+        }
+
+        if (outcome != pipe_read_outcome::data)
+        {
+          // EOF (write end closed) or a dead read end: nothing more can
+          // arrive.
           target_ch_->close();
           co_return;
         }

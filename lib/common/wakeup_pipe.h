@@ -1,6 +1,7 @@
 #ifndef MISTRAL_WAKEUP_PIPE_H
 #define MISTRAL_WAKEUP_PIPE_H
 
+#include <cerrno>
 #include <fcntl.h>
 #include <stdexcept>
 #include <unistd.h>
@@ -54,11 +55,21 @@ namespace mistral::common
       return *this;
     }
 
+    // Write one wakeup byte. A lost byte stalls the consumer until the next
+    // push, so retry when a signal interrupts the write: SIGINT is installed
+    // with sa_flags = 0 (no SA_RESTART), which makes EINTR reachable here.
+    // Any other failure means the reader is gone, which is shutdown.
     bool notify(char byte = '1')
     {
       if (fds_[1] < 0)
         return false;
-      ssize_t ret = ::write(fds_[1], &byte, 1);
+
+      ssize_t ret;
+      do
+      {
+        ret = ::write(fds_[1], &byte, 1);
+      } while (ret < 0 && errno == EINTR);
+
       return ret == 1;
     }
 
