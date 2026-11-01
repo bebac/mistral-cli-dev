@@ -15,7 +15,7 @@
 #include "tui/tui_approval_state.h"
 #include "tui/tui_bridge_tasks.h"
 #include "tui/tui_render_sink.h"
-#include "tui/tui_thread_safe_queue.h"
+#include "tui/tui_wakeup_queue.h"
 
 #include <dripcore/channel.h>
 #include <dripcore/scheduler.h>
@@ -140,7 +140,7 @@ namespace mistral::tui
         sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
         sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
         agent_system.start_transport(sched);
-        sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(input_pipe_.read_fd(), cfg_.input_ch, std::ref(inq_));
+        sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(std::ref(input_q_), cfg_.input_ch);
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
           cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch, agent_system.slash_commands()
         );
@@ -153,10 +153,7 @@ namespace mistral::tui
           agent_system.shutdown_signal()
         );
         sched.spawn<mistral::tui::pipe_bridge_task<mistral::slash_command::slash_command_request>>(
-          slash_cmd_pipe_.read_fd(),
-          cfg_.cmd_request_ch,
-          std::ref(slash_cmd_queue_),
-          [ch = cfg_.slash_cmd_response_ch]() { ch->close(); }
+          std::ref(slash_cmd_q_), cfg_.cmd_request_ch, [ch = cfg_.slash_cmd_response_ch]() { ch->close(); }
         );
         sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::prompt_message>>(
           cfg_.prompt_ch,
@@ -199,8 +196,8 @@ namespace mistral::tui
       signal(SIGINT, SIG_DFL);
       g_sigint_pipe_write_fd = -1;
 
-      input_pipe_.close_write();
-      slash_cmd_pipe_.close_write();
+      input_q_.close_write();
+      slash_cmd_q_.close_write();
       sigint_pipe_.close_write();
 
       dripcore_thread_.join();
@@ -211,23 +208,21 @@ namespace mistral::tui
       // reaped in a controlled manner, not from static destructors.
       mistral::mcp::mcp_manager::instance().shutdown();
 
-      input_pipe_.close_read();
-      slash_cmd_pipe_.close_read();
+      input_q_.close_read();
+      slash_cmd_q_.close_read();
       sigint_pipe_.close_read();
     }
 
     // Push a user message or approval response to the agent task.
     void send_input(std::string msg)
     {
-      inq_.push(std::move(msg));
-      input_pipe_.notify();
+      input_q_.push(std::move(msg));
     }
 
     // Push a slash command request to the slash command executor.
     void send_slash_command(mistral::slash_command::slash_command_request req)
     {
-      slash_cmd_queue_.push(std::move(req));
-      slash_cmd_pipe_.notify();
+      slash_cmd_q_.push(std::move(req));
     }
 
     // Write fd for the SIGINT pipe — used by the UI's ESC key handler.
@@ -268,14 +263,12 @@ namespace mistral::tui
     tui_config cfg_;
     ui_callbacks callbacks_;
 
-    thread_safe_queue<std::string> inq_;
-    thread_safe_queue<mistral::slash_command::slash_command_request> slash_cmd_queue_;
+    wakeup_queue<std::string> input_q_;
+    wakeup_queue<mistral::slash_command::slash_command_request> slash_cmd_q_;
 
     std::atomic<bool> agent_ready_{true};
 
     mistral::common::wakeup_pipe sigint_pipe_;
-    mistral::common::wakeup_pipe input_pipe_;
-    mistral::common::wakeup_pipe slash_cmd_pipe_;
 
     std::thread dripcore_thread_;
   };

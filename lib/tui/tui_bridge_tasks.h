@@ -2,8 +2,8 @@
 #define MISTRAL_TUI_BRIDGE_TASKS_H
 
 #include "common/shutdown_signal.h"
-#include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_types.h"
+#include "tui/tui_wakeup_queue.h"
 
 #include <dripcore/channel.h>
 #include <dripcore/task.h>
@@ -77,13 +77,14 @@ namespace mistral::tui
   };
 
   // ---------------------------------------------------------------------------
-  // pipe_bridge_task: generic dripcore task that bridges a thread-safe
-  // queue (fed from the UI thread) to a dripcore channel (consumed in
-  // the agent task). A self-pipe provides the cross-thread wakeup:
+  // pipe_bridge_task: generic dripcore task that bridges a wakeup_queue
+  // (fed from the UI thread) to a dripcore channel (consumed in the agent
+  // task). The queue owns its self-pipe, which provides the cross-thread
+  // wakeup:
   //
-  //   UI thread:  queue.push(item);  ::write(pipe_write_fd, "1", 1);
-  //   dripcore:   co_await readable(pipe_read_fd);
-  //               ::read(pipe_read_fd, ...);  // drain wakeup byte
+  //   UI thread:  queue.push(item);   // enqueues and writes the wakeup byte
+  //   dripcore:   co_await readable(queue.read_fd());
+  //               ::read(queue.read_fd(), ...);  // drain wakeup byte
   //               items = queue.drain();
   //               for (auto& item : items) target_ch->try_send(std::move(item));
   //
@@ -100,13 +101,8 @@ namespace mistral::tui
   public:
     using cleanup_fn = std::function<void()>;
 
-    pipe_bridge_task(
-      int pipe_read_fd,
-      std::shared_ptr<dripcore::channel<T>> target_ch,
-      thread_safe_queue<T>& queue,
-      cleanup_fn on_eof = nullptr
-    )
-      : pipe_read_fd_(pipe_read_fd), target_ch_(std::move(target_ch)), queue_(queue), on_eof_(std::move(on_eof))
+    pipe_bridge_task(wakeup_queue<T>& queue, std::shared_ptr<dripcore::channel<T>> target_ch, cleanup_fn on_eof = nullptr)
+      : queue_(queue), target_ch_(std::move(target_ch)), on_eof_(std::move(on_eof))
     {
     }
 
@@ -114,10 +110,10 @@ namespace mistral::tui
     {
       while (true)
       {
-        co_await readable(pipe_read_fd_);
+        co_await readable(queue_.read_fd());
 
         char buf[16];
-        ssize_t n = ::read(pipe_read_fd_, buf, sizeof(buf));
+        ssize_t n = ::read(queue_.read_fd(), buf, sizeof(buf));
 
         if (n <= 0)
         {
@@ -140,9 +136,8 @@ namespace mistral::tui
     }
 
   private:
-    int pipe_read_fd_;
+    wakeup_queue<T>& queue_;
     std::shared_ptr<dripcore::channel<T>> target_ch_;
-    thread_safe_queue<T>& queue_;
     cleanup_fn on_eof_;
   };
 

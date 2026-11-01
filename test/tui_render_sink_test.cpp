@@ -1,10 +1,11 @@
 #include "doctest/doctest.h"
 #include "tui/tui_render_sink.h"
-#include "tui/tui_thread_safe_queue.h"
+#include "tui/tui_wakeup_queue.h"
 
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <poll.h>
 #include <string>
 #include <thread>
 #include <vector>
@@ -84,14 +85,14 @@ namespace
 } // namespace
 
 // ===========================================================================
-// thread_safe_queue tests
+// wakeup_queue tests
 // ===========================================================================
 
-TEST_SUITE_BEGIN("thread_safe_queue");
+TEST_SUITE_BEGIN("wakeup_queue");
 
 TEST_CASE("push and drain returns items in FIFO order")
 {
-  mistral::tui::thread_safe_queue<int> q;
+  mistral::tui::wakeup_queue<int> q;
   q.push(1);
   q.push(2);
   q.push(3);
@@ -104,14 +105,14 @@ TEST_CASE("push and drain returns items in FIFO order")
 
 TEST_CASE("drain on empty queue returns empty deque")
 {
-  mistral::tui::thread_safe_queue<int> q;
+  mistral::tui::wakeup_queue<int> q;
   auto items = q.drain();
   CHECK(items.empty());
 }
 
 TEST_CASE("drain clears the queue")
 {
-  mistral::tui::thread_safe_queue<int> q;
+  mistral::tui::wakeup_queue<int> q;
   q.push(1);
   q.push(2);
   auto first = q.drain();
@@ -122,7 +123,7 @@ TEST_CASE("drain clears the queue")
 
 TEST_CASE("push after drain works")
 {
-  mistral::tui::thread_safe_queue<int> q;
+  mistral::tui::wakeup_queue<int> q;
   q.push(1);
   q.drain();
   q.push(2);
@@ -131,10 +132,28 @@ TEST_CASE("push after drain works")
   CHECK(items[0] == 2);
 }
 
+TEST_CASE("push wakes the consumer")
+{
+  // The reason the queue owns its pipe: a push is never enqueued without a
+  // wakeup. poll() with a zero timeout keeps this from blocking.
+  mistral::tui::wakeup_queue<int> q;
+
+  pollfd pfd{q.read_fd(), POLLIN, 0};
+  CHECK(::poll(&pfd, 1, 0) == 0); // nothing pending yet
+
+  q.push(7);
+
+  pfd.revents = 0;
+  CHECK(::poll(&pfd, 1, 0) == 1);
+  CHECK((pfd.revents & POLLIN) != 0);
+}
+
 TEST_CASE("concurrent push from multiple threads")
 {
-  mistral::tui::thread_safe_queue<int> q;
-  constexpr int N = 1000;
+  mistral::tui::wakeup_queue<int> q;
+  // Kept well under the pipe buffer: push() also writes a wakeup byte and
+  // nothing drains it here.
+  constexpr int N = 100;
   constexpr int T = 4;
   std::vector<std::thread> threads;
   for (int t = 0; t < T; ++t)
