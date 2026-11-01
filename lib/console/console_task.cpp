@@ -440,8 +440,8 @@ namespace mistral::console
       co_await readable(state_->notify_read);
 
       // Drain the notification byte.
-      char buf;
-      ::read(state_->notify_read, &buf, 1);
+      char buf = 0;
+      [[maybe_unused]] ssize_t n = ::read(state_->notify_read, &buf, 1);
 
       if (state_->eof.load())
       {

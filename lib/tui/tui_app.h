@@ -31,7 +31,7 @@ namespace mistral::tui
   public:
     explicit tui_app(tui_config cfg) : cfg_(std::move(cfg))
     {
-      std::freopen(".mistral-cli/tui-stderr.log", "w", stderr);
+      [[maybe_unused]] auto f = std::freopen(".mistral-cli/tui-stderr.log", "w", stderr);
 
       build_widgets();
 

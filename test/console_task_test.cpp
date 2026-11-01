@@ -143,7 +143,7 @@ namespace
 
         if (::poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN))
         {
-          ::read(master_fd, buf.data(), buf.size());
+          [[maybe_unused]] ssize_t n = ::read(master_fd, buf.data(), buf.size());
         }
       }
     }
