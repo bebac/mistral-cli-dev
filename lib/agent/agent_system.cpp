@@ -28,6 +28,7 @@
 #include <dripcore/task.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1850,8 +1851,13 @@ namespace mistral::agent
   {
     if (shutdown_pipe_write_fd_ >= 0)
     {
+      // A lost wakeup leaves the signal watcher running, so retry when a
+      // signal interrupts the write. Any other failure means the reader has
+      // closed the pipe: we are already shutting down.
       char buf = '0';
-      ::write(shutdown_pipe_write_fd_, &buf, 1);
+      while (::write(shutdown_pipe_write_fd_, &buf, 1) < 0 && errno == EINTR)
+      {
+      }
     }
   }
 } // namespace mistral::agent

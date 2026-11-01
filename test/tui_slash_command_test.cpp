@@ -1094,7 +1094,7 @@ struct test_exec_app
 
       slash_cmd_queue.push({cmd, args});
       char wakeup = '1';
-      ::write(slash_cmd_pipe_fds[1], &wakeup, 1);
+      [[maybe_unused]] ssize_t written = ::write(slash_cmd_pipe_fds[1], &wakeup, 1);
     };
 
     root->add(status);

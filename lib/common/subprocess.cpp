@@ -158,10 +158,12 @@ namespace mistral::common
     // not allocate or take locks after fork().
     [[noreturn]] void child_fail(const char* message, std::size_t length, int report_fd, int error)
     {
-      ::write(STDERR_FILENO, message, length);
+      // Nothing can be done if these fail: the child is about to _exit(127),
+      // and reporting that the report failed is not possible.
+      [[maybe_unused]] ssize_t written = ::write(STDERR_FILENO, message, length);
       if (report_fd >= 0)
       {
-        ::write(report_fd, &error, sizeof(error));
+        [[maybe_unused]] ssize_t reported = ::write(report_fd, &error, sizeof(error));
       }
       ::_exit(127);
     }

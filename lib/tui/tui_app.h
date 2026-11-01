@@ -13,6 +13,7 @@
 #include <cpptui.hpp>
 
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <filesystem>
 #include <format>
@@ -244,8 +245,13 @@ namespace mistral::tui
           );
           return;
         }
+        // A lost byte means the request is not cancelled, so retry when a
+        // signal interrupts the write. Any other failure means the reader
+        // has closed the pipe: we are already shutting down.
         char cancel_byte = '1';
-        ::write(backend_->sigint_write_fd(), &cancel_byte, 1);
+        while (::write(backend_->sigint_write_fd(), &cancel_byte, 1) < 0 && errno == EINTR)
+        {
+        }
       });
     }
 

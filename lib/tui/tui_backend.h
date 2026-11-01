@@ -64,9 +64,9 @@ namespace mistral::tui
   {
     if (g_sigint_pipe_write_fd >= 0)
     {
+      // Nothing can be done from a signal handler if this fails.
       char buf = '1';
-      ssize_t ret = ::write(g_sigint_pipe_write_fd, &buf, 1);
-      (void)ret;
+      [[maybe_unused]] ssize_t ret = ::write(g_sigint_pipe_write_fd, &buf, 1);
     }
   }
 

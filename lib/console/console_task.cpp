@@ -125,34 +125,40 @@ namespace mistral::console
     }
 
     // Helper methods for pipe notifications
+    //
+    // A lost wakeup stalls the other side, so retry when a signal interrupts
+    // the write. Any other failure means the reader has closed the pipe: we
+    // are already shutting down and there is nothing to recover.
+    static void notify_byte(int fd, char byte)
+    {
+      while (::write(fd, &byte, 1) < 0 && errno == EINTR)
+      {
+      }
+    }
+
     void notify_input_ready()
     {
-      char n = notify_input_ready_id;
-      ::write(notify_write, &n, 1);
+      notify_byte(notify_write, notify_input_ready_id);
     }
 
     void notify_slash_cmd_pending()
     {
-      char n = notify_slash_cmd_pending_id;
-      ::write(notify_write, &n, 1);
+      notify_byte(notify_write, notify_slash_cmd_pending_id);
     }
 
     void notify_eof()
     {
-      char n = notify_eof_id;
-      ::write(notify_write, &n, 1);
+      notify_byte(notify_write, notify_eof_id);
     }
 
     void signal_prompt_go()
     {
-      char s = prompt_go_id;
-      ::write(prompt_write, &s, 1);
+      notify_byte(prompt_write, prompt_go_id);
     }
 
     void signal_prompt_shutdown()
     {
-      char s = prompt_shutdown_id;
-      ::write(prompt_write, &s, 1);
+      notify_byte(prompt_write, prompt_shutdown_id);
     }
   };
 
