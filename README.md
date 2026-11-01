@@ -241,8 +241,11 @@ a theme with `--theme` (`dark`, `light`, `nord`, `tokyo-night`,
 
 - **Enter** inserts a newline; **Alt+Enter** — or **Enter** on an empty
   last line (double-Enter) — sends the message.
-- Typing `/` opens a slash-command popup; **Tab** or **Enter** inserts
-  the selected command.
+- Typing `/` opens a completion popup. **Tab** completes the highlighted
+  candidate; **Enter** runs the command as soon as it is complete (so
+  `/tools` needs a single Enter), and otherwise accepts the highlighted
+  candidate. Arguments complete too: `/mcp connect <Tab>` lists the
+  configured servers.
 - **Esc** interrupts the running agent turn; during an approval prompt
   it rejects the call.
 - **PageUp** / **PageDown** scroll the transcript by page, **Alt+↑** /
@@ -257,12 +260,12 @@ Both interfaces support the same slash commands:
 |---------|-------------|
 | `/help [command]` | List slash commands, or show usage for one. |
 | `/model` | Show the current model. |
-| `/tools` | List the available tools. |
+| `/tools [all]` | List the tools available to the current agent (`all` lists every registered tool, marking the ones the agent cannot call). |
 | `/usage [reset]` | Show API usage statistics (`reset` zeroes them). |
 | `/compact [keep]` | Summarize the conversation history, keeping the last `keep` turns verbatim. |
 | `/save [file]` | Save the last AI response to a file (default: `last_response.txt`). |
 | `/load [file]` | Load a file as the last AI response. |
-| `/tool <name> <json>` | Call a tool directly, for debugging. |
+| `/tool <name> <json>` | Call a tool directly, for debugging. Completion offers the current agent's tools; any registered tool can still be called. |
 | `/mcp [connect [server]|tools]` | Show MCP status, connect to servers, or list MCP tools. |
 | `/clear` | Clear the chat history (not yet implemented). |
 | `/exit` | Quit the TUI (in the console, exit with **Ctrl+D**). |

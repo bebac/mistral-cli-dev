@@ -160,6 +160,12 @@ TEST_CASE("mcp_manager: configure and status without connection")
   CHECK(mgr.tool_names("*").empty());
   CHECK(mgr.tool_names("a").empty());
   CHECK(mgr.instructions().empty());
+
+  // server_names() mirrors the configured set (used for /mcp completion).
+  auto names = mgr.server_names();
+  REQUIRE(names.size() == 2);
+  CHECK(names[0] == "a");
+  CHECK(names[1] == "b");
 }
 
 #ifdef MISTRAL_ENABLE_LIVE_MCP_TESTS

@@ -5,6 +5,8 @@
 #include <dripcore/task.h>
 #include <nlohmann/json.hpp>
 
+#include <utility>
+
 namespace mistral::agent
 {
   std::string tool_command::name() const
@@ -17,9 +19,37 @@ namespace mistral::agent
     return "Call a tool directly for debugging";
   }
 
-  std::string tool_command::usage() const
+  slash_command::command_spec tool_command::spec() const
   {
-    return "/tool <tool_name> <json_arguments>";
+    using namespace mistral::slash_command;
+
+    arg_spec tool_name;
+    tool_name.name = "tool_name";
+    tool_name.description = "tool to call";
+    tool_name.required = true;
+    // Completion offers the tools available to the current agent. Execution
+    // stays unrestricted, so a tool outside that set can still be typed.
+    tool_name.completer = [](const std::string&)
+    {
+      std::vector<completion_item> items;
+      for (const auto& name : agent_system::instance().current_agent_tool_names())
+      {
+        items.push_back({name, ""});
+      }
+      return items;
+    };
+
+    arg_spec json_arguments;
+    json_arguments.name = "json_arguments";
+    json_arguments.description = "JSON arguments";
+    json_arguments.required = true;
+
+    command_spec out;
+    out.name = name();
+    out.summary = description();
+    out.args.push_back(std::move(tool_name));
+    out.args.push_back(std::move(json_arguments));
+    return out;
   }
 
   dripcore::awaitable<std::string> tool_command::execute(

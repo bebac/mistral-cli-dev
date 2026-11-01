@@ -3,6 +3,7 @@
 
 #include <format>
 #include <string>
+#include <utility>
 
 namespace mistral::agent
 {
@@ -18,27 +19,61 @@ namespace mistral::agent
     return "Manage MCP servers (status, connect, tools)";
   }
 
-  std::string mcp_command::usage() const
+  slash_command::command_spec mcp_command::spec() const
   {
-    return "/mcp [connect [server]|tools]";
+    using namespace mistral::slash_command;
+
+    arg_spec server;
+    server.name = "server";
+    server.description = "configured MCP server";
+    server.completer = [](const std::string&)
+    {
+      std::vector<completion_item> items;
+      for (const auto& name : mistral::mcp::mcp_manager::instance().server_names())
+      {
+        items.push_back({name, ""});
+      }
+      return items;
+    };
+
+    command_spec connect;
+    connect.name = "connect";
+    connect.summary = "Connect servers (all when no server is given)";
+    connect.args.push_back(std::move(server));
+
+    command_spec tools;
+    tools.name = "tools";
+    tools.summary = "List registered MCP tools";
+
+    command_spec out;
+    out.name = name();
+    out.summary = description();
+    out.subcommands.push_back(std::move(connect));
+    out.subcommands.push_back(std::move(tools));
+    return out;
   }
 
   dripcore::awaitable<std::string> mcp_command::execute(dripcore::task&, const std::string& args, agent::agent_system&)
   {
     auto& mgr = mistral::mcp::mcp_manager::instance();
 
-    std::string arg = args;
-    arg.erase(0, arg.find_first_not_of(" \t"));
-    arg.erase(arg.find_last_not_of(" \t") + 1);
+    const mistral::slash_command::invocation inv = spec().parse(args);
+    if (!inv.ok())
+    {
+      co_return "Error: " + inv.error + "\nusage: /" + usage();
+    }
 
     // /mcp connect [server]
-    if (arg == "connect" || arg.starts_with("connect "))
+    if (inv.path.size() == 2 && inv.path[1] == "connect")
     {
       std::string server;
-      if (arg.size() > 8)
+      for (const auto& token : inv.args)
       {
-        server = arg.substr(8);
-        server.erase(0, server.find_first_not_of(" \t"));
+        if (!server.empty())
+        {
+          server += " ";
+        }
+        server += token;
       }
 
       json results;
@@ -86,7 +121,7 @@ namespace mistral::agent
     }
 
     // /mcp tools
-    if (arg == "tools")
+    if (inv.path.size() == 2 && inv.path[1] == "tools")
     {
       auto names = mgr.tool_names("*");
       if (names.empty())
@@ -102,11 +137,6 @@ namespace mistral::agent
     }
 
     // /mcp (status)
-    if (!arg.empty())
-    {
-      co_return "unknown argument '" + arg + "'. usage: " + usage();
-    }
-
     json servers = mgr.status();
     if (servers.empty())
     {

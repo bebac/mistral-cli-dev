@@ -150,7 +150,6 @@ namespace mistral::tui
       slash_popup_ = std::make_shared<SlashCommandPopup>();
       slash_popup_->fixed_height = 0;
       slash_popup_->visible = false;
-      slash_popup_->set_registry(mistral::agent::agent_system::instance().slash_commands().get());
 
       footer_ = std::make_shared<FooterBar>();
       footer_->left_text = std::filesystem::current_path().string();
@@ -190,6 +189,7 @@ namespace mistral::tui
 
       input_->set_slash_popup(slash_popup_.get());
       input_->set_slash_divider(slash_divider_.get());
+      input_->set_slash_registry(mistral::agent::agent_system::instance().slash_commands().get());
       input_->is_agent_busy = [this]() { return !backend_->agent_ready().load(std::memory_order_acquire); };
       input_->on_slash_command = [this](std::string command, std::string args) {
         if (command == "exit")

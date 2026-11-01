@@ -3,6 +3,7 @@
 
 #include <format>
 #include <string>
+#include <utility>
 
 namespace mistral::agent
 {
@@ -16,9 +17,23 @@ namespace mistral::agent
     return "Show API usage statistics";
   }
 
-  std::string usage_command::usage() const
+  slash_command::command_spec usage_command::spec() const
   {
-    return "/usage [reset]";
+    using namespace mistral::slash_command;
+
+    arg_spec reset;
+    reset.name = "reset";
+    reset.description = "reset the usage counters";
+    reset.completer = [](const std::string&)
+    {
+      return std::vector<completion_item>{{"reset", "reset the usage counters"}};
+    };
+
+    command_spec out;
+    out.name = name();
+    out.summary = description();
+    out.args.push_back(std::move(reset));
+    return out;
   }
 
   dripcore::awaitable<std::string> usage_command::execute(

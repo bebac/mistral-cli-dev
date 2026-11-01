@@ -69,6 +69,11 @@ namespace mistral::mcp
     // Names of servers with auto_connect=true (for display).
     std::vector<std::string> auto_connect_servers() const;
 
+    // Names of all configured servers, in configuration order. The list is
+    // fixed by configure() (called once at startup, before the UI threads
+    // exist), so it is safe to read from any thread.
+    std::vector<std::string> server_names() const;
+
     // True once connect_auto() has completed at least once. The TUI
     // polls this to know the auto-connect outcome is available.
     bool auto_connect_finished() const
@@ -150,6 +155,8 @@ namespace mistral::mcp
     void rebuild_instructions();
 
     std::map<std::string, server_state> servers_;
+    // Snapshot of the configured server names, written by configure() only.
+    std::vector<std::string> configured_names_;
     std::string instructions_;
     uint64_t registry_version_ = 0;
     bool auto_connect_finished_ = false;

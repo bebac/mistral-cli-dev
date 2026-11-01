@@ -9,6 +9,7 @@
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1238,11 +1239,16 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
   CHECK(result.find("mistral-medium-latest") != std::string::npos);
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command executes with agent_system")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command lists the agent's tools")
 {
-  initialize_agent_system_with_main_agent();
+  auto config = create_standard_config();
+  config["agents"]["main"]["available_tools"] = {"ls", "read"};
+  create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
   auto registry = system.slash_commands();
   const auto* tools_cmd = registry->get_command("tools");
   REQUIRE(tools_cmd != nullptr);
@@ -1255,9 +1261,74 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command execute
   );
   sched.run();
 
-  CHECK(!result.empty());
-  CHECK(result.find("Available tools") != std::string::npos);
-  CHECK(result.find("ls") != std::string::npos);
+  CHECK(result.find("tools available to 'main'") != std::string::npos);
+  CHECK(result.find("  - ls") != std::string::npos);
+  CHECK(result.find("  - read") != std::string::npos);
+  // Registered globally but not available to this agent.
+  CHECK(result.find("note_list") == std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools all lists every registered tool")
+{
+  auto config = create_standard_config();
+  config["agents"]["main"]["available_tools"] = {"ls", "read"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
+  auto registry = system.slash_commands();
+  const auto* tools_cmd = registry->get_command("tools");
+  REQUIRE(tools_cmd != nullptr);
+
+  std::string result;
+
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(tools_cmd), "all", system, result
+  );
+  sched.run();
+
+  CHECK(result.find("all registered tools") != std::string::npos);
+  CHECK(result.find("note_list") != std::string::npos);
+  CHECK(result.find("note_list  (not available to this agent)") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_catalog: resolves per-agent tool names")
+{
+  auto config = create_standard_config();
+  config["agents"]["main"]["available_tools"] = {"ls", "read"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  const auto catalog = system.tool_catalog_snapshot();
+  REQUIRE(catalog != nullptr);
+  CHECK(std::find(catalog->all.begin(), catalog->all.end(), "ls") != catalog->all.end());
+  CHECK(std::find(catalog->all.begin(), catalog->all.end(), "note_list") != catalog->all.end());
+
+  const auto names = system.agent_tool_names("main");
+  REQUIRE(names.size() == 2);
+  CHECK(names[0] == "ls");
+  CHECK(names[1] == "read");
+
+  CHECK(system.agent_tool_names("nosuchagent").empty());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_catalog: current agent id")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+
+  // The singleton is shared across tests, so only check the round-trip.
+  system.set_current_agent_id("main");
+  REQUIRE(system.current_agent_id().has_value());
+  CHECK(*system.current_agent_id() == "main");
+
+  // The empty config declares no agents, so there is nothing to resolve.
+  CHECK(system.current_agent_tool_names().empty());
 }
 
 TEST_SUITE_END;

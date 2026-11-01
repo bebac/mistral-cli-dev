@@ -33,6 +33,18 @@ namespace mistral::slash_command
     // Get all command names (for completion)
     std::vector<std::string> get_command_names() const;
 
+    // Completion for a command line: the text after the leading '/', e.g.
+    // "mcp connect st". Returns candidates for the token being typed.
+    completion_state complete(const std::string& line) const;
+
+    // Parse a command line (the text after the leading '/') against the
+    // command's spec.
+    invocation parse_line(const std::string& line) const;
+
+    // Validate a command invocation. Returns an empty string when the
+    // invocation is well formed, otherwise a user-facing error message.
+    std::string validate(const std::string& command, const std::string& args) const;
+
     // Get usage string for help
     std::string get_usage(const std::string& name) const;
 

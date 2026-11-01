@@ -2,20 +2,24 @@
 #define MISTRAL_TUI_SLASH_COMMAND_POPUP_H
 
 #include "cpptui.hpp"
-#include "slash_command/slash_command_registry.h"
+#include "slash_command/command_spec.h"
 
 #include <algorithm>
-#include <cctype>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mistral::tui
 {
 
   // ---------------------------------------------------------------------------
-  // SlashCommandPopup: bordered popup showing filtered slash commands.
-  // Renders a 2-column table: /command_name | description.
+  // SlashCommandPopup: bordered popup showing completion candidates.
+  // Renders a 2-column table: <prefix><text> | description.
   // Selected row highlighted with Theme::selection background.
+  //
+  // The popup is a dumb list: the caller supplies the already filtered
+  // candidates (see slash_command_registry::complete), so the same widget
+  // serves command names and command arguments.
   // ---------------------------------------------------------------------------
 
   class SlashCommandPopup : public cpptui::Widget
@@ -29,42 +33,44 @@ namespace mistral::tui
       focusable = false;
     }
 
-    void set_registry(const mistral::slash_command::slash_command_registry* registry)
+    // Replace the candidate list. Resets the selection to the first item.
+    void set_items(std::vector<mistral::slash_command::completion_item> items)
     {
-      registry_ = registry;
+      items_ = std::move(items);
+      selected_index_ = 0;
     }
 
-    void set_filter(const std::string& filter)
+    // Prefix rendered before each candidate: "/" for command names, "" for
+    // command arguments.
+    void set_display_prefix(std::string prefix)
     {
-      filter_ = filter;
-      update_matched_commands();
-      selected_index_ = 0;
+      display_prefix_ = std::move(prefix);
     }
 
     void move_selection(int delta)
     {
-      if (matched_commands_.empty())
+      if (items_.empty())
         return;
-      selected_index_ = (selected_index_ + delta + (int)matched_commands_.size()) % (int)matched_commands_.size();
+      selected_index_ = (selected_index_ + delta + (int)items_.size()) % (int)items_.size();
     }
 
-    std::string selected_command_name() const
+    std::string selected_text() const
     {
-      if (selected_index_ >= 0 && selected_index_ < (int)matched_commands_.size())
+      if (selected_index_ >= 0 && selected_index_ < (int)items_.size())
       {
-        return matched_commands_[selected_index_];
+        return items_[selected_index_].text;
       }
       return "";
     }
 
-    int matched_count() const
+    int count() const
     {
-      return (int)matched_commands_.size();
+      return (int)items_.size();
     }
 
     int popup_height() const
     {
-      int rows = std::min(matched_count(), max_visible);
+      int rows = std::min(count(), max_visible);
       if (rows == 0)
         rows = 1;      // "No matching commands"
       return rows + 2; // +2 for top/bottom border
@@ -128,7 +134,7 @@ namespace mistral::tui
         buffer.set(x + w - 1, y + 1 + row, vc);
       }
 
-      if (matched_commands_.empty())
+      if (items_.empty())
       {
         // "No matching commands"
         for (int i = 1; i < w - 1; ++i)
@@ -165,19 +171,19 @@ namespace mistral::tui
 
       // Determine scroll offset so selected row stays visible
       int scroll_offset = 0;
-      if ((int)matched_commands_.size() > max_visible && selected_index_ >= max_visible)
+      if ((int)items_.size() > max_visible && selected_index_ >= max_visible)
       {
         scroll_offset = selected_index_ - max_visible + 1;
       }
 
-      int shown = std::min((int)matched_commands_.size() - scroll_offset, max_visible);
+      int shown = std::min((int)items_.size() - scroll_offset, max_visible);
       shown = std::min(shown, inner_h);
 
       for (int row = 0; row < shown; ++row)
       {
-        int cmd_idx = scroll_offset + row;
+        int item_idx = scroll_offset + row;
         int abs_y = y + 1 + row;
-        bool selected = (cmd_idx == selected_index_);
+        bool selected = (item_idx == selected_index_);
         Color bg = selected ? sel_bg : norm_bg;
         Color fg = selected ? sel_fg : norm_fg;
 
@@ -191,8 +197,8 @@ namespace mistral::tui
           buffer.set(x + i, abs_y, c);
         }
 
-        // Column 1: /command_name
-        std::string col1 = "/" + matched_commands_[cmd_idx];
+        // Column 1: <prefix><text>
+        std::string col1 = display_prefix_ + items_[item_idx].text;
         auto chars1 = TextHelper::prepare_text_for_render(col1);
         int dx = 0;
         for (const auto& ci : chars1)
@@ -215,8 +221,7 @@ namespace mistral::tui
         }
 
         // Column 2: description
-        const auto* cmd = registry_->get_command(matched_commands_[cmd_idx]);
-        std::string desc = cmd ? cmd->description() : "";
+        const std::string& desc = items_[item_idx].description;
         int col2_start = 1 + col1_width;
         int col2_width = inner_w - col1_width;
         if (col2_width > 0 && !desc.empty())
@@ -301,38 +306,8 @@ namespace mistral::tui
     }
 
   private:
-    void update_matched_commands()
-    {
-      matched_commands_.clear();
-      if (!registry_)
-        return;
-      auto names = registry_->get_command_names();
-      for (const auto& name : names)
-      {
-        if (filter_.empty() || starts_with_ci(name, filter_))
-        {
-          matched_commands_.push_back(name);
-        }
-      }
-    }
-
-    static bool starts_with_ci(const std::string& str, const std::string& prefix)
-    {
-      if (prefix.size() > str.size())
-        return false;
-      for (size_t i = 0; i < prefix.size(); ++i)
-      {
-        if (std::tolower(static_cast<unsigned char>(str[i])) != std::tolower(static_cast<unsigned char>(prefix[i])))
-        {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    const mistral::slash_command::slash_command_registry* registry_ = nullptr;
-    std::string filter_;
-    std::vector<std::string> matched_commands_;
+    std::vector<mistral::slash_command::completion_item> items_;
+    std::string display_prefix_;
     int selected_index_ = 0;
   };
 

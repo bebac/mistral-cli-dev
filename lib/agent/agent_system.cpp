@@ -34,6 +34,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 namespace mistral::agent
 {
@@ -227,6 +229,10 @@ namespace mistral::agent
     // Register slash commands
     slash_command_registry_ = std::make_shared<slash_command::slash_command_registry>();
     register_slash_commands();
+
+    // Publish the initial tool snapshot. It is rebuilt whenever MCP tools
+    // are registered (see mcp_manager::connect).
+    refresh_tool_catalog();
   }
 
   // ---- Tool Policy Resolution ----
@@ -573,9 +579,27 @@ namespace mistral::agent
       {
         return "Show available slash commands";
       }
-      std::string usage() const override
+      sc::command_spec spec() const override
       {
-        return "/help [command]";
+        sc::arg_spec command;
+        command.name = "command";
+        command.description = "slash command to describe";
+        command.completer = [this](const std::string&)
+        {
+          std::vector<sc::completion_item> items;
+          for (const auto& name : registry_.get_command_names())
+          {
+            const auto* cmd = registry_.get_command(name);
+            items.push_back({name, cmd ? cmd->description() : ""});
+          }
+          return items;
+        };
+
+        sc::command_spec out;
+        out.name = name();
+        out.summary = description();
+        out.args.push_back(std::move(command));
+        return out;
       }
 
       dripcore::awaitable<std::string> execute(dripcore::task&, const std::string& args, agent::agent_system&) override
@@ -660,19 +684,80 @@ namespace mistral::agent
       }
       std::string description() const override
       {
-        return "List available tools";
+        return "List the tools available to the current agent";
       }
 
-      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent_system& sys) override
+      sc::command_spec spec() const override
       {
-        auto schema = sys.global_tools().get_schema();
-        std::string result = "Available tools:\n";
-        for (const auto& tool : schema)
+        sc::arg_spec all;
+        all.name = "all";
+        all.description = "list every registered tool";
+        all.completer = [](const std::string&)
         {
-          if (tool.contains("function") && tool["function"].contains("name"))
+          return std::vector<sc::completion_item>{{"all", "list every registered tool"}};
+        };
+
+        sc::command_spec out;
+        out.name = name();
+        out.summary = description();
+        out.args.push_back(std::move(all));
+        return out;
+      }
+
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string& args, agent_system& sys) override
+      {
+        const sc::invocation inv = spec().parse(args);
+        if (!inv.ok())
+        {
+          co_return "Error: " + inv.error + "\nusage: /" + usage();
+        }
+
+        const bool show_all = !inv.args.empty() && inv.args[0] == "all";
+        const auto catalog = sys.tool_catalog_snapshot();
+        const auto agent_id = sys.current_agent_id();
+
+        // Tools the current agent can call (empty when no agent is active).
+        const std::vector<std::string> agent_tools = agent_id ? sys.agent_tool_names(*agent_id) : std::vector<std::string>{};
+
+        if (show_all)
+        {
+          std::string result = "all registered tools";
+          if (catalog)
           {
-            result += "  - " + tool["function"]["name"].get<std::string>() + "\n";
+            result += " (" + std::to_string(catalog->all.size()) + ")";
           }
+          result += ":\n";
+          if (!catalog || catalog->all.empty())
+          {
+            co_return result + "  (none)\n";
+          }
+          for (const auto& name : catalog->all)
+          {
+            const bool available = std::find(agent_tools.begin(), agent_tools.end(), name) != agent_tools.end();
+            result += "  - " + name;
+            if (agent_id && !available)
+            {
+              result += "  (not available to this agent)";
+            }
+            result += "\n";
+          }
+          co_return result;
+        }
+
+        if (!agent_id)
+        {
+          co_return "No active agent; use /tools all to list every registered tool";
+        }
+
+        std::string result =
+          "tools available to '" + *agent_id + "' (" + std::to_string(agent_tools.size()) + "):\n";
+        if (agent_tools.empty())
+        {
+          co_return result + "  (none)\n";
+        }
+        for (const auto& name : agent_tools)
+        {
+          result += "  - " + name + "\n";
         }
         co_return result;
       }
@@ -1564,6 +1649,124 @@ namespace mistral::agent
   {
     std::lock_guard<std::mutex> lock(current_input_ch_mtx_);
     return current_input_ch_;
+  }
+
+  // ---- Tool catalog ----
+
+  namespace
+  {
+    // Resolve an agent's available_tools entries against a catalog. Mirrors
+    // create_tool_registry() but only collects names, so it can run without
+    // cloning tool instances.
+    std::vector<std::string> resolve_tool_names(
+      const std::vector<std::string>& available_tools,
+      const tool_catalog& catalog
+    )
+    {
+      if (std::find(available_tools.begin(), available_tools.end(), "*") != available_tools.end())
+      {
+        return catalog.all;
+      }
+
+      std::vector<std::string> names;
+      for (const auto& entry : available_tools)
+      {
+        // "mcp:<server>" pulls in all tools of one MCP server (or of all
+        // connected servers with "mcp:*").
+        if (entry.starts_with("mcp:"))
+        {
+          const std::string server = entry.substr(4);
+          if (server == "*")
+          {
+            for (const auto& [name, tools] : catalog.mcp_by_server)
+            {
+              names.insert(names.end(), tools.begin(), tools.end());
+            }
+          }
+          else if (auto it = catalog.mcp_by_server.find(server); it != catalog.mcp_by_server.end())
+          {
+            names.insert(names.end(), it->second.begin(), it->second.end());
+          }
+          continue;
+        }
+
+        if (std::find(catalog.all.begin(), catalog.all.end(), entry) != catalog.all.end())
+        {
+          names.push_back(entry);
+        }
+      }
+
+      std::sort(names.begin(), names.end());
+      names.erase(std::unique(names.begin(), names.end()), names.end());
+      return names;
+    }
+  } // namespace
+
+  void agent_system::set_current_agent_id(const std::string& agent_id)
+  {
+    std::lock_guard<std::mutex> lock(current_agent_id_mtx_);
+    current_agent_id_ = agent_id;
+  }
+
+  std::optional<std::string> agent_system::current_agent_id() const
+  {
+    std::lock_guard<std::mutex> lock(current_agent_id_mtx_);
+    return current_agent_id_;
+  }
+
+  std::shared_ptr<const tool_catalog> agent_system::tool_catalog_snapshot() const
+  {
+    std::lock_guard<std::mutex> lock(tool_catalog_mtx_);
+    return tool_catalog_;
+  }
+
+  void agent_system::refresh_tool_catalog()
+  {
+    auto catalog = std::make_shared<tool_catalog>();
+
+    // Global registry names (std::map iteration order is sorted).
+    for (const auto& [name, tool] : global_tools_.get_tools_map())
+    {
+      catalog->all.push_back(name);
+    }
+
+    // Snapshot the MCP server -> tool mapping so readers never touch the
+    // manager's live state.
+    auto& mcp_mgr = mcp::mcp_manager::instance();
+    for (const auto& server : mcp_mgr.server_names())
+    {
+      catalog->mcp_by_server[server] = mcp_mgr.tool_names(server);
+    }
+
+    // Resolve each configured agent's available_tools.
+    for (const auto& [agent_id, agent_cfg] : config_.agents)
+    {
+      catalog->per_agent[agent_id] = resolve_tool_names(agent_cfg.available_tools, *catalog);
+    }
+
+    std::lock_guard<std::mutex> lock(tool_catalog_mtx_);
+    tool_catalog_ = std::move(catalog);
+  }
+
+  std::vector<std::string> agent_system::agent_tool_names(const std::string& agent_id) const
+  {
+    const auto catalog = tool_catalog_snapshot();
+    if (!catalog)
+    {
+      return {};
+    }
+    const auto it = catalog->per_agent.find(agent_id);
+    return it != catalog->per_agent.end() ? it->second : std::vector<std::string>{};
+  }
+
+  std::vector<std::string> agent_system::current_agent_tool_names() const
+  {
+    const auto agent_id = current_agent_id();
+    if (!agent_id)
+    {
+      return {};
+    }
+    return agent_tool_names(*agent_id);
   }
 
   void agent_system::set_shutdown_pipe_fd(int fd)

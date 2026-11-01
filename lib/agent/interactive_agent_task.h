@@ -65,6 +65,10 @@ namespace mistral::agent
       // conversation.
       agent_system::instance().set_current_input_ch(input_ch_);
 
+      // Register the agent id so slash commands and completers can resolve
+      // "the agent the user is talking to" (e.g. /tools, /tool completion).
+      agent_system::instance().set_current_agent_id(agent_id_);
+
       // Route ask_user prompts to the human: send the question on the
       // prompt channel (the console/TUI render it and switch the input
       // into answer mode), then suspend until the answer arrives on

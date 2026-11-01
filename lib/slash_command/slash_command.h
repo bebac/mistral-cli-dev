@@ -1,6 +1,8 @@
 #ifndef MISTRAL_SLASH_COMMAND_H
 #define MISTRAL_SLASH_COMMAND_H
 
+#include "slash_command/command_spec.h"
+
 #include <dripcore/awaitable.h>
 #include <dripcore/task.h>
 #include <string>
@@ -42,12 +44,28 @@ namespace mistral::slash_command
     virtual std::string description() const = 0;
 
     /**
+     * @brief Get the declarative grammar of the command.
+     *
+     * The spec drives completion, validation and the default usage string.
+     * The default spec has no arguments and no subcommands.
+     *
+     * @return The command spec.
+     */
+    virtual command_spec spec() const
+    {
+      command_spec out;
+      out.name = name();
+      out.summary = description();
+      return out;
+    }
+
+    /**
      * @brief Get the usage string for the command.
-     * @return The usage string (default: just the command name).
+     * @return The usage string derived from spec(), e.g. "mcp [connect [server]|tools]".
      */
     virtual std::string usage() const
     {
-      return name();
+      return spec().usage();
     }
 
     // --- Execution ---

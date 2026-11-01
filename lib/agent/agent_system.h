@@ -58,6 +58,18 @@ namespace mistral::agent
     bool operator==(const transport_endpoint& other) const = default;
   };
 
+  // ---- Tool Catalog ----
+  // Immutable snapshot of the registered tools, published by agent_system
+  // on the scheduler thread (the only thread that mutates the global tool
+  // registry, via MCP connects). Readers copy the shared_ptr, so they never
+  // touch the live registry and can safely run on the UI thread.
+  struct tool_catalog
+  {
+    std::vector<std::string> all;                                  ///< Every registered tool name.
+    std::map<std::string, std::vector<std::string>> per_agent;     ///< agent id -> tool names it can call.
+    std::map<std::string, std::vector<std::string>> mcp_by_server; ///< MCP server -> its tool names.
+  };
+
   // ---- Agent System Singleton ----
   // Provides shared resources, configuration access, and model management.
   class agent_system : public tools::patchset_store
@@ -125,6 +137,27 @@ namespace mistral::agent
     {
       return global_tools_;
     }
+
+    // Immutable snapshot of the registered tools. Safe to read from any
+    // thread: the returned catalog is never mutated.
+    std::shared_ptr<const tool_catalog> tool_catalog_snapshot() const;
+
+    // Rebuild the snapshot. Must be called on the scheduler thread, which is
+    // the only thread that mutates the global tool registry.
+    void refresh_tool_catalog();
+
+    // Tool names available to `agent_id` (empty when the agent is unknown).
+    std::vector<std::string> agent_tool_names(const std::string& agent_id) const;
+
+    // Tool names available to the current interactive agent (empty when no
+    // agent is active).
+    std::vector<std::string> current_agent_tool_names() const;
+
+    // Current interactive agent id. Registered by interactive_agent_task so
+    // slash commands and completers can resolve "the agent the user is
+    // talking to".
+    void set_current_agent_id(const std::string& agent_id);
+    std::optional<std::string> current_agent_id() const;
 
     // Access to global tool instances
     mistral::tools::file_tools& file_tools()
@@ -316,6 +349,14 @@ namespace mistral::agent
     // Active agent input channel (for slash-command control routing)
     mutable std::mutex current_input_ch_mtx_;
     std::shared_ptr<dripcore::channel<std::string>> current_input_ch_;
+
+    // Current interactive agent id
+    mutable std::mutex current_agent_id_mtx_;
+    std::optional<std::string> current_agent_id_;
+
+    // Tool catalog snapshot (see tool_catalog)
+    mutable std::mutex tool_catalog_mtx_;
+    std::shared_ptr<const tool_catalog> tool_catalog_;
 
     // Shutdown pipe write end (for notifying signal_watcher_task)
     int shutdown_pipe_write_fd_ = -1;

@@ -21,6 +21,8 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 using mistral::tui::ChatInput;
 using mistral::tui::Divider;
@@ -129,6 +131,65 @@ namespace
       std::make_unique<response_command>("clear", "Clear the chat history", "Chat history cleared")
     );
     return reg;
+  }
+
+  // Test command with a subcommand and an argument completer, mirroring
+  // the shape of /mcp.
+  class spec_command : public mistral::slash_command::slash_command
+  {
+  public:
+    std::string name() const override
+    {
+      return "mcp";
+    }
+    std::string description() const override
+    {
+      return "Manage servers";
+    }
+
+    mistral::slash_command::command_spec spec() const override
+    {
+      using namespace mistral::slash_command;
+
+      arg_spec server;
+      server.name = "server";
+      server.completer = [](const std::string&)
+      {
+        return std::vector<completion_item>{{"alpha", ""}, {"beta", ""}};
+      };
+
+      command_spec connect;
+      connect.name = "connect";
+      connect.args.push_back(std::move(server));
+
+      command_spec tools;
+      tools.name = "tools";
+
+      command_spec out;
+      out.name = name();
+      out.summary = description();
+      out.subcommands.push_back(std::move(connect));
+      out.subcommands.push_back(std::move(tools));
+      return out;
+    }
+
+    dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, mistral::agent::agent_system&)
+      override
+    {
+      co_return "";
+    }
+  };
+
+  // Type `text` into the input one key event at a time.
+  void type_text(ChatInput& input, const std::string& text)
+  {
+    for (char c : text)
+    {
+      cpptui::Event ev;
+      ev.type = cpptui::EventType::Key;
+      ev.key = c;
+      input.on_event(ev);
+    }
   }
 
   // Thread-safe slash command queue (mirrors tui_main.cpp).
@@ -270,7 +331,6 @@ namespace
       slash_popup = std::make_shared<SlashCommandPopup>();
       slash_popup->fixed_height = 0;
       slash_popup->visible = false;
-      slash_popup->set_registry(registry.get());
 
       auto input_divider = std::make_shared<Divider>();
 
@@ -285,6 +345,7 @@ namespace
 
       input->set_slash_popup(slash_popup.get());
       input->set_slash_divider(slash_divider.get());
+      input->set_slash_registry(registry.get());
       input->is_agent_busy = [this]() { return agent_busy.load(std::memory_order_acquire); };
       input->on_slash_command = [this](std::string cmd, std::string args) {
         slash_command_called.store(true, std::memory_order_release);
@@ -743,7 +804,6 @@ TEST_CASE("SlashCommand: enter on arrow-selected command")
   // Build widget tree without PTY.
   auto registry = make_test_registry();
   auto popup = std::make_shared<SlashCommandPopup>();
-  popup->set_registry(registry.get());
   popup->visible = false;
   auto divider = std::make_shared<Divider>();
   divider->visible = false;
@@ -757,6 +817,7 @@ TEST_CASE("SlashCommand: enter on arrow-selected command")
   input->height = 5;
   input->set_slash_popup(popup.get());
   input->set_slash_divider(divider.get());
+  input->set_slash_registry(registry.get());
   input->is_agent_busy = []() { return false; };
 
   std::string last_cmd, last_args;
@@ -784,24 +845,137 @@ TEST_CASE("SlashCommand: enter on arrow-selected command")
   down_event.key = 1066; // nav_down
   input->on_event(down_event);
 
-  REQUIRE(popup->selected_command_name() == "exit");
+  REQUIRE(popup->selected_text() == "exit");
 
-  // First Enter: inserts '/exit ' and exits slash popup mode.
+  // Enter accepts the highlighted command. Because "/exit" takes no
+  // arguments, the resulting line is complete and runs immediately
+  // (execute-on-complete: no second Enter needed).
   cpptui::Event enter_event;
   enter_event.type = cpptui::EventType::Key;
   enter_event.key = 10; // Enter
   input->on_event(enter_event);
 
-  // After first Enter, slash popup mode is exited and text is '/exit '.
-  REQUIRE(!input->slash_mode_active());
-  REQUIRE(input->get_text() == "/exit ");
-
-  // Second Enter: executes the slash command via on_slash_command.
-  input->on_event(enter_event);
-
   // The popup's selected command ("exit") should have been executed,
   // not the typed text ("/").
+  REQUIRE(!input->slash_mode_active());
   REQUIRE(last_cmd == "exit");
+  REQUIRE(last_args == "");
+  REQUIRE(input->get_text().empty());
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand and argument completion: "/mcp connect <server>".
+// ---------------------------------------------------------------------------
+TEST_CASE("SlashCommand: subcommand and argument completion")
+{
+  auto registry = std::make_shared<mistral::slash_command::slash_command_registry>();
+  registry->register_command(std::make_unique<spec_command>());
+
+  auto popup = std::make_shared<SlashCommandPopup>();
+  popup->visible = false;
+  auto divider = std::make_shared<Divider>();
+  divider->visible = false;
+
+  auto input = std::make_shared<ChatInput>();
+  input->show_line_numbers = false;
+  input->word_wrap = true;
+  input->show_scrollbar = false;
+  input->accepts_tab = false;
+  input->fixed_height = 5;
+  input->width = 78;
+  input->height = 5;
+  input->set_slash_popup(popup.get());
+  input->set_slash_divider(divider.get());
+  input->set_slash_registry(registry.get());
+  input->is_agent_busy = []() { return false; };
+
+  std::string last_cmd, last_args;
+  input->on_slash_command = [&](std::string cmd, std::string args) {
+    last_cmd = cmd;
+    last_args = args;
+  };
+
+  input->set_focus(true);
+
+  // "/mcp " offers the subcommands.
+  type_text(*input, "/mcp ");
+  REQUIRE(input->slash_mode_active());
+  REQUIRE(popup->count() == 2);
+  REQUIRE(popup->selected_text() == "connect");
+
+  // Typing narrows the subcommand list.
+  type_text(*input, "c");
+  REQUIRE(popup->count() == 1);
+  REQUIRE(popup->selected_text() == "connect");
+
+  // Enter accepts the subcommand; the popup then offers the servers.
+  cpptui::Event enter_event;
+  enter_event.type = cpptui::EventType::Key;
+  enter_event.key = 10; // Enter
+  input->on_event(enter_event);
+
+  REQUIRE(input->slash_mode_active());
+  REQUIRE(input->get_text() == "/mcp connect ");
+  REQUIRE(popup->count() == 2);
+  REQUIRE(popup->selected_text() == "alpha");
+
+  // Typing narrows the server list.
+  type_text(*input, "al");
+  REQUIRE(popup->count() == 1);
+  REQUIRE(popup->selected_text() == "alpha");
+
+  // Enter accepts the server, which completes the line and runs it.
+  input->on_event(enter_event);
+
+  REQUIRE(!input->slash_mode_active());
+  REQUIRE(input->get_text().empty());
+  REQUIRE(last_cmd == "mcp");
+  REQUIRE(last_args == "connect alpha");
+}
+
+// ---------------------------------------------------------------------------
+// Execute-on-complete: a runnable command runs on the first Enter.
+// ---------------------------------------------------------------------------
+TEST_CASE("SlashCommand: execute-on-complete runs a runnable command")
+{
+  auto registry = std::make_shared<mistral::slash_command::slash_command_registry>();
+  registry->register_command(std::make_unique<spec_command>());
+
+  auto popup = std::make_shared<SlashCommandPopup>();
+  popup->visible = false;
+  auto divider = std::make_shared<Divider>();
+  divider->visible = false;
+
+  auto input = std::make_shared<ChatInput>();
+  input->show_line_numbers = false;
+  input->word_wrap = true;
+  input->show_scrollbar = false;
+  input->accepts_tab = false;
+  input->fixed_height = 5;
+  input->width = 78;
+  input->height = 5;
+  input->set_slash_popup(popup.get());
+  input->set_slash_divider(divider.get());
+  input->set_slash_registry(registry.get());
+  input->is_agent_busy = []() { return false; };
+
+  std::string last_cmd, last_args;
+  input->on_slash_command = [&](std::string cmd, std::string args) {
+    last_cmd = cmd;
+    last_args = args;
+  };
+
+  input->set_focus(true);
+
+  // "/mcp" is runnable on its own, so a single Enter executes it.
+  type_text(*input, "/mcp");
+
+  cpptui::Event enter_event;
+  enter_event.type = cpptui::EventType::Key;
+  enter_event.key = 10; // Enter
+  input->on_event(enter_event);
+
+  REQUIRE(last_cmd == "mcp");
   REQUIRE(last_args == "");
   REQUIRE(input->get_text().empty());
 }
@@ -883,7 +1057,6 @@ struct test_exec_app
     slash_popup = std::make_shared<SlashCommandPopup>();
     slash_popup->fixed_height = 0;
     slash_popup->visible = false;
-    slash_popup->set_registry(registry.get());
 
     auto input_divider = std::make_shared<Divider>();
 
@@ -898,6 +1071,7 @@ struct test_exec_app
 
     input->set_slash_popup(slash_popup.get());
     input->set_slash_divider(slash_divider.get());
+    input->set_slash_registry(registry.get());
     input->is_agent_busy = [this]() { return agent_busy.load(std::memory_order_acquire); };
 
     // Response handler: updates the status label with the response text.

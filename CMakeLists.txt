@@ -155,6 +155,7 @@ set(MISTRAL_CORE_SOURCES
     lib/tools/research_tools.cpp
     lib/tools/ask_tools.cpp
     lib/console/console_task.cpp
+    lib/slash_command/command_spec.cpp
     lib/slash_command/slash_command_registry.cpp
     lib/slash_command/slash_command_executor_task.cpp
     lib/agent/agent_task_base.cpp

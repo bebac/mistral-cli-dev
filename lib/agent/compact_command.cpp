@@ -5,6 +5,7 @@
 
 #include <charconv>
 #include <string>
+#include <utility>
 
 namespace mistral::agent
 {
@@ -18,9 +19,19 @@ namespace mistral::agent
     return "Compact the conversation history into a summary";
   }
 
-  std::string compact_command::usage() const
+  slash_command::command_spec compact_command::spec() const
   {
-    return "compact [keep]";
+    using namespace mistral::slash_command;
+
+    arg_spec keep;
+    keep.name = "keep";
+    keep.description = "number of recent turns to keep verbatim";
+
+    command_spec out;
+    out.name = name();
+    out.summary = description();
+    out.args.push_back(std::move(keep));
+    return out;
   }
 
   dripcore::awaitable<std::string> compact_command::execute(

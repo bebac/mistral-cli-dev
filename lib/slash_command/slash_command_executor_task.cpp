@@ -37,6 +37,15 @@ namespace mistral::slash_command
         continue;
       }
 
+      // Reject malformed invocations (e.g. a mistyped subcommand) before
+      // running the command.
+      std::string validation = registry_->validate(request->command_name, request->args);
+      if (!validation.empty())
+      {
+        slash_cmd_response_ch_->try_send(std::move(validation));
+        continue;
+      }
+
       std::string response;
       try
       {

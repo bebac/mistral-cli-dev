@@ -20,7 +20,7 @@ namespace mistral::agent
   public:
     std::string name() const override;
     std::string description() const override;
-    std::string usage() const override;
+    mistral::slash_command::command_spec spec() const override;
     dripcore::awaitable<std::string> execute(
       dripcore::task& task,
       const std::string& args,

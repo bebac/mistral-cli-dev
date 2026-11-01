@@ -4,6 +4,7 @@
 #include <dripcore/task.h>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 namespace mistral::agent
 {
@@ -17,9 +18,19 @@ namespace mistral::agent
     return "Load a file and set it as the last response";
   }
 
-  std::string load_command::usage() const
+  slash_command::command_spec load_command::spec() const
   {
-    return "[filename]";
+    using namespace mistral::slash_command;
+
+    arg_spec file;
+    file.name = "file";
+    file.description = "file to load (default: last_response.txt)";
+
+    command_spec out;
+    out.name = name();
+    out.summary = description();
+    out.args.push_back(std::move(file));
+    return out;
   }
 
   dripcore::awaitable<std::string> load_command::execute(

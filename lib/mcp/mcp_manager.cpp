@@ -97,13 +97,20 @@ namespace mistral::mcp
   void mcp_manager::configure(const std::map<std::string, agent::mcp_server_config>& servers)
   {
     servers_.clear();
+    configured_names_.clear();
     for (const auto& [name, cfg] : servers)
     {
       server_state st;
       st.config = cfg;
       servers_[name] = std::move(st);
+      configured_names_.push_back(name);
     }
     instructions_.clear();
+  }
+
+  std::vector<std::string> mcp_manager::server_names() const
+  {
+    return configured_names_;
   }
 
   dripcore::awaitable<bool> mcp_manager::http_check(const std::string& url)
@@ -586,6 +593,10 @@ namespace mistral::mcp
 
       rebuild_instructions();
       ++registry_version_;
+
+      // Publish the updated tool snapshot so UI-thread readers (completion,
+      // /tools) see the new MCP tools without touching the live registry.
+      agent::agent_system::instance().refresh_tool_catalog();
 
       json result = json{
         {"server", name}, {"connected", true}, {"tools", registered}, {"instructions_chars", st.instructions.size()}

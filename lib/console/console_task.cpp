@@ -55,6 +55,11 @@ namespace mistral::console
     // Slash command registry (shared with the isocline thread for completion/validation)
     std::shared_ptr<slash_command::slash_command_registry> slash_cmd_registry;
 
+    // Input line being completed. Only touched by the isocline thread: the
+    // word callback cannot capture context, so slash_command_completer
+    // stashes the full line here before calling ic_complete_word.
+    std::string completion_line;
+
     // For passing the prompt string to the input thread
     std::string current_prompt;
     bool is_approval_prompt = false;
@@ -142,6 +147,37 @@ namespace mistral::console
     }
   };
 
+  // Completes the word currently being typed. The full input line is stashed
+  // in the console state by slash_command_completer: the isocline word
+  // callback is a plain function pointer and cannot capture it.
+  static void slash_command_word_completer(ic_completion_env_t* cenv, const char*)
+  {
+    auto* state = static_cast<console_state*>(ic_completion_arg(cenv));
+    if (!state || !state->slash_cmd_registry || state->completion_line.empty())
+    {
+      return;
+    }
+
+    const std::string& line = state->completion_line;
+    if (line.empty() || line[0] != '/')
+    {
+      return;
+    }
+
+    // The registry handles both the command name and, for commands that
+    // declare one, the arguments of the command's spec.
+    auto completion = state->slash_cmd_registry->complete(line.substr(1));
+    for (const auto& item : completion.items)
+    {
+      ic_add_completion_ex(
+        cenv,
+        item.text.c_str(),
+        nullptr,
+        item.description.empty() ? nullptr : item.description.c_str()
+      );
+    }
+  }
+
   // Custom completer that handles slash commands
   static void slash_command_completer(ic_completion_env_t* cenv, const char* prefix)
   {
@@ -149,29 +185,11 @@ namespace mistral::console
     // Check if we're completing a slash command
     if (ic_starts_with(prefix, "/"))
     {
-      // Get the part after the /
-      const char* cmd_prefix = prefix + 1;
       if (state && state->slash_cmd_registry)
       {
-        ic_complete_word(
-          cenv,
-          cmd_prefix,
-          [](ic_completion_env_t* cenv, const char* prefix) {
-            auto* s = static_cast<console_state*>(ic_completion_arg(cenv));
-            if (s && s->slash_cmd_registry)
-            {
-              auto commands = s->slash_cmd_registry->get_command_names();
-              std::vector<const char*> cmd_list;
-              for (const auto& cmd : commands)
-              {
-                cmd_list.push_back(cmd.c_str());
-              }
-              cmd_list.push_back(nullptr);
-              ic_add_completions(cenv, prefix, cmd_list.data());
-            }
-          },
-          &ic_char_is_nonseparator
-        );
+        state->completion_line = prefix;
+        ic_complete_word(cenv, prefix, &slash_command_word_completer, &ic_char_is_nonseparator);
+        state->completion_line.clear();
       }
     }
     // For non-slash input, fall back to default filename completion

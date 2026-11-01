@@ -1,6 +1,7 @@
 #ifndef MISTRAL_TUI_CHAT_INPUT_H
 #define MISTRAL_TUI_CHAT_INPUT_H
 
+#include "slash_command/slash_command_registry.h"
 #include "tui/tui_slash_command_popup.h"
 #include "tui/tui_widgets.h"
 
@@ -9,6 +10,7 @@
 #include <cctype>
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace mistral::tui
 {
@@ -51,6 +53,10 @@ namespace mistral::tui
     void set_slash_divider(Divider* divider)
     {
       slash_divider_ = divider;
+    }
+    void set_slash_registry(const mistral::slash_command::slash_command_registry* registry)
+    {
+      registry_ = registry;
     }
     bool slash_mode_active() const
     {
@@ -151,35 +157,37 @@ namespace mistral::tui
         }
         if (event.is_key_event() && event.is_tab())
         {
-          if (popup_)
+          // Tab only completes the current token; it never executes.
+          std::string selected = popup_ ? popup_->selected_text() : "";
+          if (!selected.empty())
           {
-            std::string cmd = popup_->selected_command_name();
-            if (!cmd.empty())
-            {
-              set_text("/" + cmd + " ");
-              // set_text resets cursor to 0; move it to end of line.
-              cursor_x_ = (int)cpptui::prepare_text_for_render(lines_[cursor_y_]).size();
-              ensure_cursor_visible();
-            }
+            accept_candidate(selected);
           }
-          exit_slash_mode();
+          else
+          {
+            exit_slash_mode();
+          }
           return true;
         }
         if (event.is_key_event() && event.is_enter() && !event.ctrl && !event.shift)
         {
-          // Enter inserts the selected command into the input area
-          // (like Tab completion), then exits slash mode. The user can
-          // press Enter again through normal submit to execute.
-          if (popup_)
+          // Execute-on-complete: Enter runs the line as typed when it is
+          // complete, and otherwise accepts the highlighted candidate.
+          if (line_complete_)
           {
-            std::string cmd = popup_->selected_command_name();
-            if (!cmd.empty())
+            submit_slash_command();
+            return true;
+          }
+          std::string selected = popup_ ? popup_->selected_text() : "";
+          if (!selected.empty())
+          {
+            accept_candidate(selected);
+            // Accepting the last token can complete the line: run it.
+            if (!slash_mode_active_ && line_complete_)
             {
-              set_text("/" + cmd + " ");
-              // set_text resets cursor to 0; move it to end of line.
-              cursor_x_ = (int)cpptui::prepare_text_for_render(lines_[cursor_y_]).size();
-              ensure_cursor_visible();
+              submit_slash_command();
             }
+            return true;
           }
           exit_slash_mode();
           return true;
@@ -197,17 +205,7 @@ namespace mistral::tui
           std::string text = get_text();
           if (!text.empty() && text[0] == '/')
           {
-            std::string after_slash = text.substr(1);
-            size_t space_pos = after_slash.find(' ');
-            std::string cmd = (space_pos == std::string::npos) ? after_slash : after_slash.substr(0, space_pos);
-            std::string args = (space_pos == std::string::npos) ? "" : after_slash.substr(space_pos + 1);
-            // Trim trailing whitespace from args.
-            while (!args.empty() && args.back() == ' ')
-            {
-              args.pop_back();
-            }
-            set_text("");
-            on_slash_command(cmd, args);
+            submit_slash_command();
             return true;
           }
         }
@@ -251,43 +249,10 @@ namespace mistral::tui
 
       bool consumed = TextArea::on_event(event);
 
-      // After TextArea processes, update slash mode state.
+      // After TextArea processes, recompute the completion state.
       if (approval_mode_ == approval_mode::none)
       {
-        std::string text = get_text();
-        if (slash_mode_active_)
-        {
-          if (text.empty() || text[0] != '/')
-          {
-            exit_slash_mode();
-          }
-          else
-          {
-            std::string after_slash = text.substr(1);
-            size_t space_pos = after_slash.find(' ');
-            if (space_pos != std::string::npos)
-            {
-              // User typed a space — command name is complete,
-              // exit slash mode. User is now typing arguments.
-              exit_slash_mode();
-            }
-            else if (popup_)
-            {
-              popup_->set_filter(after_slash);
-              popup_->fixed_height = popup_->popup_height();
-            }
-          }
-        }
-        else if (
-          text.size() == 1 && text[0] == '/' && event.is_key_event() && event.is_printable() && !event.ctrl &&
-          !event.alt && !event.shift
-        )
-        {
-          if (!is_agent_busy || !is_agent_busy())
-          {
-            enter_slash_mode();
-          }
-        }
+        refresh_slash_state();
       }
 
       return consumed;
@@ -306,17 +271,101 @@ namespace mistral::tui
       return true;
     }
 
-    void enter_slash_mode()
+    // Start of the token being typed. The text always starts with '/', so
+    // the command-name token starts at index 1.
+    static size_t last_token_start(const std::string& text)
     {
+      size_t space = text.find_last_of(" \t");
+      if (space == std::string::npos)
+      {
+        return 1;
+      }
+      return space + 1;
+    }
+
+    // Recompute the completion candidates for the current text and show or
+    // hide the popup accordingly.
+    void refresh_slash_state()
+    {
+      if (!registry_)
+      {
+        exit_slash_mode();
+        return;
+      }
+
+      const std::string text = get_text();
+      if (text.empty() || text[0] != '/' || text.find('\n') != std::string::npos)
+      {
+        exit_slash_mode();
+        return;
+      }
+
+      mistral::slash_command::completion_state state = registry_->complete(text.substr(1));
+      line_complete_ = state.complete;
+
+      if (state.items.empty())
+      {
+        // Nothing to offer: get out of the way so Enter submits normally.
+        exit_slash_mode();
+        return;
+      }
+
+      if (!slash_mode_active_ && is_agent_busy && is_agent_busy())
+      {
+        exit_slash_mode();
+        return;
+      }
+
       slash_mode_active_ = true;
       if (popup_)
       {
-        popup_->set_filter("");
+        popup_->set_display_prefix(state.command_names ? "/" : "");
+        popup_->set_items(std::move(state.items));
         popup_->fixed_height = popup_->popup_height();
         popup_->visible = true;
       }
       if (slash_divider_)
+      {
         slash_divider_->visible = true;
+      }
+    }
+
+    // Replace the token being typed with `candidate` and append a space.
+    void accept_candidate(const std::string& candidate)
+    {
+      const std::string text = get_text();
+      const size_t start = last_token_start(text);
+      set_text(text.substr(0, start) + candidate + " ");
+      // set_text resets cursor to 0; move it to end of line.
+      cursor_x_ = (int)cpptui::prepare_text_for_render(lines_[cursor_y_]).size();
+      ensure_cursor_visible();
+      refresh_slash_state();
+    }
+
+    // Send the text as a slash command and clear the input.
+    void submit_slash_command()
+    {
+      const std::string text = get_text();
+      exit_slash_mode();
+      if (text.empty() || text[0] != '/')
+      {
+        return;
+      }
+
+      std::string after_slash = text.substr(1);
+      size_t space_pos = after_slash.find(' ');
+      std::string cmd = (space_pos == std::string::npos) ? after_slash : after_slash.substr(0, space_pos);
+      std::string args = (space_pos == std::string::npos) ? "" : after_slash.substr(space_pos + 1);
+      // Trim trailing whitespace from args.
+      while (!args.empty() && args.back() == ' ')
+      {
+        args.pop_back();
+      }
+      set_text("");
+      if (on_slash_command)
+      {
+        on_slash_command(cmd, args);
+      }
     }
 
     void exit_slash_mode()
@@ -329,8 +378,10 @@ namespace mistral::tui
     }
 
     bool slash_mode_active_ = false;
+    bool line_complete_ = false;
     SlashCommandPopup* popup_ = nullptr;
     Divider* slash_divider_ = nullptr;
+    const mistral::slash_command::slash_command_registry* registry_ = nullptr;
   };
 
 } // namespace mistral::tui
