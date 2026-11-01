@@ -74,17 +74,13 @@ namespace mistral::mcp
     // exist), so it is safe to read from any thread.
     std::vector<std::string> server_names() const;
 
-    // True once connect_auto() has completed at least once. The TUI
-    // polls this to know the auto-connect outcome is available.
+    // True once connect_auto() has completed at least once. Published in
+    // the ui_status snapshot so a frontend can tell "still connecting"
+    // from "connected nothing".
     bool auto_connect_finished() const
     {
       return auto_connect_finished_;
     }
-
-    // Per-server outcome of the last connect_auto() run: server,
-    // connected, and any error/warning. Covers only servers with
-    // auto_connect=true.
-    json auto_connect_report() const;
 
     // True if all auto-connect servers are connected.
     bool auto_connect_all_connected() const;

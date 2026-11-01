@@ -2,7 +2,6 @@
 #define MISTRAL_TUI_APP_H
 
 #include "agent/agent_system.h"
-#include "mcp/mcp_manager.h"
 #include "trace/trace.h"
 #include "tui/tui_approval_state.h"
 #include "tui/tui_backend.h"
@@ -47,7 +46,8 @@ namespace mistral::tui
           },
           [this]() { content_area_.flush(); },
           [this]() { content_area_.complete_turn(); },
-          [this](approval_state state) { set_approval_state(state); }
+          [this](approval_state state) { set_approval_state(state); },
+          [this](const mistral::agent::ui_status& status) { apply_ui_status(status); }
         }
       );
 
@@ -249,6 +249,34 @@ namespace mistral::tui
       });
     }
 
+    // Applied on the UI thread when the scheduler pushes a status snapshot.
+    // Replaces the former per-tick polling of mcp_manager and agent_system.
+    void apply_ui_status(const mistral::agent::ui_status& status)
+    {
+      input_->set_completion_context(status.completion);
+
+      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model;
+      if (!status.mcp_servers.empty())
+      {
+        std::string names;
+        for (size_t i = 0; i < status.mcp_servers.size(); ++i)
+        {
+          if (i > 0)
+          {
+            names += " ";
+          }
+          names += status.mcp_servers[i];
+        }
+        const std::string indicator = status.mcp_all_connected ? "\xe2\x97\x8f" : "\xe2\x97\x8b";
+        footer_->center_text += " \xc2\xb7 " + names + " " + indicator;
+      }
+
+      if (status.total_tokens)
+      {
+        footer_->right_text = std::to_string(*status.total_tokens) + " tokens";
+      }
+    }
+
     void setup_timers()
     {
       app_.add_timer(200, [this]() {
@@ -261,73 +289,9 @@ namespace mistral::tui
           dot_->fg_color = cpptui::Theme::current().border;
         }
 
-        // Refresh the dynamic part of the slash command completion context
-        // (MCP servers and the current agent's tools). The catalog itself
-        // was built once at startup.
-        input_->set_completion_context(backend_->completion_context());
-
-        // Update footer center with MCP auto-connect status.
-        auto& mcp_mgr = mistral::mcp::mcp_manager::instance();
-        auto mcp_servers = mcp_mgr.auto_connect_servers();
-        if (!mcp_servers.empty())
-        {
-          std::string names;
-          for (size_t i = 0; i < mcp_servers.size(); ++i)
-          {
-            if (i > 0)
-              names += " ";
-            names += mcp_servers[i];
-          }
-          bool all_connected = mcp_mgr.auto_connect_all_connected();
-          std::string indicator = all_connected ? "\xe2\x97\x8f" : "\xe2\x97\x8b";
-          footer_->center_text =
-            cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model + " \xc2\xb7 " + names + " " + indicator;
-
-          // Show a single status message in the content area (once).
-          // Connection status is shown in the footer dot; once the
-          // auto-connect task has finished, failures and preflight
-          // warnings are printed (once) — success stays silent.
-          if (mcp_status_msg_state_ == 0)
-          {
-            content_area_.append("Running MCP auto-connect...", content_type::system);
-            mcp_status_msg_state_ = 1;
-          }
-          else if (mcp_status_msg_state_ == 1 && mcp_mgr.auto_connect_finished())
-          {
-            std::string errors;
-            std::string warnings;
-            for (const auto& r : mcp_mgr.auto_connect_report())
-            {
-              if (r.contains("error"))
-              {
-                errors += std::format("  {}: {}\n", r["server"].get<std::string>(), r["error"].get<std::string>());
-              }
-              if (r.contains("warning"))
-              {
-                warnings += std::format("  {}: {}\n", r["server"].get<std::string>(), r["warning"].get<std::string>());
-              }
-            }
-            if (!errors.empty())
-            {
-              content_area_.append("MCP auto-connect failed:\n" + errors, content_type::error);
-            }
-            if (!warnings.empty())
-            {
-              content_area_.append("MCP preflight warning:\n" + warnings, content_type::warning);
-            }
-            mcp_status_msg_state_ = 2;
-          }
-        }
-        else
-        {
-          footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model;
-        }
-
-        auto stats = mistral::agent::agent_system::instance().get_usage_stats();
-        if (stats.contains("total_tokens"))
-        {
-          footer_->right_text = std::to_string(stats["total_tokens"].get<int>()) + " tokens";
-        }
+        // Everything else the timer used to poll — the footer, the
+        // completion candidates, the MCP auto-connect report — is pushed by
+        // the scheduler through on_ui_status. See apply_ui_status().
       });
     }
 
@@ -502,12 +466,6 @@ namespace mistral::tui
     std::shared_ptr<SlashCommandPopup> slash_popup_;
     std::shared_ptr<FooterBar> footer_;
     std::shared_ptr<cpptui::Vertical> root_;
-
-    // MCP auto-connect content-area message state:
-    // 0 = "Running MCP auto-connect..." not shown yet,
-    // 1 = running message shown, waiting for the outcome,
-    // 2 = outcome shown (failure/warning lines, if any)
-    int mcp_status_msg_state_ = 0;
   };
 
 } // namespace mistral::tui

@@ -645,29 +645,6 @@ namespace mistral::mcp
     co_return results;
   }
 
-  json mcp_manager::auto_connect_report() const
-  {
-    // Per-server outcome of the last connect_auto() run, for the TUI
-    // content area: failures and preflight/post_start warnings.
-    json out = json::array();
-    for (const auto& [name, st] : servers_)
-    {
-      if (!st.config.auto_connect)
-        continue;
-      json r = {{"server", name}, {"connected", st.connected}};
-      if (!st.error.empty())
-      {
-        r["error"] = st.error;
-      }
-      if (!st.warning.empty())
-      {
-        r["warning"] = st.warning;
-      }
-      out.push_back(std::move(r));
-    }
-    return out;
-  }
-
   std::vector<std::string> mcp_manager::auto_connect_servers() const
   {
     std::vector<std::string> names;

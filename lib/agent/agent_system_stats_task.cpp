@@ -24,6 +24,7 @@ namespace mistral::agent
       {
         auto& data = msg->data;
         agent_system::instance().update_usage_stats(data);
+        agent_system::instance().publish_ui_status();
       }
       break;
       }

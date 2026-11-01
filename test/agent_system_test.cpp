@@ -1,5 +1,6 @@
 #include "agent/agent_config.h"
 #include "agent/agent_system.h"
+#include "agent/interactive_agent_task.h"
 #include "agent/tool_registry.h"
 #include "tools/exec_tools.h"
 #include "tools/file_tools.h"
@@ -668,6 +669,52 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_syst
 TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::channels");
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: publish then close")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+
+  auto ch = system.ui_status_ch();
+  REQUIRE(ch != nullptr);
+
+  // publish_ui_status() is a no-op only when the channel is missing; with
+  // the channel in place the snapshot must land.
+  system.publish_ui_status();
+  auto msg = ch->try_recv();
+  REQUIRE(msg.has_value());
+
+  // Closing is what releases the frontend bridge task on shutdown. Without
+  // it ui_bridge_task<ui_status> stays suspended on recv() and the
+  // scheduler never drains, so CTRL-C hangs.
+  REQUIRE(!ch->is_closed());
+  system.close_ui_status_ch();
+  CHECK(ch->is_closed());
+  CHECK(!ch->try_recv().has_value());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: agent teardown closes the channel")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  auto status_ch = system.ui_status_ch();
+  REQUIRE(status_ch != nullptr);
+  REQUIRE(!status_ch->is_closed());
+
+  // A closed input channel makes body() return immediately, which runs
+  // teardown() — the same path a CTRL-C shutdown takes.
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  input_ch->close();
+
+  dripcore::scheduler sched;
+  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch);
+  sched.run();
+
+  // Without this close the frontend's status bridge stays suspended on
+  // recv() and the scheduler never drains: CTRL-C hangs.
+  CHECK(status_ch->is_closed());
+}
 
 TEST_SUITE_END;
 

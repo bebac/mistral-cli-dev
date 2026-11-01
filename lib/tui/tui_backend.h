@@ -91,6 +91,9 @@ namespace mistral::tui
   class tui_backend
   {
   public:
+    // Applied on the UI thread when the scheduler pushes a status snapshot.
+    using ui_status_fn = std::function<void(const mistral::agent::ui_status&)>;
+
     struct ui_callbacks
     {
       post_fn post;
@@ -99,6 +102,7 @@ namespace mistral::tui
       flush_fn flush;
       completed_fn completed;
       approval_state_fn on_approval_state;
+      ui_status_fn on_ui_status;
     };
 
     tui_backend(tui_config cfg, ui_callbacks callbacks) : cfg_(std::move(cfg)), callbacks_(std::move(callbacks))
@@ -158,6 +162,9 @@ namespace mistral::tui
           callbacks_.post,
           [this](mistral::agent::prompt_message msg) { apply_prompt_message(std::move(msg)); }
         );
+        sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::ui_status>>(
+          agent_system.ui_status_ch(), callbacks_.post, callbacks_.on_ui_status
+        );
 
         auto sink = std::make_shared<mistral::tui::tui_render_sink>(
           callbacks_.post, callbacks_.append_fragment, callbacks_.flush, callbacks_.completed
@@ -169,9 +176,10 @@ namespace mistral::tui
         sched.spawn<mistral::common::signal_watcher_task>(sigint_pipe_.read_fd());
 
         // Spawn MCP auto-connect task (connects servers with
-        // auto_connect=true). Runs on the dripcore thread; status
-        // is surfaced via the TUI footer (polled in tui_app timer).
-        sched.spawn<mistral::mcp::mcp_auto_connect_task>();
+        // auto_connect=true). Runs on the dripcore thread; it reports the
+        // outcome to the content area through the sink and pushes a
+        // ui_status snapshot for the footer.
+        sched.spawn<mistral::mcp::mcp_auto_connect_task>(sink);
 
         sched.run();
       });
@@ -230,14 +238,6 @@ namespace mistral::tui
     std::atomic<bool>& agent_ready()
     {
       return agent_ready_;
-    }
-
-    // Dynamic completion data for the slash command popup: MCP server names
-    // and the current agent's tool names. Reads a mutex-protected snapshot,
-    // so it is safe to call from the UI thread.
-    mistral::slash_command::completion_context completion_context() const
-    {
-      return mistral::agent::agent_system::instance().build_completion_context();
     }
 
   private:

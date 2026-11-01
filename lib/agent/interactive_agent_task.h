@@ -69,6 +69,10 @@ namespace mistral::agent
       // "the agent the user is talking to" (e.g. /tools, /tool completion).
       agent_system::instance().set_current_agent_id(agent_id_);
 
+      // The current agent decides which tools /tool completes: refresh the
+      // frontend status now that it is known.
+      agent_system::instance().publish_ui_status();
+
       // Route ask_user prompts to the human: send the question on the
       // prompt channel (the console/TUI render it and switch the input
       // into answer mode), then suspend until the answer arrives on
@@ -158,6 +162,10 @@ namespace mistral::agent
       {
         prompt_ch_->close();
       }
+
+      // The frontend's status bridge is suspended on this channel; closing
+      // it is what lets that task exit and the scheduler drain.
+      agent_system::instance().close_ui_status_ch();
 
       agent_system::instance().signal_shutdown();
 

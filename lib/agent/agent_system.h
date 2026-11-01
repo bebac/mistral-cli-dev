@@ -9,6 +9,7 @@
 #include "agent/save_command.h"
 #include "agent/tool_command.h"
 #include "agent/tool_registry.h"
+#include "agent/ui_status.h"
 #include "agent/usage_command.h"
 #include "slash_command/slash_command_registry.h"
 #include "tools/edit_types.h"
@@ -157,6 +158,20 @@ namespace mistral::agent
     // MCP server names and the current agent's tool names. Safe to call from
     // any thread.
     slash_command::completion_context build_completion_context() const;
+
+    // Channel carrying ui_status snapshots to the frontend. Created in
+    // initialize(); a frontend that never reads it simply fills the buffer.
+    std::shared_ptr<dripcore::channel<ui_status>> ui_status_ch() const;
+
+    // Close the UI status channel so the frontend's bridge task can exit.
+    // Without this the bridge stays suspended on recv() and the scheduler
+    // never drains. Must be called on the scheduler thread.
+    void close_ui_status_ch();
+
+    // Build a ui_status snapshot and push it to the frontend. Must be
+    // called on the scheduler thread: it reads mcp_manager state, which
+    // only that thread mutates.
+    void publish_ui_status();
 
     // Current interactive agent id. Registered by interactive_agent_task so
     // slash commands and completers can resolve "the agent the user is
@@ -336,6 +351,9 @@ namespace mistral::agent
 
     // Stats channel
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch_;
+
+    // UI status channel (see ui_status)
+    std::shared_ptr<dripcore::channel<ui_status>> ui_status_ch_;
 
     // Usage statistics storage
     mutable std::mutex usage_stats_mtx_;

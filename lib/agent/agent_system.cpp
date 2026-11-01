@@ -207,6 +207,10 @@ namespace mistral::agent
     // Initialize stats channel
     stats_ch_ = std::make_shared<dripcore::channel<stat_message>>(32);
 
+    // Status snapshots are coalesced: a slow frontend keeps the newest
+    // few and drops the rest.
+    ui_status_ch_ = std::make_shared<dripcore::channel<ui_status>>(8);
+
     // Load configuration
     config_ = load_config_from_file(config_file);
 
@@ -1785,6 +1789,47 @@ namespace mistral::agent
       }
     }
     return context;
+  }
+
+  std::shared_ptr<dripcore::channel<ui_status>> agent_system::ui_status_ch() const
+  {
+    return ui_status_ch_;
+  }
+
+  void agent_system::close_ui_status_ch()
+  {
+    if (ui_status_ch_)
+    {
+      ui_status_ch_->close();
+    }
+  }
+
+  void agent_system::publish_ui_status()
+  {
+    if (!ui_status_ch_)
+    {
+      return;
+    }
+
+    ui_status status;
+    status.completion = build_completion_context();
+
+    auto& mcp_mgr = mcp::mcp_manager::instance();
+    status.mcp_servers = mcp_mgr.auto_connect_servers();
+    if (!status.mcp_servers.empty())
+    {
+      status.mcp_all_connected = mcp_mgr.auto_connect_all_connected();
+      status.mcp_finished = mcp_mgr.auto_connect_finished();
+    }
+
+    const json stats = get_usage_stats();
+    if (stats.contains("total_tokens"))
+    {
+      status.total_tokens = stats["total_tokens"].get<int>();
+    }
+
+    // A full snapshot supersedes any queued one, so a dropped send is fine.
+    ui_status_ch_->try_send(std::move(status));
   }
 
   void agent_system::set_shutdown_pipe_fd(int fd)

@@ -1,4 +1,5 @@
 #include "agent/mcp_command.h"
+#include "agent/agent_system.h"
 #include "mcp/mcp_manager.h"
 
 #include <format>
@@ -78,6 +79,9 @@ namespace mistral::agent
         results = json::array();
         results.push_back(co_await mgr.connect(server));
       }
+
+      // Connecting changed the server states and the tool registry.
+      agent::agent_system::instance().publish_ui_status();
 
       std::string out;
       for (const auto& r : results)
