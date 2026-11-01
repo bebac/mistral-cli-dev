@@ -2,6 +2,7 @@
 #include "agent/agent_system.h"
 #include "agent/interactive_agent_task.h"
 #include "agent/tool_registry.h"
+#include "tui/tui_bridge_tasks.h"
 #include "tools/exec_tools.h"
 #include "tools/file_tools.h"
 #include "tools/note_tools.h"
@@ -670,7 +671,7 @@ TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::channels");
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: publish then close")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: publish delivers a snapshot")
 {
   initialize_agent_system_empty();
   auto& system = mistral::agent::agent_system::instance();
@@ -681,26 +682,17 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: publish then close")
   // publish_ui_status() is a no-op only when the channel is missing; with
   // the channel in place the snapshot must land.
   system.publish_ui_status();
-  auto msg = ch->try_recv();
-  REQUIRE(msg.has_value());
-
-  // Closing is what releases the frontend bridge task on shutdown. Without
-  // it ui_bridge_task<ui_status> stays suspended on recv() and the
-  // scheduler never drains, so CTRL-C hangs.
-  REQUIRE(!ch->is_closed());
-  system.close_ui_status_ch();
-  CHECK(ch->is_closed());
-  CHECK(!ch->try_recv().has_value());
+  CHECK(ch->try_recv().has_value());
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: agent teardown closes the channel")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "shutdown: agent teardown fires the shutdown signal")
 {
   initialize_agent_system_with_main_agent();
   auto& system = mistral::agent::agent_system::instance();
 
-  auto status_ch = system.ui_status_ch();
-  REQUIRE(status_ch != nullptr);
-  REQUIRE(!status_ch->is_closed());
+  auto shutdown = system.shutdown_signal();
+  REQUIRE(shutdown != nullptr);
+  REQUIRE(!shutdown->fired());
 
   // A closed input channel makes body() return immediately, which runs
   // teardown() — the same path a CTRL-C shutdown takes.
@@ -711,9 +703,49 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui status: agent teardown closes the 
   sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch);
   sched.run();
 
-  // Without this close the frontend's status bridge stays suspended on
-  // recv() and the scheduler never drains: CTRL-C hangs.
-  CHECK(status_ch->is_closed());
+  // Without this the frontend's bridges stay suspended on recv() and the
+  // scheduler never drains: CTRL-C hangs.
+  CHECK(shutdown->fired());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "ui bridge: every bridge exits when the shutdown signal fires")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+
+  auto shutdown = system.shutdown_signal();
+  REQUIRE(shutdown != nullptr);
+
+  // Data channels nobody will ever close: the bridges must not depend on
+  // their producers for shutdown. Two of them, because a channel-based
+  // broadcast would only ever wake the last waiter.
+  auto first_ch = std::make_shared<dripcore::channel<mistral::agent::ui_status>>(4);
+  auto second_ch = std::make_shared<dripcore::channel<mistral::agent::ui_status>>(4);
+
+  // Firing must happen on the scheduler thread, so it runs as a task.
+  class fire_task : public dripcore::task
+  {
+  public:
+    dripcore::awaitable<> body() override
+    {
+      mistral::agent::agent_system::instance().fire_shutdown();
+      co_return;
+    }
+  };
+
+  dripcore::scheduler sched;
+  sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::ui_status>>(
+    first_ch, [](std::function<void()> cb) { cb(); }, [](mistral::agent::ui_status) {}, shutdown
+  );
+  sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::ui_status>>(
+    second_ch, [](std::function<void()> cb) { cb(); }, [](mistral::agent::ui_status) {}, shutdown
+  );
+  sched.spawn<fire_task>();
+  sched.run();
+
+  // Both bridges were released, so run() returned.
+  CHECK(first_ch->is_closed());
+  CHECK(second_ch->is_closed());
 }
 
 TEST_SUITE_END;

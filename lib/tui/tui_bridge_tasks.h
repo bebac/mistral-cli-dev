@@ -1,6 +1,7 @@
 #ifndef MISTRAL_TUI_BRIDGE_TASKS_H
 #define MISTRAL_TUI_BRIDGE_TASKS_H
 
+#include "common/shutdown_signal.h"
 #include "tui/tui_thread_safe_queue.h"
 #include "tui/tui_types.h"
 
@@ -22,6 +23,12 @@ namespace mistral::tui
   // capture `this` of a task: tasks die with the scheduler while callbacks may
   // still be queued.
   //
+  // When a shutdown signal is supplied, the bridge registers a callback that
+  // closes its own data channel, so its exit never depends on the producer
+  // closing that channel. Registration happens in the constructor, which runs
+  // on the scheduler thread before run(), so the bridge is covered even if it
+  // is already suspended on recv() when shutdown fires.
+  //
   // This replaces the former per-consumer bridge tasks (prompt_bridge_task,
   // slash_command_response_receiver), which differed only in how they
   // interpreted the message.
@@ -31,9 +38,19 @@ namespace mistral::tui
   public:
     using apply_fn = std::function<void(T)>;
 
-    ui_bridge_task(std::shared_ptr<dripcore::channel<T>> ch, post_fn post, apply_fn apply)
-      : ch_(std::move(ch)), post_(std::move(post)), apply_(std::move(apply))
+    ui_bridge_task(
+      std::shared_ptr<dripcore::channel<T>> ch,
+      post_fn post,
+      apply_fn apply,
+      std::shared_ptr<common::shutdown_signal> shutdown = nullptr
+    )
+      : ch_(std::move(ch)), post_(std::move(post)), apply_(std::move(apply)), shutdown_(std::move(shutdown))
     {
+      if (shutdown_)
+      {
+        // Closing our data channel is what releases the recv() below.
+        shutdown_->add([ch = ch_]() { ch->close(); });
+      }
     }
 
     dripcore::awaitable<> body() override
@@ -56,6 +73,7 @@ namespace mistral::tui
     std::shared_ptr<dripcore::channel<T>> ch_;
     post_fn post_;
     apply_fn apply_;
+    std::shared_ptr<common::shutdown_signal> shutdown_;
   };
 
   // ---------------------------------------------------------------------------

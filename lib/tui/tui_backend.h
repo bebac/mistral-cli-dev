@@ -149,7 +149,8 @@ namespace mistral::tui
           callbacks_.post,
           [append = callbacks_.append_content](std::string text) {
             append("\n" + text + "\n", mistral::tui::content_type::system);
-          }
+          },
+          agent_system.shutdown_signal()
         );
         sched.spawn<mistral::tui::pipe_bridge_task<mistral::slash_command::slash_command_request>>(
           slash_cmd_pipe_.read_fd(),
@@ -160,10 +161,11 @@ namespace mistral::tui
         sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::prompt_message>>(
           cfg_.prompt_ch,
           callbacks_.post,
-          [this](mistral::agent::prompt_message msg) { apply_prompt_message(std::move(msg)); }
+          [this](mistral::agent::prompt_message msg) { apply_prompt_message(std::move(msg)); },
+          agent_system.shutdown_signal()
         );
         sched.spawn<mistral::tui::ui_bridge_task<mistral::agent::ui_status>>(
-          agent_system.ui_status_ch(), callbacks_.post, callbacks_.on_ui_status
+          agent_system.ui_status_ch(), callbacks_.post, callbacks_.on_ui_status, agent_system.shutdown_signal()
         );
 
         auto sink = std::make_shared<mistral::tui::tui_render_sink>(

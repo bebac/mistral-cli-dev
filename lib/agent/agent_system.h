@@ -11,6 +11,7 @@
 #include "agent/tool_registry.h"
 #include "agent/ui_status.h"
 #include "agent/usage_command.h"
+#include "common/shutdown_signal.h"
 #include "slash_command/slash_command_registry.h"
 #include "tools/edit_types.h"
 #include "tools/patchset_store.h"
@@ -163,10 +164,14 @@ namespace mistral::agent
     // initialize(); a frontend that never reads it simply fills the buffer.
     std::shared_ptr<dripcore::channel<ui_status>> ui_status_ch() const;
 
-    // Close the UI status channel so the frontend's bridge task can exit.
-    // Without this the bridge stays suspended on recv() and the scheduler
-    // never drains. Must be called on the scheduler thread.
-    void close_ui_status_ch();
+    // Shutdown broadcast. Bridges register a callback that releases them, so
+    // their exit does not depend on their producer closing the data channel.
+    std::shared_ptr<common::shutdown_signal> shutdown_signal() const;
+
+    // Fire the shutdown signal so every registered bridge can exit. Without
+    // this a bridge stays suspended on recv() and the scheduler never
+    // drains. Must be called on the scheduler thread.
+    void fire_shutdown();
 
     // Build a ui_status snapshot and push it to the frontend. Must be
     // called on the scheduler thread: it reads mcp_manager state, which
@@ -354,6 +359,9 @@ namespace mistral::agent
 
     // UI status channel (see ui_status)
     std::shared_ptr<dripcore::channel<ui_status>> ui_status_ch_;
+
+    // Shutdown broadcast (see shutdown_signal())
+    std::shared_ptr<common::shutdown_signal> shutdown_signal_;
 
     // Usage statistics storage
     mutable std::mutex usage_stats_mtx_;

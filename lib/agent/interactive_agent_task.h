@@ -163,9 +163,9 @@ namespace mistral::agent
         prompt_ch_->close();
       }
 
-      // The frontend's status bridge is suspended on this channel; closing
-      // it is what lets that task exit and the scheduler drain.
-      agent_system::instance().close_ui_status_ch();
+      // Release every bridge registered with the shutdown signal. Unlike
+      // closing each data channel here, this also covers bridges added later.
+      agent_system::instance().fire_shutdown();
 
       agent_system::instance().signal_shutdown();
 

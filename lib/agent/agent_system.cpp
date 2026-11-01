@@ -211,6 +211,10 @@ namespace mistral::agent
     // few and drops the rest.
     ui_status_ch_ = std::make_shared<dripcore::channel<ui_status>>(8);
 
+    // Shutdown broadcast. Bridges register with this instead of relying on
+    // their producer to close their data channel.
+    shutdown_signal_ = std::make_shared<common::shutdown_signal>();
+
     // Load configuration
     config_ = load_config_from_file(config_file);
 
@@ -1796,11 +1800,16 @@ namespace mistral::agent
     return ui_status_ch_;
   }
 
-  void agent_system::close_ui_status_ch()
+  std::shared_ptr<common::shutdown_signal> agent_system::shutdown_signal() const
   {
-    if (ui_status_ch_)
+    return shutdown_signal_;
+  }
+
+  void agent_system::fire_shutdown()
+  {
+    if (shutdown_signal_)
     {
-      ui_status_ch_->close();
+      shutdown_signal_->fire();
     }
   }
 
