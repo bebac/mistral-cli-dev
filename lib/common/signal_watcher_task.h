@@ -10,12 +10,12 @@
 
 namespace mistral::common
 {
-  // Monitors a self-pipe for SIGINT notifications and cancels the
-  // current API request by closing the response channel registered
-  // in agent_system.
+  // Monitors a self-pipe for SIGINT notifications and cancels whatever
+  // the agent_system has registered as the current cancellable operation
+  // (an API response stream, or a running exec).
   //
   // Protocol:
-  //   Byte '1' -> SIGINT received, close current response channel
+  //   Byte '1' -> SIGINT received, cancel the current operation
   //   Byte '0' -> shutdown requested, exit task
   //   EOF      -> pipe write end closed, exit task
   class signal_watcher_task : public dripcore::task
@@ -51,12 +51,8 @@ namespace mistral::common
           }
           if (buf[i] == '1')
           {
-            // SIGINT -- cancel current request.
-            auto ch = agent::agent_system::instance().get_current_response_ch();
-            if (ch)
-            {
-              ch->close();
-            }
+            // SIGINT -- cancel whatever is currently cancellable.
+            agent::agent_system::instance().cancel_current();
           }
         }
       }

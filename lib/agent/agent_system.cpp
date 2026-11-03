@@ -1619,22 +1619,32 @@ namespace mistral::agent
 
   // ---- Request Cancellation Support ----
 
-  void agent_system::set_current_response_ch(std::shared_ptr<dripcore::channel<api::api_event>> ch)
+  void agent_system::set_current_cancel(std::function<void()> cancel)
   {
-    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
-    current_response_ch_ = std::move(ch);
+    std::lock_guard<std::mutex> lock(current_cancel_mtx_);
+    current_cancel_ = std::move(cancel);
   }
 
-  void agent_system::clear_current_response_ch()
+  void agent_system::clear_current_cancel()
   {
-    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
-    current_response_ch_.reset();
+    std::lock_guard<std::mutex> lock(current_cancel_mtx_);
+    current_cancel_ = nullptr;
   }
 
-  std::shared_ptr<dripcore::channel<api::api_event>> agent_system::get_current_response_ch() const
+  void agent_system::cancel_current()
   {
-    std::lock_guard<std::mutex> lock(current_response_ch_mtx_);
-    return current_response_ch_;
+    // Copy under the lock and invoke outside it. The callback closes a
+    // channel, which wakes tasks that may register a new hook, so holding
+    // the lock across the call would deadlock.
+    std::function<void()> cancel;
+    {
+      std::lock_guard<std::mutex> lock(current_cancel_mtx_);
+      cancel = current_cancel_;
+    }
+    if (cancel)
+    {
+      cancel();
+    }
   }
 
   void agent_system::set_current_input_ch(std::shared_ptr<dripcore::channel<std::string>> ch)

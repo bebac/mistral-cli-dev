@@ -5,6 +5,7 @@
 #include "tools/exec_tools.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <iostream>
 
@@ -135,8 +136,10 @@ namespace mistral::agent
 
       agent_loop_on_sending_chat_request();
 
-      // Register response channel for cancellation support.
-      agent_system::instance().set_current_response_ch(response_ch_);
+      // Register the response channel for cancellation support. The
+      // channel is captured by value because a retry replaces
+      // response_ch_ with a fresh one.
+      agent_system::instance().set_current_cancel([ch = response_ch_]() { ch->close(); });
 
       // Build request with the endpoint path
       std::string path = chat_request_path();
@@ -241,8 +244,8 @@ namespace mistral::agent
         }
       }
 
-      // Unregister response channel — request is no longer in flight.
-      agent_system::instance().clear_current_response_ch();
+      // Unregister the cancel hook — request is no longer in flight.
+      agent_system::instance().clear_current_cancel();
 
       if (retry)
       {
@@ -536,6 +539,29 @@ namespace mistral::agent
       co_return co_await agent_system::instance().run_subagent(*this, it->second, prompt);
     }
 
+    // exec is the one tool whose progress is worth showing while it runs,
+    // so it is driven here rather than through tools_.dispatch: this
+    // coroutine is the only place holding both the event loop and the
+    // render sink (via on_tool_output). has_tool() keeps the agent's
+    // available_tools filter authoritative; malformed arguments fall
+    // through to the dispatcher so its error reporting is unchanged.
+    if (tc.function.name == "exec" && tools_.has_tool("exec"))
+    {
+      api::json tool_args;
+      try
+      {
+        tool_args = api::json::parse(tc.function.arguments);
+      }
+      catch (const std::exception&)
+      {
+        // Reported by the dispatcher below.
+      }
+      if (auto exec_request = tools::exec_tools::parse_request(tool_args))
+      {
+        co_return co_await run_exec_tool(*exec_request);
+      }
+    }
+
     // Build the request before the co_await expression: constructing a
     // nested braced temporary inside the co_await triggers a GCC 13
     // internal compiler error (build_special_member_call ICE).
@@ -546,6 +572,55 @@ namespace mistral::agent
       co_return result.get<std::string>();
     }
     co_return result.dump();
+  }
+
+  auto agent_task_base::run_exec_tool(const tools::exec_request& request) -> dripcore::awaitable<std::string>
+  {
+    auto out_ch = std::make_shared<dripcore::channel<tools::exec_event>>(32);
+    auto cancel_requested = std::make_shared<std::atomic<bool>>(false);
+
+    spawn_local<tools::exec_run_task>(
+      request.command, request.args, request.cwd, request.timeout_seconds, out_ch, cancel_requested
+    );
+
+    // ESC stops the command rather than the (not yet started) API
+    // request. The flag is set instead of closing the channel, because a
+    // closed channel could not carry the partial result back.
+    agent_system::instance().set_current_cancel([flag = cancel_requested]() { flag->store(true); });
+
+    std::string result;
+    try
+    {
+      while (auto evt = co_await out_ch->recv(this))
+      {
+        if (evt->kind == tools::exec_event::type::output)
+        {
+          on_tool_output(evt->text);
+        }
+        else
+        {
+          result = std::move(evt->text);
+        }
+      }
+    }
+    catch (...)
+    {
+      // Cancelled or shutting down: tell the run task to stop the child,
+      // drop the hook, and let the cancellation propagate.
+      out_ch->close();
+      agent_system::instance().clear_current_cancel();
+      throw;
+    }
+
+    agent_system::instance().clear_current_cancel();
+
+    if (result.empty())
+    {
+      // The channel closed without a result, which only happens when the
+      // run task was torn down. Never hand the model an empty result.
+      result = build_tool_rejection("error", "exec did not return a result").dump();
+    }
+    co_return result;
   }
 
   std::string agent_task_base::accumulate_text(const std::vector<api::message_content>& accumulated_content)
@@ -586,35 +661,14 @@ namespace mistral::agent
       return std::nullopt;
     }
 
-    if (!tool_args.contains("command") || !tool_args["command"].is_string())
+    // Malformed arguments are reported by the tool dispatcher.
+    auto request = mistral::tools::exec_tools::parse_request(tool_args);
+    if (!request)
     {
-      // Malformed arguments are reported by the tool dispatcher.
       return std::nullopt;
     }
 
-    std::string command = tool_args["command"].get<std::string>();
-
-    std::vector<std::string> args;
-    if (tool_args.contains("args") && tool_args["args"].is_array())
-    {
-      for (const auto& arg : tool_args["args"])
-      {
-        if (!arg.is_string())
-        {
-          // Malformed arguments are reported by the tool dispatcher.
-          return std::nullopt;
-        }
-        args.push_back(arg.get<std::string>());
-      }
-    }
-
-    std::string cwd;
-    if (tool_args.contains("cwd") && tool_args["cwd"].is_string())
-    {
-      cwd = tool_args["cwd"].get<std::string>();
-    }
-
-    return mistral::tools::exec_tools::validate(command, args, cwd);
+    return mistral::tools::exec_tools::validate(request->command, request->args, request->cwd);
   }
 
   api::json agent_task_base::build_tool_rejection(const std::string& status, const std::string& message)

@@ -34,6 +34,14 @@ namespace mistral::agent
       output_status(out);
     }
     virtual void output_tool_call(const std::string& name, const std::string& args) = 0;
+    // Live output of a running tool, called repeatedly between
+    // output_tool_call() and output_tool_result(). The default discards
+    // it: sinks that cannot render a growing block (or do not want to,
+    // e.g. subagents) simply ignore the stream. output_tool_result()
+    // still follows exactly once when the tool finishes.
+    virtual void output_tool_output(const std::string& text)
+    {
+    }
     virtual void output_tool_result(const std::string& result) = 0;
     virtual void output_error(const std::string& text) = 0;
     virtual void output_warning(const std::string& text) = 0;

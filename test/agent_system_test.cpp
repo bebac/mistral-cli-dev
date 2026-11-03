@@ -12,6 +12,7 @@
 #include <dripcore/task.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1420,6 +1421,271 @@ TEST_CASE("instance: returns same instance")
   auto& instance2 = mistral::agent::agent_system::instance();
 
   CHECK(&instance1 == &instance2);
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::cancellation");
+
+TEST_CASE("cancel_current invokes the registered callback")
+{
+  auto& sys = mistral::agent::agent_system::instance();
+
+  int calls = 0;
+  sys.set_current_cancel([&calls]() { ++calls; });
+  sys.cancel_current();
+  CHECK(calls == 1);
+  sys.clear_current_cancel();
+}
+
+TEST_CASE("cancel_current is a no-op after clear_current_cancel")
+{
+  auto& sys = mistral::agent::agent_system::instance();
+
+  int calls = 0;
+  sys.set_current_cancel([&calls]() { ++calls; });
+  sys.clear_current_cancel();
+  sys.cancel_current();
+  CHECK(calls == 0);
+}
+
+TEST_CASE("cancel_current is a no-op when nothing is registered")
+{
+  auto& sys = mistral::agent::agent_system::instance();
+
+  sys.clear_current_cancel();
+  CHECK_NOTHROW(sys.cancel_current());
+}
+
+TEST_CASE("re-registering replaces the previous callback")
+{
+  auto& sys = mistral::agent::agent_system::instance();
+
+  int first = 0;
+  int second = 0;
+  sys.set_current_cancel([&first]() { ++first; });
+  sys.set_current_cancel([&second]() { ++second; });
+  sys.cancel_current();
+  CHECK(first == 0);
+  CHECK(second == 1);
+  sys.clear_current_cancel();
+}
+
+TEST_CASE("cancel_current closes the channel the callback closes")
+{
+  auto& sys = mistral::agent::agent_system::instance();
+
+  auto ch = std::make_shared<dripcore::channel<int>>(1);
+  sys.set_current_cancel([ch]() { ch->close(); });
+  sys.cancel_current();
+  CHECK(ch->is_closed());
+  sys.clear_current_cancel();
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::exec_streaming");
+
+namespace
+{
+  // Captures what the agent task streams to the UI.
+  class recording_sink : public mistral::agent::render_sink
+  {
+  public:
+    void output(const std::string&) override
+    {
+    }
+    void output_thinking(const std::string&) override
+    {
+    }
+    void output_line(const std::string&) override
+    {
+    }
+    void output_tool_call(const std::string&, const std::string&) override
+    {
+    }
+    void output_tool_result(const std::string&) override
+    {
+    }
+    void output_error(const std::string&) override
+    {
+    }
+    void output_warning(const std::string&) override
+    {
+    }
+    void thinking_begin() override
+    {
+    }
+    void thinking_end() override
+    {
+    }
+    void completed() override
+    {
+    }
+    void cancelled() override
+    {
+    }
+
+    void output_tool_output(const std::string& text) override
+    {
+      streamed += text;
+      ++chunks;
+    }
+
+    std::string streamed;
+    int chunks = 0;
+  };
+
+  // Drives agent_task_base::execute_tool directly, which is exactly what
+  // the agent loop does once a tool call has been approved.
+  class exec_probe_task : public mistral::agent::interactive_agent_task
+  {
+  public:
+    exec_probe_task(
+      std::shared_ptr<dripcore::channel<std::string>> input_ch,
+      std::shared_ptr<mistral::agent::render_sink> sink,
+      mistral::api::tool_call tc,
+      std::string& result
+    )
+      : interactive_agent_task("main", std::move(input_ch), nullptr, nullptr, std::move(sink)), tc_(std::move(tc)),
+        result_(result)
+    {
+    }
+
+    dripcore::awaitable<> body() override
+    {
+      result_ = co_await execute_tool(tc_);
+      co_return;
+    }
+
+  private:
+    mistral::api::tool_call tc_;
+    std::string& result_;
+  };
+
+  // Fires the ESC path (agent_system::cancel_current) after a delay.
+  class delayed_cancel_task : public dripcore::task
+  {
+  public:
+    explicit delayed_cancel_task(std::chrono::milliseconds delay) : delay_(delay)
+    {
+    }
+
+    dripcore::awaitable<> body() override
+    {
+      co_await sleep_for(delay_);
+      mistral::agent::agent_system::instance().cancel_current();
+      co_return;
+    }
+
+  private:
+    std::chrono::milliseconds delay_;
+  };
+
+  mistral::api::tool_call make_exec_call(const std::string& arguments)
+  {
+    mistral::api::tool_call tc;
+    tc.id = "call_exec_1";
+    tc.function.name = "exec";
+    tc.function.arguments = arguments;
+    return tc;
+  }
+
+  // Agent whose only tool is exec, so execute_tool takes the streaming
+  // branch (an empty available_tools list registers no tools at all).
+  void initialize_exec_only_agent(AgentSystemTestFixture& fixture)
+  {
+    auto config = fixture.create_standard_config();
+    config["agents"]["main"]["available_tools"] = {"exec"};
+    fixture.create_config_file(config);
+    mistral::agent::agent_system::instance().initialize(fixture.config_file, fixture.base_dir, fixture.notes_dir);
+  }
+} // namespace
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "exec: output is streamed to the sink and the result is recorded")
+{
+  initialize_exec_only_agent(*this);
+
+  auto sink = std::make_shared<recording_sink>();
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  input_ch->close();
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<exec_probe_task>(
+    input_ch, sink, make_exec_call(R"({"command":"echo","args":["streamed","output"]})"), result
+  );
+  sched.run();
+
+  // The UI saw the output while the command ran...
+  CHECK(sink->chunks >= 1);
+  CHECK(sink->streamed.find("streamed output") != std::string::npos);
+
+  // ...and the model gets the same JSON the tool always returned.
+  auto parsed = mistral::agent::json::parse(result);
+  CHECK(parsed["exit_code"].get<int>() == 0);
+  CHECK(parsed["stdout"].get<std::string>() == "streamed output\n");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "exec: the model-facing cap is unchanged by streaming")
+{
+  initialize_exec_only_agent(*this);
+
+  auto sink = std::make_shared<recording_sink>();
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  input_ch->close();
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<exec_probe_task>(input_ch, sink, make_exec_call(R"({"command":"seq","args":["1","20000"]})"), result);
+  sched.run();
+
+  auto parsed = mistral::agent::json::parse(result);
+  CHECK(parsed["stdout_truncated"].get<bool>() == true);
+  CHECK(parsed["stdout"].get<std::string>().size() == 64 * 1024);
+  // The stream is not capped by the model cap: the display cap lives in
+  // ContentLog, not here.
+  CHECK(sink->streamed.size() > 64 * 1024);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "exec: malformed arguments fall through to the dispatcher")
+{
+  initialize_exec_only_agent(*this);
+
+  auto sink = std::make_shared<recording_sink>();
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  input_ch->close();
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<exec_probe_task>(input_ch, sink, make_exec_call(R"({"args":["x"]})"), result);
+  sched.run();
+
+  // No command: the dispatcher reports the missing argument.
+  CHECK(result.find("command") != std::string::npos);
+  CHECK(sink->chunks == 0);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "exec: ESC cancels the running command and keeps partial output")
+{
+  initialize_exec_only_agent(*this);
+
+  auto sink = std::make_shared<recording_sink>();
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  input_ch->close();
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<exec_probe_task>(
+    input_ch, sink, make_exec_call(R"({"command":"sh","args":["-c","echo partial; sleep 10"]})"), result
+  );
+  sched.spawn<delayed_cancel_task>(std::chrono::milliseconds(100));
+  sched.run();
+
+  auto parsed = mistral::agent::json::parse(result);
+  CHECK(parsed["cancelled"].get<bool>() == true);
+  CHECK(parsed["stdout"].get<std::string>().find("partial") != std::string::npos);
+  CHECK(sink->streamed.find("partial") != std::string::npos);
 }
 
 TEST_SUITE_END;

@@ -281,7 +281,7 @@ namespace mistral::agent
     -> dripcore::awaitable<std::optional<api::agent_entity>>
   {
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
-    agent_system::instance().set_current_response_ch(response_ch);
+    agent_system::instance().set_current_cancel([ch = response_ch]() { ch->close(); });
 
     std::string path = "/" + api_version_ + "/agents/pages?name=" + url_encode_query(name);
     request_ch_->try_send({.method = "GET", .path = path, .body = "", .stream = false, .response_ch = response_ch});
@@ -324,7 +324,7 @@ namespace mistral::agent
       }
     }
 
-    agent_system::instance().clear_current_response_ch();
+    agent_system::instance().clear_current_cancel();
     co_return result;
   }
 
@@ -344,7 +344,7 @@ namespace mistral::agent
     req.metadata = api::json{{std::string(server_agent_config_hash_key), config_fingerprint()}};
 
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
-    agent_system::instance().set_current_response_ch(response_ch);
+    agent_system::instance().set_current_cancel([ch = response_ch]() { ch->close(); });
 
     std::string path = "/" + api_version_ + "/agents";
     request_ch_->try_send(
@@ -379,7 +379,7 @@ namespace mistral::agent
       }
     }
 
-    agent_system::instance().clear_current_response_ch();
+    agent_system::instance().clear_current_cancel();
     co_return result;
   }
 
@@ -405,7 +405,7 @@ namespace mistral::agent
     body["metadata"] = api::json{{std::string(server_agent_config_hash_key), config_fingerprint()}};
 
     auto response_ch = std::make_shared<dripcore::channel<api::api_event>>(4);
-    agent_system::instance().set_current_response_ch(response_ch);
+    agent_system::instance().set_current_cancel([ch = response_ch]() { ch->close(); });
 
     std::string path = "/" + api_version_ + "/agents/" + agent_id;
     request_ch_->try_send(
@@ -437,7 +437,7 @@ namespace mistral::agent
       }
     }
 
-    agent_system::instance().clear_current_response_ch();
+    agent_system::instance().clear_current_cancel();
     co_return ok;
   }
 } // namespace mistral::agent

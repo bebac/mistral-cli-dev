@@ -86,10 +86,18 @@ namespace mistral::tui
       state_->enqueue("\n[tool] " + name + "(" + args + ")", content_type::tool_call);
     }
 
+    // Live tool output. Enqueued repeatedly while the tool runs;
+    // ContentLog appends it to the open tool block and keeps that block
+    // expanded so a long build can be followed. No truncation here: the
+    // display cap lives in ContentLog, which owns the accumulated text.
+    void output_tool_output(const std::string& text) override
+    {
+      state_->enqueue(text, content_type::tool_output);
+    }
+
     void output_tool_result(const std::string& result) override
     {
-      std::string display = (result.size() > 200) ? result.substr(0, 200) + "..." : result;
-      state_->enqueue(" \xe2\x86\x92 " + display + "\n", content_type::tool_result);
+      state_->enqueue(" \xe2\x86\x92 " + result + "\n", content_type::tool_result);
     }
 
     void output_error(const std::string& text) override

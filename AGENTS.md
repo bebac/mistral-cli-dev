@@ -20,6 +20,13 @@ A **C++20** command-line interface for Mistral AI models with **real-time stream
 | `third_party/` | Dependencies (e.g., `nlohmann/json`) |
 | `CMakeLists.txt` | Build configuration |
 
+## Tool output streaming
+
+`exec` streams live into its tool block: `exec_run_task` publishes output on a
+channel, `agent_task_base::run_exec_tool` consumes it and forwards to the render
+sink. Channels are dripcore-thread-only. The model cap (`k_max_output_bytes`)
+and the display cap (`ContentLog::k_max_result_bytes`) are independent.
+
 ## Key Dependencies
 
 | Dependency | Purpose | License |

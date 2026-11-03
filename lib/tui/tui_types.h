@@ -17,6 +17,7 @@ namespace mistral::tui
     thinking,      // AI thinking/reasoning
     tool_call,     // Tool call header (e.g. "[tool] write(...)")
     tool_result,   // Tool result or status (e.g. "→ result")
+    tool_output,   // Live tool output, streamed while the tool runs
     tool_approval, // Tool approval prompt (attached to last tool block)
     error,         // Error messages
     warning,       // Warning messages

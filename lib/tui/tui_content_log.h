@@ -5,6 +5,9 @@
 
 #include <cpptui.hpp>
 
+#include <algorithm>
+#include <cstddef>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -77,6 +80,20 @@ namespace mistral::tui
     bool approval_dirty = false;
     std::string tool_status; // "" = none, "✓" or "✗" for tool blocks
 
+    // Streamed tool output (content_type::tool_output). `streamed` marks a
+    // block whose result_text was filled live while the tool ran, so the
+    // final tool_result must not append its result envelope on top of it.
+    // `user_toggled` records a manual expand/collapse, which overrides the
+    // fold-on-completion default.
+    bool streamed = false;
+    bool user_toggled = false;
+
+    // Display-cap bookkeeping for result_text (see append_capped):
+    // bytes dropped so far, and the offset at which the truncation
+    // marker starts (npos while nothing has been dropped).
+    size_t result_dropped_bytes = 0;
+    size_t result_marker_pos = std::string::npos;
+
     // Approval state machine for tool blocks
     ToolApprovalState approval_state = ToolApprovalState::none;
     std::string approval_prompt; // The formatted approval prompt text
@@ -94,6 +111,11 @@ namespace mistral::tui
   // fragments append to the last tool block's result_text. Collapsed tool
   // blocks show "[tool] name(truncated_args) ✓". Expanded tool blocks show
   // the full call text followed by indented result lines.
+  //
+  // tool_output fragments stream live output into the same result_text
+  // and keep the block expanded; the tool_result that follows only sets
+  // the status and folds the block (see finish_streamed_tool_block).
+  // result_text is capped at k_max_result_bytes with a truncation marker.
   //
   // Collapse/Expand: thinking and tool blocks auto-collapse when the next
   // block is created. Text blocks are always expanded. Manual toggle is
@@ -129,6 +151,13 @@ namespace mistral::tui
     // ✓ (U+2713) = check mark, ✗ (U+2717) = ballot X
     static constexpr const char* STATUS_OK = "\xe2\x9c\x93";   // ✓
     static constexpr const char* STATUS_FAIL = "\xe2\x9c\x97"; // ✗
+
+    // Rendering guard for tool result text. flush() re-wraps the whole
+    // dirty block, so an unbounded result would cost a full re-wrap on
+    // every flush; 64 KiB keeps that under a millisecond. This is not a
+    // security boundary - the cap on what the model receives lives in
+    // exec_tools (k_max_output_bytes), which is independent of this one.
+    static constexpr size_t k_max_result_bytes = 64 * 1024;
 
     // Indent for collapsible blocks: 2 spaces.
     static constexpr int COLLAPSE_INDENT = 2;
@@ -217,6 +246,33 @@ namespace mistral::tui
         return;
       }
 
+      // --- Tool output: append live output to a tool block ---
+      // Unlike tool_result, this does not finish the block: the status
+      // stays empty and the block stays expanded, so a long-running
+      // command can be followed while it runs.
+      if (type == content_type::tool_output)
+      {
+        ContentBlock* target = find_tool_block_for_output();
+        if (target == nullptr)
+        {
+          auto_collapse_previous();
+          ContentBlock block;
+          block.kind = BlockKind::tool;
+          block.color = cpptui::Theme::current().primary;
+          block.bold = true;
+          blocks_.push_back(std::move(block));
+          target = &blocks_.back();
+        }
+        append_capped(target->result_text, fragment, target->result_dropped_bytes, target->result_marker_pos);
+        target->result_dirty = true;
+        target->streamed = true;
+        target->collapsed = false;
+        // The tool is running again, so a status set by an earlier
+        // approval line no longer applies.
+        target->tool_status.clear();
+        return;
+      }
+
       // --- Tool result: append to a tool block ---
       if (type == content_type::tool_result)
       {
@@ -224,17 +280,26 @@ namespace mistral::tui
         // continuation of the same result).
         if (!blocks_.empty() && blocks_.back().kind == BlockKind::tool)
         {
-          blocks_.back().result_text += fragment;
-          blocks_.back().result_dirty = true;
-          if (blocks_.back().tool_status.empty())
+          auto& block = blocks_.back();
+          if (block.streamed)
           {
-            blocks_.back().tool_status = STATUS_OK;
+            // The tool's output was already streamed into result_text.
+            // `fragment` is the result envelope around it (a JSON dump
+            // for exec), which would duplicate what is on screen.
+            finish_streamed_tool_block(block);
+            return;
+          }
+          append_capped(block.result_text, fragment, block.result_dropped_bytes, block.result_marker_pos);
+          block.result_dirty = true;
+          if (block.tool_status.empty())
+          {
+            block.tool_status = STATUS_OK;
           }
           // Clear pending approval state and auto-collapse
-          if (blocks_.back().approval_state == ToolApprovalState::pending)
+          if (block.approval_state == ToolApprovalState::pending)
           {
-            blocks_.back().approval_state = ToolApprovalState::approved;
-            blocks_.back().collapsed = true;
+            block.approval_state = ToolApprovalState::approved;
+            block.collapsed = true;
           }
           return;
         }
@@ -245,17 +310,18 @@ namespace mistral::tui
         {
           if (blocks_[i].kind == BlockKind::tool && blocks_[i].result_text.empty())
           {
-            blocks_[i].result_text += fragment;
-            blocks_[i].result_dirty = true;
-            if (blocks_[i].tool_status.empty())
+            auto& block = blocks_[i];
+            append_capped(block.result_text, fragment, block.result_dropped_bytes, block.result_marker_pos);
+            block.result_dirty = true;
+            if (block.tool_status.empty())
             {
-              blocks_[i].tool_status = STATUS_OK;
+              block.tool_status = STATUS_OK;
             }
             // Clear pending approval state and auto-collapse
-            if (blocks_[i].approval_state == ToolApprovalState::pending)
+            if (block.approval_state == ToolApprovalState::pending)
             {
-              blocks_[i].approval_state = ToolApprovalState::approved;
-              blocks_[i].collapsed = true;
+              block.approval_state = ToolApprovalState::approved;
+              block.collapsed = true;
             }
             return;
           }
@@ -266,7 +332,7 @@ namespace mistral::tui
         block.kind = BlockKind::tool;
         block.color = cpptui::Theme::current().primary;
         block.bold = true;
-        block.result_text = fragment;
+        append_capped(block.result_text, fragment, block.result_dropped_bytes, block.result_marker_pos);
         block.result_dirty = true;
         block.tool_status = STATUS_OK;
         blocks_.push_back(std::move(block));
@@ -565,6 +631,9 @@ namespace mistral::tui
       if (!is_collapsible(block.kind))
         return false;
       block.collapsed = !block.collapsed;
+      // Remember that the user overrode the default, so a tool block that
+      // is still streaming does not fold itself when it completes.
+      block.user_toggled = true;
       recalc_total_lines();
       return true;
     }
@@ -736,6 +805,76 @@ namespace mistral::tui
     static bool is_auto_collapsible(BlockKind kind)
     {
       return kind == BlockKind::thinking;
+    }
+
+    // Locate the tool block that streamed output belongs to: the last
+    // block when it is a tool block, otherwise the last tool block that
+    // has not received any result text yet. Returns nullptr when there is
+    // none, in which case the caller creates one.
+    //
+    // The last block is used even when it already carries a status: the
+    // approval flow writes its "→ [APPROVED]" line as a tool_result
+    // before the tool has started, which sets the status early.
+    ContentBlock* find_tool_block_for_output()
+    {
+      if (!blocks_.empty() && blocks_.back().kind == BlockKind::tool)
+      {
+        return &blocks_.back();
+      }
+      for (int i = (int)blocks_.size() - 1; i >= 0; --i)
+      {
+        if (blocks_[i].kind == BlockKind::tool && blocks_[i].result_text.empty())
+        {
+          return &blocks_[i];
+        }
+      }
+      return nullptr;
+    }
+
+    // Finish a tool block whose output was streamed live: set the status
+    // and fold it, unless the user expanded or collapsed it manually
+    // while the tool was running.
+    static void finish_streamed_tool_block(ContentBlock& block)
+    {
+      block.tool_status = STATUS_OK;
+      block.collapsed = !block.user_toggled;
+      if (block.approval_state == ToolApprovalState::pending)
+      {
+        block.approval_state = ToolApprovalState::approved;
+      }
+    }
+
+    // Marker appended after the stored content once the display cap is
+    // reached. N is rounded up to whole KiB.
+    static std::string truncation_marker(size_t dropped)
+    {
+      return std::format("\n[output truncated: {} KiB dropped]\n", (dropped + 1023) / 1024);
+    }
+
+    // Append `fragment` to `target`, keeping at most k_max_result_bytes of
+    // content. Bytes past the cap are counted in `dropped` instead, and a
+    // single truncation marker is kept at the end of `target` (its offset
+    // is `marker_pos`, npos while nothing has been dropped). The marker
+    // is rewritten as more output arrives, so the count stays accurate
+    // and the marker never appears twice.
+    static void append_capped(std::string& target, const std::string& fragment, size_t& dropped, size_t& marker_pos)
+    {
+      const size_t stored = (marker_pos == std::string::npos) ? target.size() : marker_pos;
+      const size_t room = stored < k_max_result_bytes ? k_max_result_bytes - stored : 0;
+      const size_t take = std::min(room, fragment.size());
+      dropped += fragment.size() - take;
+
+      if (marker_pos != std::string::npos)
+      {
+        target.resize(marker_pos); // drop the stale marker
+      }
+      target.append(fragment, 0, take);
+      if (dropped == 0)
+      {
+        return;
+      }
+      marker_pos = target.size();
+      target += truncation_marker(dropped);
     }
 
     // Auto-collapse the last block if it is auto-collapsible.
@@ -1044,6 +1183,10 @@ namespace mistral::tui
       case ct::tool_call:
         return {BlockKind::tool, cpptui::Theme::current().primary, true};
       case ct::tool_result:
+        return {BlockKind::tool, cpptui::Theme::current().primary, false};
+      case ct::tool_output:
+        // Handled specially in append_fragment; this case only keeps the
+        // switch exhaustive.
         return {BlockKind::tool, cpptui::Theme::current().primary, false};
       case ct::tool_approval:
         // tool_approval is handled specially in append_fragment, but we

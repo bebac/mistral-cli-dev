@@ -1823,4 +1823,148 @@ TEST_CASE("content_area preserves newlines in multi-line content streaming")
   CHECK(log->block_at(0).cached_lines[5] == "```");
 }
 
+// ---------------------------------------------------------------------------
+// Streamed tool output (content_type::tool_output)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("tool_output appends to the last tool block without finishing it")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] exec(cmake)", content_type::tool_call);
+  log.append_fragment("line 1\n", content_type::tool_output);
+  log.append_fragment("line 2\n", content_type::tool_output);
+
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).kind == BlockKind::tool);
+  CHECK(log.block_at(0).result_text == "line 1\nline 2\n");
+  CHECK(log.block_at(0).streamed);
+  // Still running: no status, and the block stays open so the build can
+  // be followed.
+  CHECK(log.block_at(0).tool_status.empty());
+  CHECK(log.block_at(0).collapsed == false);
+}
+
+TEST_CASE("tool_result after streamed output folds the block without duplicating it")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] exec(cmake)", content_type::tool_call);
+  log.append_fragment("build output\n", content_type::tool_output);
+  log.append_fragment(" \xe2\x86\x92 {\"exit_code\":0}\n", content_type::tool_result);
+
+  REQUIRE(log.block_count() == 1);
+  // The result envelope must not be appended on top of the streamed output.
+  CHECK(log.block_at(0).result_text == "build output\n");
+  CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
+  CHECK(log.block_at(0).collapsed == true);
+}
+
+TEST_CASE("tool_result respects a manual toggle on a streamed block")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] exec(cmake)", content_type::tool_call);
+  log.append_fragment("build output\n", content_type::tool_output);
+
+  REQUIRE(log.toggle_collapse(0)); // user collapses it mid-build
+  REQUIRE(log.block_at(0).collapsed == true);
+  REQUIRE(log.toggle_collapse(0)); // ... and expands it again
+  REQUIRE(log.block_at(0).collapsed == false);
+
+  log.append_fragment(" \xe2\x86\x92 {}\n", content_type::tool_result);
+
+  CHECK(log.block_at(0).tool_status == "\xe2\x9c\x93");
+  // The user's choice wins over the fold-on-completion default.
+  CHECK(log.block_at(0).collapsed == false);
+}
+
+TEST_CASE("tool_output without a preceding tool_call creates a tool block")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("orphan output\n", content_type::tool_output);
+
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).kind == BlockKind::tool);
+  CHECK(log.block_at(0).result_text == "orphan output\n");
+  CHECK(log.block_at(0).streamed);
+}
+
+TEST_CASE("tool_output re-opens a tool block that an approval line already marked done")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] exec(cmake)", content_type::tool_call);
+  // The approval flow writes its line as a tool_result, which sets the
+  // status before the tool has even started.
+  log.append_fragment(" \xe2\x86\x92 [APPROVED]\n", content_type::tool_result);
+  REQUIRE(log.block_at(0).tool_status == "\xe2\x9c\x93");
+
+  log.append_fragment("build output\n", content_type::tool_output);
+
+  REQUIRE(log.block_count() == 1);
+  CHECK(log.block_at(0).result_text == " \xe2\x86\x92 [APPROVED]\nbuild output\n");
+  // Running again: no status, and expanded so the build is visible.
+  CHECK(log.block_at(0).tool_status.empty());
+  CHECK(log.block_at(0).collapsed == false);
+  CHECK(log.block_at(0).streamed);
+}
+
+// ---------------------------------------------------------------------------
+// Display cap on tool result text
+// ---------------------------------------------------------------------------
+
+TEST_CASE("tool result under the display cap is stored whole")
+{
+  mistral::tui::ContentLog log;
+  std::string result(1000, 'x');
+  log.append_fragment("[tool] read()", content_type::tool_call);
+  log.append_fragment(result, content_type::tool_result);
+
+  CHECK(log.block_at(0).result_text == result);
+  CHECK(log.block_at(0).result_dropped_bytes == 0);
+  CHECK(log.block_at(0).result_marker_pos == std::string::npos);
+}
+
+TEST_CASE("tool result over the display cap is capped with a single marker")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] read()", content_type::tool_call);
+
+  constexpr size_t chunk_size = 1024;
+  const std::string chunk(chunk_size, 'x');
+  const size_t chunks = mistral::tui::ContentLog::k_max_result_bytes / chunk_size + 4;
+  for (size_t i = 0; i < chunks; ++i)
+  {
+    log.append_fragment(chunk, content_type::tool_result);
+  }
+
+  const auto& block = log.block_at(0);
+  const std::string capped(mistral::tui::ContentLog::k_max_result_bytes, 'x');
+  CHECK(block.result_text.rfind(capped, 0) == 0);
+  CHECK(block.result_text.size() > capped.size());
+  CHECK(block.result_marker_pos == capped.size());
+  CHECK(block.result_dropped_bytes == chunks * chunk_size - mistral::tui::ContentLog::k_max_result_bytes);
+
+  // Exactly one marker, however many appends happened, and it reports
+  // the total dropped (4 KiB here).
+  const std::string marker = "[output truncated: 4 KiB dropped]";
+  size_t first = block.result_text.find(marker);
+  REQUIRE(first != std::string::npos);
+  CHECK(block.result_text.find("[output truncated:", first + 1) == std::string::npos);
+}
+
+TEST_CASE("streamed tool output is capped like a tool result")
+{
+  mistral::tui::ContentLog log;
+  log.append_fragment("[tool] exec(cmake)", content_type::tool_call);
+
+  const std::string chunk(4096, 'y');
+  for (int i = 0; i < 40; ++i) // 160 KiB, well over the 64 KiB cap
+  {
+    log.append_fragment(chunk, content_type::tool_output);
+  }
+
+  const auto& block = log.block_at(0);
+  CHECK(block.result_dropped_bytes == 40 * 4096 - mistral::tui::ContentLog::k_max_result_bytes);
+  CHECK(block.result_text.find("[output truncated:") != std::string::npos);
+  CHECK(block.streamed);
+}
+
 TEST_SUITE_END();

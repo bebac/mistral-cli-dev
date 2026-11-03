@@ -20,6 +20,7 @@
 #include <api/types.h>
 #include <dripcore/channel.h>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -280,14 +281,20 @@ namespace mistral::agent
       const std::string& message
     );
 
-    // Current response channel for request cancellation support.
-    // Registered by agent_task_base before each API request and
-    // cleared after the request completes. The signal_watcher_task
-    // closes this channel when SIGINT is received to cancel the
-    // in-flight request.
-    void set_current_response_ch(std::shared_ptr<dripcore::channel<api::api_event>> ch);
-    void clear_current_response_ch();
-    std::shared_ptr<dripcore::channel<api::api_event>> get_current_response_ch() const;
+    // Cancellation hook for the operation currently in flight: an API
+    // response stream, or a running exec. The owning task registers a
+    // closure that stops it (closing its channel, or setting its cancel
+    // flag) and clears it when the operation ends; signal_watcher_task
+    // invokes it when SIGINT arrives.
+    //
+    // The slot is a single global, so concurrent agents overwrite each
+    // other's hook. That is pre-existing behaviour; the callback form at
+    // least makes a per-agent registry a later, local change.
+    void set_current_cancel(std::function<void()> cancel);
+    void clear_current_cancel();
+    // Invokes the registered hook, if any. Safe to call with nothing
+    // registered, and safe to call from the signal watcher.
+    void cancel_current();
 
     // Active agent input channel. Registered by the interactive agent
     // task at startup so slash commands (e.g. /compact) can route
@@ -373,9 +380,9 @@ namespace mistral::agent
     // Patchset storage - only one at a time (the latest)
     std::optional<tools::patchset_t> current_patchset_;
 
-    // Current response channel for request cancellation
-    mutable std::mutex current_response_ch_mtx_;
-    std::shared_ptr<dripcore::channel<api::api_event>> current_response_ch_;
+    // Cancellation hook for the operation currently in flight
+    mutable std::mutex current_cancel_mtx_;
+    std::function<void()> current_cancel_;
 
     // Active agent input channel (for slash-command control routing)
     mutable std::mutex current_input_ch_mtx_;

@@ -29,12 +29,27 @@ namespace mistral::agent
     void output_tool_call(const std::string& name, const std::string& args) override
     {
       std::cout << tool_color_ << "\n[tool] " << name << "(" << args << ")" << normal_color_ << std::flush;
+      streamed_ = false;
+    }
+
+    void output_tool_output(const std::string& text) override
+    {
+      std::cout << normal_color_ << text << std::flush;
+      streamed_ = true;
     }
 
     void output_tool_result(const std::string& result) override
     {
-      std::string display = (result.size() > 200) ? result.substr(0, 200) + "..." : result;
-      std::cout << normal_color_ << " \xe2\x86\x92 " << display << std::endl;
+      if (streamed_)
+      {
+        // The output was already written live by output_tool_output();
+        // the result is the JSON envelope around it, which would
+        // duplicate everything on screen. Just end the line.
+        streamed_ = false;
+        std::cout << std::endl;
+        return;
+      }
+      std::cout << normal_color_ << " \xe2\x86\x92 " << result << std::endl;
     }
 
     void output_resume_preview(const std::string& user_text, const std::string& assistant_text) override
@@ -78,6 +93,10 @@ namespace mistral::agent
     }
 
   private:
+    // True when the current tool block already wrote its output live, so
+    // output_tool_result() must not print the result envelope as well.
+    bool streamed_ = false;
+
     // clang-format off
     static constexpr char normal_color_[]   = "\033[0m";
     static constexpr char thinking_color_[] = "\033[90m";

@@ -493,7 +493,7 @@ TEST_CASE("output_resume_preview renders the complete last turn")
   CHECK(h.appended[2].second == content_type::normal);
 }
 
-TEST_CASE("output_tool_result truncates long results")
+TEST_CASE("output_tool_result passes long results through unmodified")
 {
   sink_test_harness h;
   mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
@@ -504,11 +504,11 @@ TEST_CASE("output_tool_result truncates long results")
   h.run_all_posted();
 
   REQUIRE(h.appended.size() == 1);
-  // " \xe2\x86\x92 " (5 bytes) + 200 chars + "..." (3 bytes) + "\n" (1 byte) = 209
-  CHECK(h.appended[0].first.size() == 209);
-  CHECK(h.appended[0].first.substr(0, 5) == " \xe2\x86\x92 ");
-  CHECK(h.appended[0].first.substr(5, 200) == std::string(200, 'x'));
-  CHECK(h.appended[0].first.substr(205) == "...\n");
+  // No truncation: an expanded tool block must be able to show the whole
+  // result. The display cap lives in ContentLog, which owns the
+  // accumulated text and can account for what it dropped.
+  CHECK(h.appended[0].first == " \xe2\x86\x92 " + long_result + "\n");
+  CHECK(h.appended[0].second == content_type::tool_result);
 }
 
 TEST_CASE("output_tool_result does not truncate short results")
@@ -539,7 +539,7 @@ TEST_CASE("output_tool_result boundary at exactly 200 chars")
   CHECK(h.appended[0].first == " \xe2\x86\x92 " + exact_200 + "\n");
 }
 
-TEST_CASE("output_tool_result truncates at 201 chars")
+TEST_CASE("output_tool_result does not truncate just past 200 chars")
 {
   sink_test_harness h;
   mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
@@ -550,8 +550,40 @@ TEST_CASE("output_tool_result truncates at 201 chars")
   h.run_all_posted();
 
   REQUIRE(h.appended.size() == 1);
-  std::string expected = " \xe2\x86\x92 " + std::string(200, 'x') + "...\n";
-  CHECK(h.appended[0].first == expected);
+  CHECK(h.appended[0].first == " \xe2\x86\x92 " + result_201 + "\n");
+}
+
+TEST_CASE("output_tool_output enqueues text unmodified")
+{
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
+
+  sink.output_tool_output("line 1\n");
+  sink.output_tool_output("line 2\n");
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 2);
+  CHECK(h.appended[0].first == "line 1\n");
+  CHECK(h.appended[0].second == content_type::tool_output);
+  CHECK(h.appended[1].first == "line 2\n");
+  CHECK(h.appended[1].second == content_type::tool_output);
+  // Batched into a single post/flush, like every other fragment type.
+  CHECK(h.flush_count == 1);
+}
+
+TEST_CASE("output_tool_output is not truncated at the old 200-char limit")
+{
+  sink_test_harness h;
+  mistral::tui::tui_render_sink sink(h.make_post(), h.make_append(), h.make_flush());
+
+  std::string chunk(4096, 'y');
+  sink.output_tool_output(chunk);
+
+  h.run_all_posted();
+
+  REQUIRE(h.appended.size() == 1);
+  CHECK(h.appended[0].first == chunk);
 }
 
 TEST_CASE("concurrent enqueue from multiple threads")

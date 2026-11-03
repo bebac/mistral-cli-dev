@@ -12,6 +12,7 @@
 #include "api/provider_registry.h"
 #include "api/types.h"
 #include "tools/edit_parser.h"
+#include "tools/exec_tools.h"
 
 #include <dripcore/awaitable.h>
 #include <dripcore/channel.h>
@@ -64,6 +65,12 @@ namespace mistral::agent
     virtual api::stream_delta parse_response_delta(const api::json& j) const;
     virtual void agent_loop_on_sending_chat_request() = 0;
     virtual void agent_loop_on_message_content(const api::message_content& mc) = 0;
+    // Called repeatedly while a tool produces output, so the UI can show
+    // progress (exec). No-op by default: subagents and server agents have
+    // nothing to render it into.
+    virtual void on_tool_output(const std::string& text)
+    {
+    }
     virtual auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> = 0;
     virtual void agent_loop_on_error(const std::string& error) = 0;
     virtual void agent_loop_on_completed(std::vector<api::message_content>& accumulated_content);
@@ -91,6 +98,11 @@ namespace mistral::agent
     void accumulate_message_content(std::vector<api::message_content>& accumulated, api::message_content mc);
     std::optional<std::string> accumulate_tool_call(std::vector<api::tool_call>& accumulated, api::tool_call tc);
     auto execute_tool(const api::tool_call& tc) -> dripcore::awaitable<std::string>;
+    // Run an exec tool call as a streaming task: spawn it, forward its
+    // output to on_tool_output(), and return the final JSON. The run is
+    // registered as the current cancellable operation, so ESC stops the
+    // command instead of waiting for the timeout.
+    auto run_exec_tool(const tools::exec_request& request) -> dripcore::awaitable<std::string>;
 
     // Shared tool-call helpers used by subclasses' agent_loop_do_tool_call.
     // These extract common policy/execution logic so subclasses only

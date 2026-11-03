@@ -210,6 +210,11 @@ namespace mistral::agent
       }
     }
 
+    void on_tool_output(const std::string& text) override
+    {
+      sink_->output_tool_output(text);
+    }
+
     auto agent_loop_do_tool_call(const api::tool_call& tc) -> dripcore::awaitable<void> override
     {
       sink_->output_tool_call(tc.function.name, tc.function.arguments);
@@ -443,7 +448,7 @@ namespace mistral::agent
         provider_->build_chat_request(model_, request_msgs, api::json::array(), true, session_id_, sampling_params_);
 
       response_ch_ = std::make_shared<dripcore::channel<api::api_event>>(32);
-      agent_system::instance().set_current_response_ch(response_ch_);
+      agent_system::instance().set_current_cancel([ch = response_ch_]() { ch->close(); });
 
       std::string path = "/" + api_version_ + "/chat/completions";
       request_ch_->try_send({.path = path, .body = std::move(body), .stream = true, .response_ch = response_ch_});
@@ -495,7 +500,7 @@ namespace mistral::agent
         }
       }
 
-      agent_system::instance().clear_current_response_ch();
+      agent_system::instance().clear_current_cancel();
 
       if (failed || summary.empty())
       {

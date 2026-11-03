@@ -4,10 +4,13 @@
 #include <dripcore/scheduler.h>
 #include <dripcore/task.h>
 
+#include <atomic>
 #include <chrono>
 #include <errno.h>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <memory>
 #include <signal.h>
 #include <string>
 #include <sys/stat.h>
@@ -74,6 +77,87 @@ namespace mistral::tools
       return result;
     }
     return {};
+  }
+
+  // Everything a streamed run published on its channel.
+  struct exec_stream_result
+  {
+    std::string output;
+    json final_result;
+    int output_events = 0;
+    bool got_done = false;
+    bool closed_at_end = false;
+  };
+
+  // Runs one exec_run_task and consumes its channel, the way
+  // agent_task_base::execute_tool does. `on_first_output` runs once,
+  // after the first output event, so a test can cancel mid-run.
+  inline exec_stream_result run_streamed_exec(
+    std::string command,
+    std::vector<std::string> args,
+    std::string cwd = "",
+    int timeout_seconds = 30,
+    std::shared_ptr<std::atomic<bool>> cancel_requested = nullptr,
+    std::function<void()> on_first_output = {}
+  )
+  {
+    exec_stream_result out;
+    auto out_ch = std::make_shared<dripcore::channel<exec_event>>(32);
+    if (!cancel_requested)
+    {
+      cancel_requested = std::make_shared<std::atomic<bool>>(false);
+    }
+
+    class consumer_task : public dripcore::task
+    {
+    public:
+      consumer_task(
+        std::shared_ptr<dripcore::channel<exec_event>> ch,
+        exec_stream_result& out,
+        std::function<void()> on_first_output
+      )
+        : ch_(std::move(ch)), out_(out), on_first_output_(std::move(on_first_output))
+      {
+      }
+
+      dripcore::awaitable<> body() override
+      {
+        while (auto evt = co_await ch_->recv(this))
+        {
+          if (evt->kind == exec_event::type::output)
+          {
+            out_.output += evt->text;
+            ++out_.output_events;
+            if (on_first_output_)
+            {
+              auto cb = std::move(on_first_output_);
+              on_first_output_ = {};
+              cb();
+            }
+          }
+          else
+          {
+            out_.got_done = true;
+            out_.final_result = json::parse(evt->text);
+          }
+        }
+        out_.closed_at_end = ch_->is_closed();
+        co_return;
+      }
+
+    private:
+      std::shared_ptr<dripcore::channel<exec_event>> ch_;
+      exec_stream_result& out_;
+      std::function<void()> on_first_output_;
+    };
+
+    dripcore::scheduler scheduler;
+    scheduler.spawn<exec_run_task>(
+      std::move(command), std::move(args), std::move(cwd), timeout_seconds, out_ch, cancel_requested
+    );
+    scheduler.spawn<consumer_task>(out_ch, out, std::move(on_first_output));
+    scheduler.run();
+    return out;
   }
 
 } // namespace mistral::tools
@@ -352,6 +436,89 @@ TEST_CASE("exec_tools: default timeout is 30 seconds")
   CHECK(result["exit_code"].get<int>() == 0);
   CHECK(result.contains("timed_out"));
   CHECK(result["timed_out"].get<bool>() == false);
+}
+
+TEST_CASE("exec_tools: run task streams output and a final done event")
+{
+  using namespace mistral::tools;
+
+  auto out = run_streamed_exec("echo", {"hello", "stream"});
+
+  CHECK(out.output_events >= 1);
+  CHECK(out.output.find("hello stream") != std::string::npos);
+  REQUIRE(out.got_done);
+  CHECK(out.final_result["exit_code"].get<int>() == 0);
+  CHECK(out.final_result["stdout"].get<std::string>() == "hello stream\n");
+  // The consumer's recv() only returns once the channel is closed.
+  CHECK(out.closed_at_end);
+}
+
+TEST_CASE("exec_tools: run task reports a spawn failure as a done event")
+{
+  using namespace mistral::tools;
+
+  auto out = run_streamed_exec("this_command_does_not_exist_xyz123", {});
+
+  REQUIRE(out.got_done);
+  CHECK(out.final_result["exit_code"].get<int>() == -1);
+  CHECK(out.final_result["error"].get<std::string>().find("not found") != std::string::npos);
+  CHECK(out.closed_at_end);
+}
+
+TEST_CASE("exec_tools: run task streams stderr as well as stdout")
+{
+  using namespace mistral::tools;
+
+  auto out = run_streamed_exec("sh", {"-c", "echo out; echo err >&2"});
+
+  REQUIRE(out.got_done);
+  CHECK(out.output.find("out") != std::string::npos);
+  CHECK(out.output.find("err") != std::string::npos);
+}
+
+TEST_CASE("exec_tools: cancelling a run task kills the child and keeps partial output")
+{
+  using namespace mistral::tools;
+
+  auto cancel = std::make_shared<std::atomic<bool>>(false);
+  auto out = run_streamed_exec(
+    "sh", {"-c", "echo partial; sleep 10"}, "", 30, cancel, [cancel]() { cancel->store(true); }
+  );
+
+  REQUIRE(out.got_done);
+  CHECK(out.final_result["cancelled"].get<bool>() == true);
+  CHECK(out.final_result["error"].get<std::string>() == "cancelled");
+  CHECK(out.final_result["stdout"].get<std::string>().find("partial") != std::string::npos);
+  CHECK(out.closed_at_end);
+}
+
+TEST_CASE("exec_tools: parse_request fills defaults and rejects malformed arguments")
+{
+  using namespace mistral::tools;
+
+  auto request = exec_tools::parse_request(json{{"command", "ls"}});
+  REQUIRE(request.has_value());
+  CHECK(request->command == "ls");
+  CHECK(request->args.empty());
+  CHECK(request->cwd.empty());
+  CHECK(request->timeout_seconds == 30);
+
+  auto full = exec_tools::parse_request(
+    json{{"command", "git"}, {"args", {"status", "-s"}}, {"cwd", "/tmp"}, {"timeout_seconds", 5}}
+  );
+  REQUIRE(full.has_value());
+  CHECK(full->args.size() == 2);
+  CHECK(full->args[1] == "-s");
+  CHECK(full->cwd == "/tmp");
+  CHECK(full->timeout_seconds == 5);
+
+  // Malformed: the caller falls back to the tool dispatcher's reporting.
+  CHECK_FALSE(exec_tools::parse_request(json{{"args", {"x"}}}).has_value());
+  CHECK_FALSE(exec_tools::parse_request(json{{"command", 42}}).has_value());
+  CHECK_FALSE(exec_tools::parse_request(json{{"command", "ls"}, {"args", "not-an-array"}}).has_value());
+  CHECK_FALSE(exec_tools::parse_request(json{{"command", "ls"}, {"args", {1, 2}}}).has_value());
+  CHECK_FALSE(exec_tools::parse_request(json{{"command", "ls"}, {"cwd", 7}}).has_value());
+  CHECK_FALSE(exec_tools::parse_request(json{{"command", "ls"}, {"timeout_seconds", "30"}}).has_value());
 }
 
 TEST_CASE("exec_tools: validate rejects shell syntax in command")
