@@ -48,6 +48,16 @@ namespace mistral::agent
       };
     }
 
+    size_t count_occurrences(const std::string& haystack, const std::string& needle)
+    {
+      size_t count = 0;
+      for (size_t pos = haystack.find(needle); pos != std::string::npos; pos = haystack.find(needle, pos + needle.size()))
+      {
+        ++count;
+      }
+      return count;
+    }
+
     // Minimal fixture: initialize the agent_system singleton with an
     // empty config so the global tool registry (and its renderers) exist.
     struct ApprovalRenderersTestFixture
@@ -154,15 +164,16 @@ namespace mistral::agent
 
   // ---- patchset_apply renderer ----
 
-  TEST_CASE("patchset_apply renderer shows one line per edit with status letters")
+  TEST_CASE("patchset_apply renderer shows one line per file with status letters")
   {
     auto& agent_sys = agent_system::instance();
 
     std::vector<mistral::tools::file_edit_t> edits;
-    edits.push_back(make_edit("src/main.cpp", "old", "new", 1));    // M
-    edits.push_back(make_edit("lib/utils.h", "", "a\nb\nc", 2));    // A, 3 lines
-    edits.push_back(make_edit("CMakeLists.txt", ".", "x\ny\n", 3)); // O, 2 lines
-    edits.push_back(make_edit("old.cpp", "gone", "", 4));           // D
+    edits.push_back(make_edit("src/main.cpp", "old", "new", 1));     // M
+    edits.push_back(make_edit("lib/utils.h", "", "a\nb\nc", 2));     // A, 3 lines
+    edits.push_back(make_edit("CMakeLists.txt", ".", "x\ny\n", 3));  // O, 2 lines
+    edits.push_back(make_edit("old.cpp", "gone", "", 4));            // D
+    edits.push_back(make_edit("src/main.cpp", "old2", "new2", 5));   // M, same file as edit 1
     agent_sys.store_patchset("renderer-test-ps", edits);
 
     dummy_tool tool_inst;
@@ -179,11 +190,14 @@ namespace mistral::agent
     REQUIRE(result.has_value());
     const std::string& prompt = *result;
     CHECK(prompt.find("\n[APPROVAL REQUIRED] patchset_apply\n") != std::string::npos);
-    CHECK(prompt.find("  patchset: renderer-test-ps (4 edits)\n") != std::string::npos);
-    CHECK(prompt.find("    1. M src/main.cpp\n") != std::string::npos);
+    CHECK(prompt.find("  patchset: renderer-test-ps (5 edits in 4 files)\n") != std::string::npos);
+    CHECK(prompt.find("    1. M src/main.cpp (2 edits)\n") != std::string::npos);
     CHECK(prompt.find("    2. A lib/utils.h (3 lines)\n") != std::string::npos);
     CHECK(prompt.find("    3. O CMakeLists.txt (2 lines)\n") != std::string::npos);
     CHECK(prompt.find("    4. D old.cpp\n") != std::string::npos);
+    // The second edit to src/main.cpp must not get a line of its own
+    CHECK(count_occurrences(prompt, "src/main.cpp") == 1);
+    CHECK(prompt.find("    5. ") == std::string::npos);
     CHECK(prompt.find("\n  Reason: Policy requires approval\n") != std::string::npos);
     CHECK(prompt.find("  Approve? [y/n/r/a/?]: ") != std::string::npos);
   }
@@ -205,7 +219,8 @@ namespace mistral::agent
     agent_sys.remove_patchset("renderer-test-single");
 
     REQUIRE(result.has_value());
-    CHECK(result->find("  patchset: renderer-test-single (1 edit)\n") != std::string::npos);
+    CHECK(result->find("  patchset: renderer-test-single (1 edit in 1 file)\n") != std::string::npos);
+    CHECK(result->find("    1. M a.cpp\n") != std::string::npos);
   }
 
   TEST_CASE("patchset_apply renderer reports unknown patchset id")
@@ -243,7 +258,7 @@ namespace mistral::agent
     CHECK(result->find("  patchset: renderer-test-empty (0 edits)\n") != std::string::npos);
   }
 
-  TEST_CASE("patchset_apply renderer truncates long patchsets")
+  TEST_CASE("patchset_apply renderer truncates long patchsets by file")
   {
     auto& agent_sys = agent_system::instance();
 
@@ -264,14 +279,70 @@ namespace mistral::agent
 
     REQUIRE(result.has_value());
     const std::string& prompt = *result;
-    CHECK(prompt.find("  patchset: renderer-test-long (12 edits)\n") != std::string::npos);
-    // First 10 edits are listed
+    CHECK(prompt.find("  patchset: renderer-test-long (12 edits in 12 files)\n") != std::string::npos);
+    // First 10 files are listed
     CHECK(prompt.find("    1. M file1.cpp\n") != std::string::npos);
     CHECK(prompt.find("    10. M file10.cpp\n") != std::string::npos);
-    // Edits 11 and 12 are not
+    // Files 11 and 12 are not
     CHECK(prompt.find("file11.cpp") == std::string::npos);
     CHECK(prompt.find("file12.cpp") == std::string::npos);
-    CHECK(prompt.find("    ... and 2 more edits\n") != std::string::npos);
+    CHECK(prompt.find("    ... and 2 more files\n") != std::string::npos);
+  }
+
+  TEST_CASE("patchset_apply renderer does not truncate many edits in few files")
+  {
+    auto& agent_sys = agent_system::instance();
+
+    std::vector<mistral::tools::file_edit_t> edits;
+    for (size_t i = 1; i <= 15; ++i)
+    {
+      edits.push_back(make_edit(i % 2 == 0 ? "a.cpp" : "b.cpp", "x", "y", i));
+    }
+    agent_sys.store_patchset("renderer-test-few-files", edits);
+
+    dummy_tool tool_inst;
+    tool_registry registry;
+    register_dummy_tools(registry, tool_inst);
+    register_approval_renderers(registry);
+
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-few-files"}}, "r");
+    agent_sys.remove_patchset("renderer-test-few-files");
+
+    REQUIRE(result.has_value());
+    const std::string& prompt = *result;
+    CHECK(prompt.find("  patchset: renderer-test-few-files (15 edits in 2 files)\n") != std::string::npos);
+    CHECK(prompt.find("    1. M b.cpp (8 edits)\n") != std::string::npos);
+    CHECK(prompt.find("    2. M a.cpp (7 edits)\n") != std::string::npos);
+    CHECK(prompt.find("more files") == std::string::npos);
+  }
+
+  TEST_CASE("patchset_apply renderer derives one status letter per file")
+  {
+    auto& agent_sys = agent_system::instance();
+
+    std::vector<mistral::tools::file_edit_t> edits;
+    edits.push_back(make_edit("rewritten.cpp", "gone", "", 1));  // D
+    edits.push_back(make_edit("rewritten.cpp", "", "new\n", 2)); // A, wins over D
+    edits.push_back(make_edit("trimmed.cpp", "a", "", 3));       // D
+    edits.push_back(make_edit("trimmed.cpp", "b", "", 4));       // D, all deletes
+    edits.push_back(make_edit("mixed.cpp", "a", "", 5));         // D
+    edits.push_back(make_edit("mixed.cpp", "b", "c", 6));        // M, wins over D
+    agent_sys.store_patchset("renderer-test-status", edits);
+
+    dummy_tool tool_inst;
+    tool_registry registry;
+    register_dummy_tools(registry, tool_inst);
+    register_approval_renderers(registry);
+
+    auto result = registry.render_approval("patchset_apply", json{{"patchset_id", "renderer-test-status"}}, "r");
+    agent_sys.remove_patchset("renderer-test-status");
+
+    REQUIRE(result.has_value());
+    const std::string& prompt = *result;
+    CHECK(prompt.find("  patchset: renderer-test-status (6 edits in 3 files)\n") != std::string::npos);
+    CHECK(prompt.find("    1. A rewritten.cpp (2 edits)\n") != std::string::npos);
+    CHECK(prompt.find("    2. D trimmed.cpp (2 edits)\n") != std::string::npos);
+    CHECK(prompt.find("    3. M mixed.cpp (2 edits)\n") != std::string::npos);
   }
 
   // ---- exec renderer ----

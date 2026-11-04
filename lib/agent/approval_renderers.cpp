@@ -10,14 +10,16 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace mistral::agent
 {
   namespace
   {
-    // Maximum number of edits listed in a patchset_apply approval prompt
+    // Maximum number of files listed in a patchset_apply approval prompt
     // before the list is truncated.
-    constexpr size_t max_shown_edits = 10;
+    constexpr size_t max_shown_files = 10;
 
     // Count lines in a text block. A trailing newline does not start a
     // new line.
@@ -42,11 +44,76 @@ namespace mistral::agent
       return " (" + std::to_string(count) + (count == 1 ? " line)" : " lines)");
     }
 
-    // One line per edit: patch number, status letter, file path.
-    //   M = edit (search/replace)
-    //   A = new file (search_text empty)
-    //   O = overwrite entire file (search_text == ".")
-    //   D = delete (replace_text empty)
+    // All edits that target a single file, collapsed into one summary.
+    struct file_summary_t
+    {
+      std::string file_path;
+      size_t edit_count = 0;
+      bool creates = false;    // any edit creates the file (search_text empty)
+      bool overwrites = false; // any edit overwrites the file (search_text == ".")
+      bool deletes = false;    // any edit deletes matched text (replace_text empty)
+      bool modifies = false;   // any edit is a plain search/replace
+      std::string line_suffix; // line count of the last create/overwrite edit
+    };
+
+    // Status letter for a file, derived from all of its edits:
+    //   A = the file is created
+    //   O = the file is overwritten as a whole
+    //   D = every edit deletes matched text
+    //   M = otherwise (search/replace)
+    char status_letter(const file_summary_t& summary)
+    {
+      if (summary.creates)
+        return 'A';
+      if (summary.overwrites)
+        return 'O';
+      if (summary.deletes && !summary.modifies)
+        return 'D';
+      return 'M';
+    }
+
+    // Group edits by file path, keeping the order in which each file is
+    // first touched.
+    std::vector<file_summary_t> summarize_by_file(const std::vector<tools::file_edit_t>& edits)
+    {
+      std::vector<file_summary_t> summaries;
+      std::unordered_map<std::string, size_t> index_by_path;
+
+      for (const auto& edit : edits)
+      {
+        auto [it, inserted] = index_by_path.try_emplace(edit.file_path, summaries.size());
+        if (inserted)
+        {
+          summaries.emplace_back();
+          summaries.back().file_path = edit.file_path;
+        }
+
+        auto& summary = summaries[it->second];
+        ++summary.edit_count;
+        if (edit.search_text.empty())
+        {
+          summary.creates = true;
+          summary.line_suffix = line_count_suffix(edit.replace_text);
+        }
+        else if (edit.search_text == ".")
+        {
+          summary.overwrites = true;
+          summary.line_suffix = line_count_suffix(edit.replace_text);
+        }
+        else if (edit.replace_text.empty())
+        {
+          summary.deletes = true;
+        }
+        else
+        {
+          summary.modifies = true;
+        }
+      }
+      return summaries;
+    }
+
+    // One line per file: file index, status letter, file path, and either
+    // the line count (single create/overwrite) or the number of edits.
     std::string render_patchset_apply_approval(const json& args, std::string_view reason)
     {
       std::string patchset_id;
@@ -66,34 +133,33 @@ namespace mistral::agent
       else
       {
         const auto& edits = patchset->edits;
-        oss << "  patchset: " << patchset_id << " (" << edits.size() << (edits.size() == 1 ? " edit" : " edits")
-            << ")\n";
+        auto files = summarize_by_file(edits);
 
-        size_t shown = std::min(edits.size(), max_shown_edits);
+        oss << "  patchset: " << patchset_id << " (" << edits.size() << (edits.size() == 1 ? " edit" : " edits");
+        if (!files.empty())
+        {
+          oss << " in " << files.size() << (files.size() == 1 ? " file" : " files");
+        }
+        oss << ")\n";
+
+        size_t shown = std::min(files.size(), max_shown_files);
         for (size_t i = 0; i < shown; ++i)
         {
-          const auto& edit = edits[i];
-          char status = 'M';
-          std::string suffix;
-          if (edit.search_text.empty())
+          const auto& file = files[i];
+          oss << "    " << (i + 1) << ". " << status_letter(file) << ' ' << file.file_path;
+          if (file.edit_count > 1)
           {
-            status = 'A'; // new file
-            suffix = line_count_suffix(edit.replace_text);
+            oss << " (" << file.edit_count << " edits)";
           }
-          else if (edit.search_text == ".")
+          else
           {
-            status = 'O'; // overwrite entire file
-            suffix = line_count_suffix(edit.replace_text);
+            oss << file.line_suffix;
           }
-          else if (edit.replace_text.empty())
-          {
-            status = 'D'; // delete matched text
-          }
-          oss << "    " << edit.patch_number << ". " << status << ' ' << edit.file_path << suffix << "\n";
+          oss << "\n";
         }
-        if (edits.size() > max_shown_edits)
+        if (files.size() > max_shown_files)
         {
-          oss << "    ... and " << (edits.size() - max_shown_edits) << " more edits\n";
+          oss << "    ... and " << (files.size() - max_shown_files) << " more files\n";
         }
       }
 
