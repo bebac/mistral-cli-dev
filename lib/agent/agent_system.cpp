@@ -3,6 +3,7 @@
 #include "agent/approval_renderers.h"
 #include "agent/compact_command.h"
 #include "agent/mcp_command.h"
+#include "agent/model_command.h"
 #include "agent/server_agent_task.h"
 #include "agent/subagent_task.h"
 #include "agent/workspace_bootstrap.h"
@@ -205,6 +206,13 @@ namespace mistral::agent
       server_agent_ids_.clear();
     }
 
+    // The active model selection is per-session too: a reloaded config may
+    // offer different ids, so every entry starts from its default again.
+    {
+      std::lock_guard<std::mutex> lock(active_model_ids_mtx_);
+      active_model_ids_.clear();
+    }
+
     // Initialize stats channel
     stats_ch_ = std::make_shared<dripcore::channel<stat_message>>(32);
 
@@ -345,7 +353,26 @@ namespace mistral::agent
       {
         model_config model_cfg;
         model_cfg.provider = model_json.value("provider", "mistral");
-        model_cfg.model_id = model_json.value("model_id", name);
+        // model_id accepts a string or an array of strings (see
+        // model_config::model_ids). Missing: fall back to the entry name.
+        if (model_json.contains("model_id") && model_json["model_id"].is_array())
+        {
+          for (const auto& id : model_json["model_id"])
+          {
+            if (id.is_string() && !id.get<std::string>().empty())
+            {
+              model_cfg.model_ids.push_back(id.get<std::string>());
+            }
+          }
+        }
+        else if (model_json.contains("model_id") && model_json["model_id"].is_string())
+        {
+          model_cfg.model_ids.push_back(model_json["model_id"].get<std::string>());
+        }
+        if (model_cfg.model_ids.empty())
+        {
+          model_cfg.model_ids.push_back(name);
+        }
         model_cfg.api_key_env = model_json.value("api_key_env", "MISTRAL_API_KEY");
         model_cfg.base_url = model_json.value("base_url", "https://api.mistral.ai");
         model_cfg.api_version = model_json.value("api_version", "v1");
@@ -654,24 +681,6 @@ namespace mistral::agent
       dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent::agent_system&) override
       {
         co_return "Clearing the chat history is not yet implemented";
-      }
-    };
-
-    class model_command : public sc::slash_command
-    {
-    public:
-      std::string name() const override
-      {
-        return "model";
-      }
-      std::string description() const override
-      {
-        return "Show current model information";
-      }
-
-      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent_system& sys) override
-      {
-        co_return "Current model: " + sys.resolve_model_id(sys.get_agent_config("main").model);
       }
     };
 
@@ -1214,11 +1223,53 @@ namespace mistral::agent
   std::string agent_system::resolve_model_id(const std::string& model_name) const
   {
     auto it = config_.models.find(model_name);
-    if (it != config_.models.end())
+    if (it == config_.models.end() || it->second.model_ids.empty())
     {
-      return it->second.model_id;
+      // Unknown entry: return the name as-is (backward compatibility).
+      // Parsing guarantees at least one id, but a hand-built model_config
+      // must never reach model_ids.front().
+      return model_name;
     }
-    return model_name; // Return as-is if not found (backward compatibility)
+
+    std::lock_guard lock(active_model_ids_mtx_);
+    if (auto active = active_model_ids_.find(model_name); active != active_model_ids_.end())
+    {
+      // The selection is validated by set_active_model_id(); re-check
+      // anyway in case the config was reloaded underneath.
+      const auto& ids = it->second.model_ids;
+      if (std::find(ids.begin(), ids.end(), active->second) != ids.end())
+      {
+        return active->second;
+      }
+    }
+    return it->second.model_ids.front();
+  }
+
+  std::vector<std::string> agent_system::model_ids_for(const std::string& model_name) const
+  {
+    auto it = config_.models.find(model_name);
+    if (it == config_.models.end())
+    {
+      return {};
+    }
+    return it->second.model_ids;
+  }
+
+  void agent_system::set_active_model_id(const std::string& model_name, const std::string& model_id)
+  {
+    auto it = config_.models.find(model_name);
+    if (it == config_.models.end())
+    {
+      throw std::runtime_error("Model configuration not found: " + model_name);
+    }
+    const auto& ids = it->second.model_ids;
+    if (std::find(ids.begin(), ids.end(), model_id) == ids.end())
+    {
+      throw std::runtime_error("Model '" + model_name + "' does not offer model id '" + model_id + "'");
+    }
+
+    std::lock_guard lock(active_model_ids_mtx_);
+    active_model_ids_[model_name] = model_id;
   }
 
   std::vector<transport_endpoint> agent_system::resolve_transport_endpoints() const
@@ -1802,6 +1853,19 @@ namespace mistral::agent
           context.agent_tools.push_back({name, ""});
         }
       }
+
+      // The current agent's selectable model ids (/model completion). The
+      // active one is marked, so the popup answers "which model am I on"
+      // without having to run the command.
+      if (has_agent_config(*agent_id))
+      {
+        const auto& agent_cfg = get_agent_config(*agent_id);
+        const std::string active = resolve_model_id(agent_cfg.model);
+        for (const auto& id : model_ids_for(agent_cfg.model))
+        {
+          context.model_ids.push_back({id, id == active ? "active" : ""});
+        }
+      }
     }
     return context;
   }
@@ -1833,6 +1897,13 @@ namespace mistral::agent
 
     ui_status status;
     status.completion = build_completion_context();
+
+    // Resolved model of the current agent, so the frontend footer can
+    // follow mid-session /model switches.
+    if (const auto agent_id = current_agent_id(); agent_id && has_agent_config(*agent_id))
+    {
+      status.model_id = resolve_model_id(get_agent_config(*agent_id).model);
+    }
 
     auto& mcp_mgr = mcp::mcp_manager::instance();
     status.mcp_servers = mcp_mgr.auto_connect_servers();

@@ -83,6 +83,12 @@ namespace mistral::agent
     // instructions in the system prompt.
     void refresh_mcp_tools();
 
+    // (Re-)apply the system prompt to the conversation, appending the MCP
+    // servers' instructions when any are registered. Used by
+    // refresh_mcp_tools() and after a mid-session model switch, since the
+    // prompt template can embed the model id.
+    void apply_system_prompt();
+
     // Helper methods
     std::optional<std::pair<std::string, std::vector<tools::file_edit_t>>> try_parse_and_store_patchset(
       const std::vector<api::message_content>& accumulated_content

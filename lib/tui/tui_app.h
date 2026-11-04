@@ -154,7 +154,8 @@ namespace mistral::tui
 
       footer_ = std::make_shared<FooterBar>();
       footer_->left_text = std::filesystem::current_path().string();
-      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model;
+      footer_model_ = cfg_.resolved_model;
+      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + footer_model_;
       footer_->right_text = "0 tokens";
       footer_->fg_color = Theme::current().panel_fg;
       footer_->bg_color = Theme::current().panel_bg;
@@ -261,7 +262,13 @@ namespace mistral::tui
     {
       input_->set_completion_context(status.completion);
 
-      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + cfg_.resolved_model;
+      // Follow mid-session /model switches (empty until the first
+      // snapshot that carries a model id).
+      if (!status.model_id.empty())
+      {
+        footer_model_ = status.model_id;
+      }
+      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + footer_model_;
       if (!status.mcp_servers.empty())
       {
         std::string names;
@@ -457,6 +464,10 @@ namespace mistral::tui
     }
 
     tui_config cfg_;
+
+    // Model id shown in the footer; updated from ui_status snapshots so
+    // it follows mid-session /model switches.
+    std::string footer_model_;
 
     cpptui::App app_;
     content_area content_area_;

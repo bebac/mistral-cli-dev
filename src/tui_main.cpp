@@ -159,9 +159,10 @@ int main(int argc, char* argv[])
   }
 
   const auto& agent_config = agent_system.get_agent_config(agent_id);
-  const auto& model_config = agent_system.get_model_config(agent_config.model);
+  // Fail fast when the agent's model entry is unknown.
+  (void)agent_system.get_model_config(agent_config.model);
 
-  std::string resolved_model = model_config.model_id;
+  std::string resolved_model = agent_system.resolve_model_id(agent_config.model);
 
   mistral::tui::tui_config tui_cfg = {
     .agent_id = agent_id,

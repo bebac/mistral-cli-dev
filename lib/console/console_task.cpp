@@ -187,6 +187,7 @@ namespace mistral::console
       auto context = state->completion_context_provider();
       catalog.context.mcp_servers = std::move(context.mcp_servers);
       catalog.context.agent_tools = std::move(context.agent_tools);
+      catalog.context.model_ids = std::move(context.model_ids);
     }
 
     auto completion = slash_command::complete_line(catalog, line.substr(1));

@@ -100,9 +100,20 @@ namespace mistral::agent
     tools_.set_strict_mode(schema_opts.strict_mode);
 
     // Surface the MCP servers' agent instructions to the model.
-    if (!mgr.instructions().empty())
+    apply_system_prompt();
+  }
+
+  void agent_task_base::apply_system_prompt()
+  {
+    std::string prompt = system_prompt_;
+    const auto& instructions = mcp::mcp_manager::instance().instructions();
+    if (!instructions.empty())
     {
-      chat_.set_system_message(system_prompt_ + "\n\n# MCP server instructions\n\n" + mgr.instructions());
+      prompt += "\n\n# MCP server instructions\n\n" + instructions;
+    }
+    if (!prompt.empty())
+    {
+      chat_.set_system_message(prompt);
     }
   }
 

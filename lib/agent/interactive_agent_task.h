@@ -8,6 +8,7 @@
 #include "agent/approval_prompt.h"
 #include "agent/compact_command.h"
 #include "agent/conversation.h"
+#include "agent/model_command.h"
 #include "agent/policy_engine.h"
 #include "agent/render_sink.h"
 #include "agent/tool_registry.h"
@@ -132,6 +133,13 @@ namespace mistral::agent
         if (input->starts_with(compact_request_prefix))
         {
           co_await run_compaction(input->substr(compact_request_prefix.size()));
+          continue;
+        }
+
+        // Model switch control message from the /model slash command.
+        if (input->starts_with(model_request_prefix))
+        {
+          switch_model(input->substr(model_request_prefix.size()));
           continue;
         }
 
@@ -516,6 +524,35 @@ namespace mistral::agent
       chat_.save(".mistral-cli", session_id_);
       sink_->output_status(std::format("Compacted: history is now {} message(s).", chat_.size()));
       co_return;
+    }
+
+    // Switch the active model id of this agent's model entry ([MODEL]
+    // control message from /model). The conversation history is kept;
+    // only subsequent requests use the new model. The system prompt is
+    // re-resolved because prompt templates can embed the model id.
+    void switch_model(const std::string& model_id)
+    {
+      auto& sys = agent_system::instance();
+      try
+      {
+        const auto& agent_cfg = sys.get_agent_config(agent_id_);
+        sys.set_active_model_id(agent_cfg.model, model_id);
+      }
+      catch (const std::exception& e)
+      {
+        sink_->output_error(std::format("Model switch failed: {}", e.what()));
+        return;
+      }
+
+      model_ = model_id;
+      system_prompt_ = sys.resolve_system_prompt(sys.get_agent_config(agent_id_), model_);
+      apply_system_prompt();
+
+      sink_->output_status(std::format("Model switched to {}.", model_id));
+
+      // Refresh the footer: publish_ui_status() reads the selection set
+      // above, so the snapshot carries the new model id.
+      sys.publish_ui_status();
     }
 
     // Load the most recent chat (.mistral-cli/chats/chat.latest.json) into

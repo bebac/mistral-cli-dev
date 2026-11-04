@@ -61,12 +61,13 @@ namespace mistral::tui
       catalog_ = std::move(catalog);
     }
 
-    // Dynamic completion data (MCP servers, agent tools), refreshed by the
-    // app when the agent's tool catalog changes.
+    // Dynamic completion data (MCP servers, agent tools, model ids),
+    // refreshed by the app when the agent's tool catalog changes.
     void set_completion_context(mistral::slash_command::completion_context context)
     {
       catalog_.context.mcp_servers = std::move(context.mcp_servers);
       catalog_.context.agent_tools = std::move(context.agent_tools);
+      catalog_.context.model_ids = std::move(context.model_ids);
     }
     bool slash_mode_active() const
     {
@@ -183,7 +184,10 @@ namespace mistral::tui
         {
           // Execute-on-complete: Enter runs the line as typed when it is
           // complete, and otherwise accepts the highlighted candidate.
-          if (line_complete_)
+          // An argument that prefers a candidate (arg_spec::prefer_candidate)
+          // takes the highlighted one even though the line is complete, so
+          // "/model " + Enter switches instead of running the bare command.
+          if (line_complete_ && !prefer_candidate_)
           {
             submit_slash_command();
             return true;
@@ -313,6 +317,7 @@ namespace mistral::tui
       mistral::slash_command::completion_state state =
         mistral::slash_command::complete_line(catalog_, text.substr(1));
       line_complete_ = state.complete;
+      prefer_candidate_ = state.prefer_candidate;
 
       if (state.items.empty())
       {
@@ -390,6 +395,9 @@ namespace mistral::tui
 
     bool slash_mode_active_ = false;
     bool line_complete_ = false;
+    // The token being typed is an argument that prefers a candidate over
+    // running the line as typed (see arg_spec::prefer_candidate).
+    bool prefer_candidate_ = false;
     SlashCommandPopup* popup_ = nullptr;
     Divider* slash_divider_ = nullptr;
     mistral::slash_command::command_catalog catalog_;

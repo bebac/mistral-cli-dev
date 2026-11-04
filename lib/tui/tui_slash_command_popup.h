@@ -14,7 +14,8 @@ namespace mistral::tui
 
   // ---------------------------------------------------------------------------
   // SlashCommandPopup: bordered popup showing completion candidates.
-  // Renders a 2-column table: <prefix><text> | description.
+  // Renders a 2-column table: <prefix><text> | description. The text
+  // column adapts to the longest candidate, so long ids are not cut.
   // Selected row highlighted with Theme::selection background.
   //
   // The popup is a dumb list: the caller supplies the already filtered
@@ -26,7 +27,12 @@ namespace mistral::tui
   {
   public:
     static constexpr int max_visible = 8;
+
+    // Minimum width of the text column; it grows to fit the longest
+    // candidate (e.g. long model ids) up to the available space.
     static constexpr int col1_width = 20;
+    // Width kept for the description column when any candidate has one.
+    static constexpr int min_desc_width = 24;
 
     SlashCommandPopup()
     {
@@ -93,6 +99,29 @@ namespace mistral::tui
 
       int inner_w = w - 2;
       int inner_h = h - 2;
+
+      // Column 1 adapts to the longest candidate so long ids (e.g. model
+      // ids) render in full. When any candidate carries a description, a
+      // readable description column is kept; without descriptions column
+      // 1 may use the whole popup.
+      int col1_w = col1_width;
+      {
+        int needed = 0;
+        bool has_desc = false;
+        for (const auto& item : items_)
+        {
+          const auto chars = TextHelper::prepare_text_for_render(display_prefix_ + item.text);
+          int item_w = 0;
+          for (const auto& ci : chars)
+          {
+            item_w += ci.display_width;
+          }
+          needed = std::max(needed, item_w);
+          has_desc = has_desc || !item.description.empty();
+        }
+        const int max_col1 = has_desc ? std::max(col1_width, inner_w - min_desc_width) : inner_w;
+        col1_w = std::clamp(needed, std::min(col1_width, inner_w), std::max(1, max_col1));
+      }
 
       // Top border
       {
@@ -197,20 +226,29 @@ namespace mistral::tui
           buffer.set(x + i, abs_y, c);
         }
 
-        // Column 1: <prefix><text>
+        // Column 1: <prefix><text>, truncated with … when it does not fit.
         std::string col1 = display_prefix_ + items_[item_idx].text;
         auto chars1 = TextHelper::prepare_text_for_render(col1);
+        int total1 = 0;
+        for (const auto& ci : chars1)
+        {
+          total1 += ci.display_width;
+        }
+        const int avail1 = std::min(col1_w, w - 2);
+        const bool truncated1 = total1 > avail1;
+        const int draw_limit = truncated1 ? avail1 - 1 : avail1; // reserve a cell for …
+
         int dx = 0;
         for (const auto& ci : chars1)
         {
-          if (1 + dx >= w - 1 || dx >= col1_width)
+          if (dx >= draw_limit)
             break;
           Cell c;
           c.content = ci.content;
           c.fg_color = fg;
           c.bg_color = bg;
           buffer.set(x + 1 + dx, abs_y, c);
-          if (ci.display_width == 2 && 1 + dx + 1 < w - 1 && dx + 1 < col1_width)
+          if (ci.display_width == 2 && 1 + dx + 1 < w - 1 && dx + 1 < draw_limit)
           {
             Cell skip;
             skip.content = "";
@@ -219,11 +257,20 @@ namespace mistral::tui
           }
           dx += ci.display_width;
         }
+        if (truncated1 && avail1 > 0)
+        {
+          // Never let the ellipsis cross into the description column.
+          Cell c;
+          c.content = "\xe2\x80\xa6"; // …
+          c.fg_color = fg;
+          c.bg_color = bg;
+          buffer.set(x + 1 + std::min(dx, avail1 - 1), abs_y, c);
+        }
 
         // Column 2: description
         const std::string& desc = items_[item_idx].description;
-        int col2_start = 1 + col1_width;
-        int col2_width = inner_w - col1_width;
+        int col2_start = 1 + col1_w;
+        int col2_width = inner_w - col1_w;
         if (col2_width > 0 && !desc.empty())
         {
           auto chars2 = TextHelper::prepare_text_for_render(desc);

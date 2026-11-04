@@ -1,6 +1,7 @@
 #include "agent/agent_config.h"
 #include "agent/agent_system.h"
 #include "agent/interactive_agent_task.h"
+#include "agent/model_command.h"
 #include "agent/tool_registry.h"
 #include "tui/tui_bridge_tasks.h"
 #include "tools/exec_tools.h"
@@ -122,7 +123,7 @@ TEST_CASE("model_config: default values")
 {
   mistral::agent::model_config cfg;
   CHECK(cfg.provider.empty());
-  CHECK(cfg.model_id.empty());
+  CHECK(cfg.model_ids.empty());
   CHECK(cfg.api_key_env.empty());
   CHECK(cfg.base_url.empty());
   CHECK(cfg.api_version == "v1");
@@ -177,7 +178,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
   CHECK(system.has_model_config("mistral-medium"));
   const auto& model = system.get_model_config("mistral-medium");
   CHECK(model.provider == "mistral");
-  CHECK(model.model_id == "mistral-medium-latest");
+  CHECK(model.model_ids.size() == 1);
+  CHECK(model.model_ids.front() == "mistral-medium-latest");
   CHECK(model.api_key_env == "MISTRAL_API_KEY");
   CHECK(model.base_url == "https://api.mistral.ai");
   CHECK(model.api_version == "v1");
@@ -194,6 +196,74 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
 
   // Check default policy
   CHECK(system.get_config().default_policy == "deny");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: model_id array")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-glm",
+       {{"provider", "mistral"},
+        {"model_id", {"zai-glm-5-3", "zai-glm-5-3-flash", "deepseek-v4-1-flash-1017"}},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"},
+        {"api_version", "v1"}}}}},
+    {"agents", {{"main", {{"model", "mistral-glm"}, {"tool_policy", "deny"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  const auto& model = system.get_model_config("mistral-glm");
+  REQUIRE(model.model_ids.size() == 3);
+  CHECK(model.model_ids[0] == "zai-glm-5-3");
+  CHECK(model.model_ids[1] == "zai-glm-5-3-flash");
+  CHECK(model.model_ids[2] == "deepseek-v4-1-flash-1017");
+
+  // The active selection defaults to the first id.
+  CHECK(system.resolve_model_id("mistral-glm") == "zai-glm-5-3");
+  CHECK(system.model_ids_for("mistral-glm").size() == 3);
+  CHECK(system.model_ids_for("unknown-entry").empty());
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "model selection: switch and validation")
+{
+  create_config_file(create_standard_config("mistral-medium", "mistral-medium-latest"));
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  // Extend the entry with a second selectable id.
+  {
+    nlohmann::json config = {
+      {"models",
+       {{"mistral-medium",
+         {{"provider", "mistral"},
+          {"model_id", {"mistral-medium-latest", "mistral-small-latest"}},
+          {"api_key_env", "MISTRAL_API_KEY"},
+          {"base_url", "https://api.mistral.ai"},
+          {"api_version", "v1"}}}}},
+      {"agents", {{"main", {{"model", "mistral-medium"}, {"tool_policy", "deny"}}}}},
+      {"policy", {{"default", "deny"}}}
+    };
+    create_config_file(config);
+    system.initialize(config_file, base_dir, notes_dir);
+  }
+
+  // Defaults to the first id.
+  CHECK(system.resolve_model_id("mistral-medium") == "mistral-medium-latest");
+
+  // Switching to a listed id updates the active selection.
+  system.set_active_model_id("mistral-medium", "mistral-small-latest");
+  CHECK(system.resolve_model_id("mistral-medium") == "mistral-small-latest");
+
+  // Switching to an unlisted id or an unknown entry throws and leaves
+  // the selection unchanged.
+  CHECK_THROWS_AS(system.set_active_model_id("mistral-medium", "not-offered"), std::runtime_error);
+  CHECK_THROWS_AS(system.set_active_model_id("unknown-entry", "mistral-small-latest"), std::runtime_error);
+  CHECK(system.resolve_model_id("mistral-medium") == "mistral-small-latest");
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: missing file throws")
@@ -1319,6 +1389,125 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command execute
   CHECK(result.find("mistral-medium-latest") != std::string::npos);
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command lists the entry's ids")
+{
+  auto config = create_standard_config();
+  config["models"]["mistral-medium"]["model_id"] = {"mistral-medium-latest", "mistral-small-latest"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
+  auto registry = system.slash_commands();
+  const auto* model_cmd = registry->get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "", system, result
+  );
+  sched.run();
+
+  // Every selectable id is listed; the active one is marked.
+  CHECK(result.find("mistral-medium-latest") != std::string::npos);
+  CHECK(result.find("mistral-small-latest") != std::string::npos);
+  CHECK(result.find("  * mistral-medium-latest") != std::string::npos);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command routes the switch to the agent task")
+{
+  auto config = create_standard_config();
+  config["models"]["mistral-medium"]["model_id"] = {"mistral-medium-latest", "mistral-small-latest"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
+  // The interactive task's input channel. The command must not switch the
+  // model itself: it forwards the request to the task that owns the
+  // conversation, exactly like /compact.
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  system.set_current_input_ch(input_ch);
+
+  auto registry = system.slash_commands();
+  const auto* model_cmd = registry->get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "mistral-small-latest", system, result
+  );
+  sched.run();
+
+  CHECK(result.find("Switching model to mistral-small-latest") != std::string::npos);
+
+  auto msg = input_ch->try_recv();
+  REQUIRE(msg.has_value());
+  CHECK(*msg == std::string(mistral::agent::model_request_prefix) + "mistral-small-latest");
+
+  // The selection changes when the task applies the message, not here.
+  CHECK(system.resolve_model_id("mistral-medium") == "mistral-medium-latest");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command rejects an id the entry does not offer")
+{
+  auto config = create_standard_config();
+  config["models"]["mistral-medium"]["model_id"] = {"mistral-medium-latest", "mistral-small-latest"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  system.set_current_input_ch(input_ch);
+
+  auto registry = system.slash_commands();
+  const auto* model_cmd = registry->get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "not-offered", system, result
+  );
+  sched.run();
+
+  CHECK(result.find("is not offered by model entry 'mistral-medium'") != std::string::npos);
+  CHECK(result.find("mistral-small-latest") != std::string::npos); // lists what is available
+  CHECK(!input_ch->try_recv().has_value());                        // nothing was routed
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "completion context: the active model id is marked")
+{
+  auto config = create_standard_config();
+  config["models"]["mistral-medium"]["model_id"] = {"mistral-medium-latest", "mistral-small-latest"};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("main");
+
+  auto context = system.build_completion_context();
+  REQUIRE(context.model_ids.size() == 2);
+  CHECK(context.model_ids[0].text == "mistral-medium-latest");
+  CHECK(context.model_ids[0].description == "active");
+  CHECK(context.model_ids[1].text == "mistral-small-latest");
+  CHECK(context.model_ids[1].description.empty());
+
+  // The marker follows a switch, so the popup answers "which model am I
+  // on" without running the command.
+  system.set_active_model_id("mistral-medium", "mistral-small-latest");
+  context = system.build_completion_context();
+  REQUIRE(context.model_ids.size() == 2);
+  CHECK(context.model_ids[0].description.empty());
+  CHECK(context.model_ids[1].description == "active");
+}
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command lists the agent's tools")
 {
   auto config = create_standard_config();
@@ -1686,6 +1875,74 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "exec: ESC cancels the running command
   CHECK(parsed["cancelled"].get<bool>() == true);
   CHECK(parsed["stdout"].get<std::string>().find("partial") != std::string::npos);
   CHECK(sink->streamed.find("partial") != std::string::npos);
+}
+
+TEST_SUITE_END;
+
+TEST_SUITE_BEGIN("agent_system::model_switch");
+
+namespace
+{
+  // Two selectable ids on one model entry, so a switch has somewhere to go.
+  nlohmann::json two_id_config()
+  {
+    return {
+      {"models",
+       {{"mistral-glm",
+         {{"provider", "mistral"},
+          {"model_id", {"zai-glm-5-3-flash", "deepseek-v4-1-flash-1017"}},
+          {"api_key_env", "MISTRAL_API_KEY"},
+          {"base_url", "https://api.mistral.ai"},
+          {"api_version", "v1"}}}}},
+      {"agents", {{"main", {{"model", "mistral-glm"}, {"tool_policy", "deny"}}}}},
+      {"policy", {{"default", "deny"}}}
+    };
+  }
+} // namespace
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "model switch: the [MODEL] control message switches the running task")
+{
+  create_config_file(two_id_config());
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  REQUIRE(system.resolve_model_id("mistral-glm") == "zai-glm-5-3-flash");
+
+  // Queue the control message the /model command sends, then close the
+  // channel so the task exits after handling it.
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(2);
+  REQUIRE(input_ch->try_send(std::string(mistral::agent::model_request_prefix) + "deepseek-v4-1-flash-1017"));
+  input_ch->close();
+
+  auto sink = std::make_shared<recording_sink>();
+
+  dripcore::scheduler sched;
+  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, nullptr, nullptr, sink);
+  sched.run();
+
+  // The task recorded the switch in the agent system, so tasks created
+  // afterwards (subagents, a resumed session) use the new id.
+  CHECK(system.resolve_model_id("mistral-glm") == "deepseek-v4-1-flash-1017");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "model switch: an unknown id is reported and leaves the selection alone")
+{
+  create_config_file(two_id_config());
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(2);
+  REQUIRE(input_ch->try_send(std::string(mistral::agent::model_request_prefix) + "not-offered"));
+  input_ch->close();
+
+  auto sink = std::make_shared<recording_sink>();
+
+  dripcore::scheduler sched;
+  sched.spawn<mistral::agent::interactive_agent_task>("main", input_ch, nullptr, nullptr, sink);
+  sched.run();
+
+  CHECK(system.resolve_model_id("mistral-glm") == "zai-glm-5-3-flash");
 }
 
 TEST_SUITE_END;

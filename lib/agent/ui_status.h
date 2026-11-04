@@ -34,6 +34,10 @@ namespace mistral::agent
     /// Cumulative token count; empty until the first API response.
     std::optional<int> total_tokens;
 
+    /// Resolved model id of the current agent; empty when unknown. Lets
+    /// the frontend footer follow mid-session /model switches.
+    std::string model_id;
+
     /// Dynamic slash command completion candidates (MCP servers and the
     /// current agent's tools).
     slash_command::completion_context completion;

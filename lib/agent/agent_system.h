@@ -118,6 +118,17 @@ namespace mistral::agent
     api::sampling_params resolve_sampling_params(const agent_config& agent_cfg) const;
     std::string resolve_model_id(const std::string& model_name) const;
 
+    // Selectable model ids of a model entry (empty when the entry is
+    // unknown). The first id is the default; the active one is tracked
+    // per entry and returned by resolve_model_id().
+    std::vector<std::string> model_ids_for(const std::string& model_name) const;
+
+    // Switch the active model id of a model entry. Throws when the entry
+    // is unknown or the id is not one of the entry's model_ids. Running
+    // agent tasks learn about the switch through the [MODEL] control
+    // message (see model_command.h), not through this call.
+    void set_active_model_id(const std::string& model_name, const std::string& model_id);
+
     // Resolve the distinct transport endpoints needed by the configured
     // agents: each agent's model contributes its base_url (host, port)
     // and api_key_env; duplicates are merged. Models no agent references
@@ -391,6 +402,11 @@ namespace mistral::agent
     // Current interactive agent id
     mutable std::mutex current_agent_id_mtx_;
     std::optional<std::string> current_agent_id_;
+
+    // Active model id per model entry (see resolve_model_id()). Entries
+    // without an explicit selection use model_ids[0].
+    mutable std::mutex active_model_ids_mtx_;
+    std::map<std::string, std::string> active_model_ids_;
 
     // Tool catalog snapshot (see tool_catalog)
     mutable std::mutex tool_catalog_mtx_;

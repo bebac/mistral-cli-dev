@@ -178,6 +178,44 @@ namespace
     }
   };
 
+  // Test command mirroring /model: one optional argument whose candidates
+  // are the point of the command.
+  class prefer_command : public mistral::slash_command::slash_command
+  {
+  public:
+    std::string name() const override
+    {
+      return "model";
+    }
+    std::string description() const override
+    {
+      return "Show or switch the active model";
+    }
+
+    mistral::slash_command::command_spec spec() const override
+    {
+      using namespace mistral::slash_command;
+
+      arg_spec model_id;
+      model_id.name = "model_id";
+      model_id.source = candidate_source::literal;
+      model_id.literals = {{"zai-glm-5-3-flash", ""}, {"deepseek-v4-1-flash-1017", ""}};
+      model_id.prefer_candidate = true;
+
+      command_spec out;
+      out.name = name();
+      out.summary = description();
+      out.args.push_back(std::move(model_id));
+      return out;
+    }
+
+    dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, mistral::agent::agent_system&)
+      override
+    {
+      co_return "";
+    }
+  };
+
   // Type `text` into the input one key event at a time.
   void type_text(ChatInput& input, const std::string& text)
   {
@@ -976,6 +1014,163 @@ TEST_CASE("SlashCommand: execute-on-complete runs a runnable command")
   REQUIRE(last_cmd == "mcp");
   REQUIRE(last_args == "");
   REQUIRE(input->get_text().empty());
+}
+
+// ---------------------------------------------------------------------------
+// Prefer-candidate arguments: "/model " + Enter takes the highlighted id
+// instead of running the bare command, the way "/mcp connect <server>" does.
+// ---------------------------------------------------------------------------
+TEST_CASE("SlashCommand: Enter takes the highlighted candidate for a prefer-candidate argument")
+{
+  auto registry = std::make_shared<mistral::slash_command::slash_command_registry>();
+  registry->register_command(std::make_unique<prefer_command>());
+
+  auto popup = std::make_shared<SlashCommandPopup>();
+  popup->visible = false;
+  auto divider = std::make_shared<Divider>();
+  divider->visible = false;
+
+  auto input = std::make_shared<ChatInput>();
+  input->show_line_numbers = false;
+  input->word_wrap = true;
+  input->show_scrollbar = false;
+  input->accepts_tab = false;
+  input->fixed_height = 5;
+  input->width = 78;
+  input->height = 5;
+  input->set_slash_popup(popup.get());
+  input->set_slash_divider(divider.get());
+  input->set_command_catalog(registry->build_catalog());
+  input->is_agent_busy = []() { return false; };
+
+  std::string last_cmd, last_args;
+  input->on_slash_command = [&](std::string cmd, std::string args) {
+    last_cmd = cmd;
+    last_args = args;
+  };
+
+  input->set_focus(true);
+
+  // "/model " offers the ids and leaves slash mode active.
+  type_text(*input, "/model ");
+  REQUIRE(input->slash_mode_active());
+  REQUIRE(popup->count() == 2);
+  REQUIRE(popup->selected_text() == "zai-glm-5-3-flash");
+
+  // Enter takes the highlighted id, which completes the line and runs it.
+  cpptui::Event enter_event;
+  enter_event.type = cpptui::EventType::Key;
+  enter_event.key = 10; // Enter
+  input->on_event(enter_event);
+
+  REQUIRE(!input->slash_mode_active());
+  REQUIRE(input->get_text().empty());
+  REQUIRE(last_cmd == "model");
+  REQUIRE(last_args == "zai-glm-5-3-flash");
+}
+
+TEST_CASE("SlashCommand: Enter still runs a complete line whose argument does not prefer a candidate")
+{
+  auto registry = std::make_shared<mistral::slash_command::slash_command_registry>();
+  registry->register_command(std::make_unique<spec_command>());
+
+  auto popup = std::make_shared<SlashCommandPopup>();
+  popup->visible = false;
+  auto divider = std::make_shared<Divider>();
+  divider->visible = false;
+
+  auto input = std::make_shared<ChatInput>();
+  input->show_line_numbers = false;
+  input->word_wrap = true;
+  input->show_scrollbar = false;
+  input->accepts_tab = false;
+  input->fixed_height = 5;
+  input->width = 78;
+  input->height = 5;
+  input->set_slash_popup(popup.get());
+  input->set_slash_divider(divider.get());
+  input->set_command_catalog(registry->build_catalog());
+  input->is_agent_busy = []() { return false; };
+
+  std::string last_cmd, last_args;
+  input->on_slash_command = [&](std::string cmd, std::string args) {
+    last_cmd = cmd;
+    last_args = args;
+  };
+
+  input->set_focus(true);
+
+  // "/mcp connect " runs as typed: the optional server is not inserted.
+  type_text(*input, "/mcp connect ");
+  REQUIRE(popup->count() == 2);
+
+  cpptui::Event enter_event;
+  enter_event.type = cpptui::EventType::Key;
+  enter_event.key = 10; // Enter
+  input->on_event(enter_event);
+
+  REQUIRE(last_cmd == "mcp");
+  REQUIRE(last_args == "connect");
+}
+
+// ---------------------------------------------------------------------------
+// Rendering: the text column adapts to the longest candidate, so long model
+// ids are shown in full instead of being cut at a fixed width.
+// ---------------------------------------------------------------------------
+namespace
+{
+  // Text rendered on one popup row, between the side borders.
+  std::string popup_row_text(const SlashCommandPopup& popup, const cpptui::Buffer& buffer, int row)
+  {
+    std::string out;
+    for (int x = 1; x < popup.width - 1; ++x)
+    {
+      out += buffer.get(x, row).content;
+    }
+    return out;
+  }
+} // namespace
+
+TEST_CASE("SlashCommandPopup: a long candidate renders in full")
+{
+  SlashCommandPopup popup;
+  popup.set_items({{"deepseek-v4-1-flash-1017", ""}, {"zai-glm-5-3-flash", ""}});
+  popup.x = 0;
+  popup.y = 0;
+  popup.width = 80;
+  popup.height = popup.popup_height();
+
+  cpptui::Buffer buffer(popup.width, popup.height);
+  popup.render(buffer);
+
+  // Row 0 is the top border, so the first candidate is on row 1.
+  const std::string first = popup_row_text(popup, buffer, 1);
+  CHECK(first.find("deepseek-v4-1-flash-1017") != std::string::npos);
+  CHECK(first.find("\xe2\x80\xa6") == std::string::npos); // no ellipsis
+
+  const std::string second = popup_row_text(popup, buffer, 2);
+  CHECK(second.find("zai-glm-5-3-flash") != std::string::npos);
+}
+
+TEST_CASE("SlashCommandPopup: a candidate wider than the popup is truncated with an ellipsis")
+{
+  const std::string long_id(70, 'x');
+
+  SlashCommandPopup popup;
+  popup.set_items({{long_id, "description"}, {long_id, ""}});
+  popup.x = 0;
+  popup.y = 0;
+  popup.width = 80;
+  popup.height = popup.popup_height();
+
+  cpptui::Buffer buffer(popup.width, popup.height);
+  popup.render(buffer);
+
+  // A description keeps the text column narrower, so the id is cut and
+  // marked with an ellipsis rather than silently dropped.
+  const std::string first = popup_row_text(popup, buffer, 1);
+  CHECK(first.find("\xe2\x80\xa6") != std::string::npos);
+  CHECK(first.find(long_id) == std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

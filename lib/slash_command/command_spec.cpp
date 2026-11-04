@@ -121,6 +121,8 @@ namespace mistral::slash_command
         return context.mcp_servers;
       case candidate_source::agent_tools:
         return context.agent_tools;
+      case candidate_source::model_ids:
+        return context.model_ids;
       case candidate_source::none:
         break;
       }
@@ -291,13 +293,21 @@ namespace mistral::slash_command
 
     if (arg_index < walk.node->args.size())
     {
-      for (const auto& item : source_items(walk.node->args[arg_index], context))
+      const arg_spec& arg = walk.node->args[arg_index];
+      size_t arg_items = 0;
+      for (const auto& item : source_items(arg, context))
       {
         if (starts_with(item.text, current))
         {
           out.items.push_back(item);
+          ++arg_items;
         }
       }
+
+      // Candidates are the point of this argument: with an empty token,
+      // Enter takes the highlighted one instead of running the line
+      // without it.
+      out.prefer_candidate = arg.prefer_candidate && current.empty() && arg_items > 0;
     }
 
     // Required arguments after the one being typed are unsatisfied. A

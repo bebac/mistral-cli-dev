@@ -240,9 +240,10 @@ int main(int argc, char* argv[])
     return 1;
   }
 
-  // Get agent configuration
+  // Get agent configuration. get_model_config() fails fast when the
+  // agent's model entry is unknown.
   const auto& agent_config = agent_system.get_agent_config(agent_id);
-  const auto& model_config = agent_system.get_model_config(agent_config.model);
+  (void)agent_system.get_model_config(agent_config.model);
 
   // Validate the tool policy early. A broken policy.json (e.g. invalid
   // JSON) would otherwise throw from the agent task constructor inside
@@ -259,7 +260,7 @@ int main(int argc, char* argv[])
   }
 
   // Resolve model ID and system prompt
-  std::string resolved_model = model_config.model_id;
+  std::string resolved_model = agent_system.resolve_model_id(agent_config.model);
   std::string resolved_system_prompt = agent_system.resolve_system_prompt(agent_config, resolved_model);
 
   // Show system prompt and exit if requested

@@ -29,6 +29,7 @@ namespace mistral::slash_command
     command_names, ///< Every slash command name.
     mcp_servers,   ///< Configured MCP servers.
     agent_tools,   ///< Tools available to the current agent.
+    model_ids,     ///< Model ids offered by the current agent's model entry.
   };
 
   /**
@@ -42,6 +43,16 @@ namespace mistral::slash_command
     bool variadic = false;   ///< Consumes the remaining tokens.
     candidate_source source = candidate_source::none;
     std::vector<completion_item> literals; ///< Used when source == literal.
+
+    /// Prefer a candidate over running the line as typed: with an empty
+    /// token and candidates available, Enter accepts the highlighted
+    /// candidate instead of running the command without the argument.
+    ///
+    /// For arguments whose candidates are the point of the command (e.g.
+    /// /model), where running without one is a fallback rather than the
+    /// common case. Optional arguments leave this off, so /mcp connect
+    /// still runs (connecting every server) when no server is typed.
+    bool prefer_candidate = false;
   };
 
   /**
@@ -67,6 +78,12 @@ namespace mistral::slash_command
     std::vector<completion_item> items; ///< Candidates for the token being typed.
     bool complete = false;              ///< The line can be executed as typed.
     bool command_names = false;         ///< Items are command names (display with '/').
+
+    /// The token being typed is an argument that prefers a candidate over
+    /// running the line as typed (see arg_spec::prefer_candidate). Only set
+    /// for an empty token, so completing the command name still runs the
+    /// command: "/model" runs, "/model " takes the highlighted id.
+    bool prefer_candidate = false;
   };
 
   /**
@@ -80,6 +97,7 @@ namespace mistral::slash_command
     std::vector<completion_item> command_names;
     std::vector<completion_item> mcp_servers;
     std::vector<completion_item> agent_tools;
+    std::vector<completion_item> model_ids;
   };
 
   /**

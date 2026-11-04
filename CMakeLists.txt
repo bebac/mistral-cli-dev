@@ -176,6 +176,7 @@ set(MISTRAL_CORE_SOURCES
     lib/agent/tool_command.cpp
     lib/agent/compact_command.cpp
     lib/agent/mcp_command.cpp
+    lib/agent/model_command.cpp
     lib/tools/patchset_tools.cpp
     lib/common/string_utils.cpp
     lib/common/executable_finder.cpp

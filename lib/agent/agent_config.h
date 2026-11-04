@@ -20,8 +20,15 @@ namespace mistral::agent
   // Represents a model configuration for a specific provider.
   struct model_config
   {
-    std::string provider;           // "mistral", "openai", etc.
-    std::string model_id;           // Provider-specific model identifier
+    std::string provider; // "mistral", "openai", etc.
+
+    // Provider-specific model identifiers. mistral-cli.json accepts a
+    // single string or an array: an array makes every id selectable
+    // mid-session via /model, so one agent entry can serve several models
+    // of the same provider without duplicating the agent. The first id is
+    // the default; agent_system tracks the active selection.
+    std::vector<std::string> model_ids;
+
     std::string api_key_env;        // Environment variable for API key
     std::string base_url;           // API base URL
     std::string api_version = "v1"; // API version
