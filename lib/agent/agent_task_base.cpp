@@ -18,7 +18,7 @@ namespace mistral::agent
     std::shared_ptr<dripcore::channel<prompt_message>> prompt_ch
   )
     : agent_id_(agent_id), input_ch_(std::move(input_ch)), output_ch_(std::move(output_ch)),
-      prompt_ch_(std::move(prompt_ch)), chat_(500), session_id_(mistral::utils::generate_session_id())
+      prompt_ch_(std::move(prompt_ch)), chat_(1000), session_id_(mistral::utils::generate_session_id())
   {
     // Load configuration from agent_system
     const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
