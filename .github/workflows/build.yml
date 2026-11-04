@@ -70,9 +70,13 @@ jobs:
         run: |
           cmake -S . -B build
 
+      # A bare --parallel forwards `-j` with no value, which GNU make reads as
+      # *unlimited* jobs. On a 3-4 core runner that oversubscribes badly and
+      # spends more time in the kernel than in the compiler.
       - name: build_project
         run: |
-          cmake --build build --parallel
+          JOBS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+          cmake --build build --parallel "$JOBS"
 
       # Run the test binary directly: on a fresh configure BUILD_TESTING
       # ends up OFF (dripcore's option() runs before include(CTest)), so
