@@ -358,14 +358,16 @@ namespace mistral::tools
         markers = collect_marker_positions(input);
       }
       size_t code_block_end = find_closing_fence(input, code_block_start, *markers);
-      // Rare fallback: markerless new-file creation block.
+      // Rare fallback: markerless block (no REPLACE markers to close it).
       if (code_block_end == std::string_view::npos) [[unlikely]]
       {
-        // find_closing_fence requires >>>>>>> REPLACE markers.
-        // If it failed, try a fallback for markerless new file creation:
-        // use the next ~~~ at line start as the closing fence, but only
-        // if the file does not already exist (markers are required for
-        // editing existing files).
+        // find_closing_fence requires >>>>>>> REPLACE markers. If it
+        // failed, use the next ~~~ at line start as the closing fence
+        // and interpret the block without markers:
+        //  - file does not exist: new-file creation, the whole block
+        //    is the content;
+        //  - file exists and the block contains a ======= separator
+        //    line: a separator-only edit, split at the separator.
         size_t fb_close = input.find(CODE_FENCE, code_block_start + CODE_FENCE.length());
         while (fb_close != std::string_view::npos)
         {
@@ -395,15 +397,39 @@ namespace mistral::tools
             fb_content = fb_content.substr(0, fb_content.length() - 1);
           }
 
-          // Only accept markerless blocks for new files that don't exist
-          if (find_marker(fb_content, SEARCH_MARKER) == std::string_view::npos && !std::filesystem::exists(std::string(file_path)))
+          const bool has_search_marker = find_marker(fb_content, SEARCH_MARKER) != std::string_view::npos;
+          const bool file_exists = std::filesystem::exists(std::string(file_path));
+
+          if (!has_search_marker && !file_exists)
           {
+            // Markerless new-file creation: the whole block is the content.
             file_edit_t edit;
             edit.file_path = std::string(file_path);
             edit.search_text = "";
             edit.replace_text = std::string(fb_content);
             edit.patch_number = edits.size() + 1;
             edits.push_back(edit);
+          }
+          else if (!has_search_marker && file_exists && find_marker(fb_content, REPLACE_MARKER) == std::string_view::npos)
+          {
+            // Separator-only edit: the block kept its ======= separator
+            // but omitted the <<<<<<< SEARCH / >>>>>>> REPLACE markers.
+            // Split at the first separator at line start — the same rule
+            // parse_edit_block applies between the markers — and let the
+            // validator check the search text against the file. A block
+            // that still contains a full-format marker is malformed, not
+            // markerless, and is left dropped.
+            const size_t separator_pos = find_marker(fb_content, SEPARATOR_MARKER);
+            if (separator_pos != std::string_view::npos)
+            {
+              file_edit_t edit;
+              edit.file_path = std::string(file_path);
+              edit.search_text = extract_between_markers(0, separator_pos, fb_content);
+              edit.replace_text =
+                extract_between_markers(separator_pos + SEPARATOR_MARKER.length(), fb_content.length(), fb_content);
+              edit.patch_number = edits.size() + 1;
+              edits.push_back(edit);
+            }
           }
 
           pos = fb_close + CODE_FENCE.length();

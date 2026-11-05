@@ -415,6 +415,176 @@ namespace mistral::tools
       std::filesystem::remove("markerless_existing_test.tmp");
     }
 
+    TEST_CASE("parse_edits_with_patchset - separator-only edit for existing file")
+    {
+      // The agent kept the ======= separator and the ~~~ fences but omitted
+      // the <<<<<<< SEARCH / >>>>>>> REPLACE markers. The fallback splits the
+      // block at the separator; validation still checks the search text
+      // against the file.
+      std::string input =
+        "Here are the changes (patchset: separator-only-edit):\n"
+        "\n"
+        "separator_only_edit_test.tmp\n"
+        "~~~cpp\n"
+        "old line\n"
+        "=======\n"
+        "new line\n"
+        "~~~";
+
+      {
+        std::ofstream out("separator_only_edit_test.tmp");
+        out << "old line\n";
+      }
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "separator-only-edit");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "separator_only_edit_test.tmp");
+      CHECK(result->second[0].search_text == "old line");
+      CHECK(result->second[0].replace_text == "new line");
+      CHECK(result->second[0].patch_number == 1);
+
+      // Clean up
+      std::filesystem::remove("separator_only_edit_test.tmp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - separator-only block for a new file stays a creation")
+    {
+      // Precedence: the create gate (file does not exist) wins over the
+      // separator. The whole block becomes the new file's content, exactly
+      // as for any other markerless block.
+      std::string input =
+        "Here are the changes (patchset: separator-only-create):\n"
+        "\n"
+        "separator_only_create_test.tmp\n"
+        "~~~cpp\n"
+        "old line\n"
+        "=======\n"
+        "new line\n"
+        "~~~";
+
+      std::filesystem::remove("separator_only_create_test.tmp");
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "separator-only-create");
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].file_path == "separator_only_create_test.tmp");
+      CHECK(result->second[0].search_text == "");
+      CHECK(result->second[0].replace_text == "old line\n=======\nnew line");
+
+      // Clean up
+      std::filesystem::remove("separator_only_create_test.tmp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - multiple separator-only blocks parse independently")
+    {
+      // The field scenario: a long patchset where every block omits the
+      // SEARCH/REPLACE markers but keeps ======= and the fences.
+      std::string input =
+        "Here are the changes (patchset: separator-only-multi):\n"
+        "\n"
+        "separator_multi_a_test.tmp\n"
+        "~~~cpp\n"
+        "old a\n"
+        "=======\n"
+        "new a\n"
+        "~~~\n"
+        "\n"
+        "separator_multi_b_test.tmp\n"
+        "~~~cpp\n"
+        "old b\n"
+        "=======\n"
+        "new b\n"
+        "~~~";
+
+      {
+        std::ofstream out_a("separator_multi_a_test.tmp");
+        out_a << "old a\n";
+        std::ofstream out_b("separator_multi_b_test.tmp");
+        out_b << "old b\n";
+      }
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "separator-only-multi");
+      REQUIRE(result->second.size() == 2);
+      CHECK(result->second[0].file_path == "separator_multi_a_test.tmp");
+      CHECK(result->second[0].search_text == "old a");
+      CHECK(result->second[0].replace_text == "new a");
+      CHECK(result->second[0].patch_number == 1);
+      CHECK(result->second[1].file_path == "separator_multi_b_test.tmp");
+      CHECK(result->second[1].search_text == "old b");
+      CHECK(result->second[1].replace_text == "new b");
+      CHECK(result->second[1].patch_number == 2);
+
+      // Clean up
+      std::filesystem::remove("separator_multi_a_test.tmp");
+      std::filesystem::remove("separator_multi_b_test.tmp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - separator-only block with several separator lines")
+    {
+      // The first ======= at line start is the separator; later ones are
+      // literal replace content, mirroring parse_edit_block's rule.
+      std::string input =
+        "Here are the changes (patchset: separator-only-repeat):\n"
+        "\n"
+        "separator_repeat_test.tmp\n"
+        "~~~\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        "=======\n"
+        "tail\n"
+        "~~~";
+
+      {
+        std::ofstream out("separator_repeat_test.tmp");
+        out << "old\n";
+      }
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      REQUIRE(result->second.size() == 1);
+      CHECK(result->second[0].search_text == "old");
+      CHECK(result->second[0].replace_text == "new\n=======\ntail");
+
+      // Clean up
+      std::filesystem::remove("separator_repeat_test.tmp");
+    }
+
+    TEST_CASE("parse_edits_with_patchset - stray REPLACE marker prevents separator-only reinterpretation")
+    {
+      // A block that still contains a full-format marker is malformed, not
+      // markerless: it must not be reinterpreted as a separator-only edit.
+      std::string input =
+        "Here are the changes (patchset: stray-replace):\n"
+        "\n"
+        "stray_replace_test.tmp\n"
+        "~~~\n"
+        "old\n"
+        "=======\n"
+        "new\n"
+        ">>>>>>> REPLACE\n"
+        "trailing\n"
+        "~~~";
+
+      {
+        std::ofstream out("stray_replace_test.tmp");
+        out << "old\n";
+      }
+
+      auto result = parse_edits_with_patchset(input);
+      REQUIRE(result.has_value());
+      CHECK(result->first == "stray-replace");
+      CHECK(result->second.empty());
+
+      // Clean up
+      std::filesystem::remove("stray_replace_test.tmp");
+    }
+
     TEST_CASE("parse_edits_with_patchset - file path with spaces")
     {
       std::string input =
