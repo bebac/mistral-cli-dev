@@ -99,6 +99,7 @@ add_custom_command(
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_researcher.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_xerj.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_code_tools.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/policy.json
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/mistral-cli.json
     COMMENT "Generating embedded workspace templates"

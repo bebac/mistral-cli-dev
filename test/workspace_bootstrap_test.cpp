@@ -100,12 +100,13 @@ TEST_CASE("bootstrap: seeds all files into an empty workspace")
   auto res = mistral::agent::bootstrap_workspace(ws.path);
 
   REQUIRE(res.ran);
-  REQUIRE(res.created.size() == 7);
+  REQUIRE(res.created.size() == 8);
   CHECK(contains(res.created, "mistral-cli.json"));
   CHECK(contains(res.created, "policy.json"));
   CHECK(contains(res.created, "sys_prompt.md"));
   CHECK(contains(res.created, "sys_prompt_researcher.md"));
   CHECK(contains(res.created, "sys_prompt_xerj.md"));
+  CHECK(contains(res.created, "sys_prompt_code_tools.md"));
   CHECK(contains(res.created, "sys_storybook_notes.md"));
   CHECK(contains(res.created, "sys_patchset_instructions.md"));
 
@@ -114,6 +115,7 @@ TEST_CASE("bootstrap: seeds all files into an empty workspace")
   CHECK(ws.read("sys_prompt.md") == str(mistral::embedded::sys_prompt()));
   CHECK(ws.read("sys_prompt_researcher.md") == str(mistral::embedded::sys_prompt_researcher()));
   CHECK(ws.read("sys_prompt_xerj.md") == str(mistral::embedded::sys_prompt_xerj()));
+  CHECK(ws.read("sys_prompt_code_tools.md") == str(mistral::embedded::sys_prompt_code_tools()));
   CHECK(ws.read("sys_storybook_notes.md") == str(mistral::embedded::sys_storybook_notes()));
   CHECK(ws.read("sys_patchset_instructions.md") == str(mistral::embedded::sys_patchset_instructions()));
 
@@ -136,8 +138,9 @@ TEST_CASE("bootstrap: never overwrites seeded files")
 
   auto res = mistral::agent::bootstrap_workspace(ws.path);
 
-  // sys_prompt_researcher.md + sys_prompt_xerj.md + the managed file
-  CHECK(res.created.size() == 3);
+  // sys_prompt_researcher.md + sys_prompt_xerj.md + sys_prompt_code_tools.md
+  // + the managed file
+  CHECK(res.created.size() == 4);
   CHECK(ws.read("sys_prompt.md") == "my custom prompt");
   CHECK(ws.read("sys_storybook_notes.md") == "my notes");
   CHECK(ws.read("policy.json") == "{}");
@@ -215,7 +218,7 @@ TEST_CASE("bootstrap: warns about untracked managed file")
   ws.write("sys_patchset_instructions.md", "handcrafted");
 
   auto res = mistral::agent::bootstrap_workspace(ws.path);
-  CHECK(res.created.size() == 6); // seeded files only
+  CHECK(res.created.size() == 7); // seeded files only
   REQUIRE(res.warnings.size() == 1);
   CHECK(contains(res.warnings, "not tracked"));
   CHECK(ws.read("sys_patchset_instructions.md") == "handcrafted");

@@ -120,6 +120,7 @@ namespace mistral::agent
       {"sys_prompt.md", embedded::sys_prompt()},
       {"sys_prompt_researcher.md", embedded::sys_prompt_researcher()},
       {"sys_prompt_xerj.md", embedded::sys_prompt_xerj()},
+      {"sys_prompt_code_tools.md", embedded::sys_prompt_code_tools()},
       {"sys_storybook_notes.md", embedded::sys_storybook_notes()},
     };
 

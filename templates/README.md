@@ -34,6 +34,7 @@ export MISTRAL_API_KEY="your_api_key_here"
 | `mistral-cli.json` | Models, agents and default tool policy |
 | `policy.json` | Tool policy: read-only tools allowed, everything else requires approval |
 | `sys_prompt.md` | System prompt template for the `main` agent |
+| `sys_prompt_code_tools.md` | Tree-sitter code-tools docs (included by `sys_prompt.md` via `if=tree_sitter_enabled`) |
 | `sys_prompt_researcher.md` | Instructions for the `researcher` server-side agent (web search) |
 | `sys_patchset_instructions.md` | Patchset editing workflow (included by `sys_prompt.md`) |
 | `bootstrap.json` | Bootstrap manifest: version + hash of the managed `sys_patchset_instructions.md` |

@@ -1,8 +1,10 @@
 #include "doctest/doctest.h"
+#include "common/embedded_resources.h"
 #include "template/template_engine.h"
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -268,5 +270,39 @@ TEST_CASE("template_engine: falsy values")
   {
     engine.set_variable("v", val);
     CHECK(engine.process("{{> extra if=v}}") == "");
+  }
+}
+
+TEST_CASE("template_engine: embedded sys_prompt follows feature flags")
+{
+  temp_dir tmp;
+  tmp.write("sys_prompt.md", std::string(mistral::embedded::sys_prompt()));
+  tmp.write("sys_patchset_instructions.md", std::string(mistral::embedded::sys_patchset_instructions()));
+  tmp.write("sys_prompt_code_tools.md", std::string(mistral::embedded::sys_prompt_code_tools()));
+  tmp.write("sys_prompt_xerj.md", std::string(mistral::embedded::sys_prompt_xerj()));
+
+  // Both feature flags on: both conditional includes expand.
+  {
+    mistral::tmpl::template_engine engine;
+    engine.set_include_base(tmp.path);
+    engine.set_variable("tree_sitter_enabled", "true");
+    engine.set_variable("xerj_enabled", "true");
+    engine.enable_command_expansion(false); // keep ${{date ...}} literal
+    const std::string out = engine.process_file(tmp.path / "sys_prompt.md");
+    CHECK(out.find("Syntax-aware code tools") != std::string::npos);
+    CHECK(out.find("XERJ (optional, via MCP)") != std::string::npos);
+  }
+
+  // Both flags off: neither include expands, prompt still processes.
+  {
+    mistral::tmpl::template_engine engine;
+    engine.set_include_base(tmp.path);
+    engine.set_variable("tree_sitter_enabled", "false");
+    engine.set_variable("xerj_enabled", "false");
+    engine.enable_command_expansion(false);
+    const std::string out = engine.process_file(tmp.path / "sys_prompt.md");
+    CHECK(out.find("Syntax-aware code tools") == std::string::npos);
+    CHECK(out.find("XERJ (optional, via MCP)") == std::string::npos);
+    CHECK(out.find("## Codebase Searching") != std::string::npos);
   }
 }

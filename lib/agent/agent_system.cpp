@@ -1681,6 +1681,12 @@ namespace mistral::agent
       // xerj_enabled: true when the xerj MCP server is configured and
       // enabled ("enabled": false entries are dropped at load time).
       tmpl.set_variable("xerj_enabled", config_.mcp_servers.contains("xerj") ? "true" : "false");
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+      // tree_sitter_enabled: true in builds with the tree-sitter code tools.
+      tmpl.set_variable("tree_sitter_enabled", "true");
+#else
+      tmpl.set_variable("tree_sitter_enabled", "false");
+#endif
 
       // Process the file as a template
       return tmpl.process_file(file_path);
