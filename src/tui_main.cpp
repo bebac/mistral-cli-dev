@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
   // Fail fast if a transport endpoint is missing its API key.
   try
   {
-    agent_system.validate_transport_keys();
+    agent_system.validate_transport_keys(agent_id);
   }
   catch (const std::exception& e)
   {

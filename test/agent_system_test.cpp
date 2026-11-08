@@ -1251,7 +1251,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: throws when 
   unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
   try
   {
-    system.validate_transport_keys();
+    system.validate_transport_keys("main");
     FAIL("expected std::runtime_error");
   }
   catch (const std::runtime_error& e)
@@ -1279,7 +1279,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: passes when 
   system.initialize(config_file, base_dir, notes_dir);
 
   setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
-  CHECK_NOTHROW(system.validate_transport_keys());
+  CHECK_NOTHROW(system.validate_transport_keys("main"));
   unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
 }
 
@@ -1300,7 +1300,105 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: endpoint wit
   auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, notes_dir);
 
-  CHECK_NOTHROW(system.validate_transport_keys());
+  CHECK_NOTHROW(system.validate_transport_keys("main"));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: an unused agent's endpoint needs no key")
+{
+  // Two providers, one agent each. Only the selected agent's key is set:
+  // the other agent's endpoint must not block startup, because this
+  // session never talks to it.
+  nlohmann::json config = {
+    {"models",
+     {{"used-model",
+       {{"provider", "mistral"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"unused-model",
+       {{"provider", "greenpt"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_UNUSED_KEY"},
+        {"base_url", "https://api.example.invalid"}}}}},
+    {"agents",
+     {{"main", {{"model", "used-model"}}},
+      {"other", {{"model", "unused-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
+  unsetenv("MISTRAL_TRANSPORT_UNUSED_KEY");
+
+  CHECK_NOTHROW(system.validate_transport_keys("main"));
+
+  // The agent that does use that endpoint still fails fast.
+  CHECK_THROWS_AS(system.validate_transport_keys("other"), std::runtime_error);
+
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: a subagent's endpoint is validated")
+{
+  // "main" delegates web_search to "researcher", which runs on another
+  // provider: the subagent's key is needed even though main's is set.
+  nlohmann::json config = {
+    {"models",
+     {{"main-model",
+       {{"provider", "mistral"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"},
+        {"base_url", "https://api.mistral.ai"}}},
+      {"research-model",
+       {{"provider", "greenpt"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_UNUSED_KEY"},
+        {"base_url", "https://api.example.invalid"}}}}},
+    {"agents",
+     {{"main", {{"model", "main-model"}, {"subagent_tools", {{"web_search", "researcher"}}}}},
+      {"researcher", {{"model", "research-model"}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
+  unsetenv("MISTRAL_TRANSPORT_UNUSED_KEY");
+
+  CHECK_THROWS_AS(system.validate_transport_keys("main"), std::runtime_error);
+
+  setenv("MISTRAL_TRANSPORT_UNUSED_KEY", "test-key", 1);
+  CHECK_NOTHROW(system.validate_transport_keys("main"));
+
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+  unsetenv("MISTRAL_TRANSPORT_UNUSED_KEY");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: a subagent cycle terminates")
+{
+  // Two agents delegating to each other must not loop forever.
+  nlohmann::json config = {
+    {"models",
+     {{"test-model",
+       {{"provider", "mistral"},
+        {"model_id", "test-model-latest"},
+        {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"},
+        {"base_url", "https://api.mistral.ai"}}}}},
+    {"agents",
+     {{"main", {{"model", "test-model"}, {"subagent_tools", {{"web_search", "researcher"}}}}},
+      {"researcher", {{"model", "test-model"}, {"subagent_tools", {{"web_search", "main"}}}}}}},
+    {"policy", {{"default", "deny"}}}
+  };
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
+  CHECK_NOTHROW(system.validate_transport_keys("main"));
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
 }
 
 TEST_SUITE_END;

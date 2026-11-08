@@ -261,16 +261,20 @@ namespace mistral::agent
     // its model is unknown.
     std::shared_ptr<dripcore::channel<api::api_request>> request_ch_for(const std::string& agent_id) const;
 
-    // Fail-fast check: every transport endpoint that requires an API
-    // key must have it in the environment. Throws std::runtime_error
-    // naming the endpoint and env var.
-    void validate_transport_keys() const;
+    // Fail-fast check for the endpoints the given agent can actually
+    // reach: its own model's endpoint plus those of the subagents it
+    // delegates to, transitively. Endpoints belonging to agents this
+    // session never uses are not checked, so a config may hold an agent
+    // on a second provider without that provider's key being set.
+    // Throws std::runtime_error naming the endpoint, the env var and the
+    // agent that needs it.
+    void validate_transport_keys(const std::string& agent_id) const;
 
     // Spawn one http_coordinator_task per transport endpoint on the
     // scheduler. Validates API keys first (see validate_transport_keys).
     // Call once after creating the scheduler, before spawning any
     // agent task.
-    void start_transport(dripcore::scheduler& sched);
+    void start_transport(dripcore::scheduler& sched, const std::string& agent_id);
     void stop_transport();
 
     // Shared channels
@@ -359,6 +363,11 @@ namespace mistral::agent
     // selection, then `default_id` when the entry offers it, then the
     // entry's first id.
     std::string resolve_model_id(const std::string& model_name, const std::optional<std::string>& default_id) const;
+
+    // Agent ids reachable from `agent_id`: the agent itself plus every
+    // subagent named in its subagent_tools, transitively. Cycles are
+    // tolerated; ids that name no configured agent are returned as-is.
+    std::vector<std::string> reachable_agent_ids(const std::string& agent_id) const;
 
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);

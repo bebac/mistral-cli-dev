@@ -139,7 +139,7 @@ namespace mistral::tui
 
         sched.spawn<mistral::agent::agent_system_task>(cfg_.agent_response_ch);
         sched.spawn<mistral::agent::agent_system_stats_task>(agent_system.stats_ch());
-        agent_system.start_transport(sched);
+        agent_system.start_transport(sched, cfg_.agent_id);
         sched.spawn<mistral::tui::pipe_bridge_task<std::string>>(std::ref(input_q_), cfg_.input_ch);
         sched.spawn<mistral::slash_command::slash_command_executor_task>(
           cfg_.cmd_request_ch, cfg_.slash_cmd_response_ch, agent_system.slash_commands()

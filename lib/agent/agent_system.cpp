@@ -1507,34 +1507,88 @@ namespace mistral::agent
     return it->request_ch;
   }
 
-  void agent_system::validate_transport_keys() const
+  std::vector<std::string> agent_system::reachable_agent_ids(const std::string& agent_id) const
   {
-    for (const auto& entry : endpoints_)
+    std::vector<std::string> reachable;
+    std::vector<std::string> pending{agent_id};
+
+    while (!pending.empty())
     {
-      if (entry.endpoint.api_key_env.empty())
+      std::string current = std::move(pending.back());
+      pending.pop_back();
+
+      if (std::find(reachable.begin(), reachable.end(), current) != reachable.end())
+      {
+        continue; // Already seen: also terminates a subagent cycle.
+      }
+      reachable.push_back(current);
+
+      const auto it = config_.agents.find(current);
+      if (it == config_.agents.end())
+      {
+        continue; // Unknown id: reported when the agent is actually used.
+      }
+      for (const auto& [tool_name, subagent_id] : it->second.subagent_tools)
+      {
+        (void)tool_name;
+        pending.push_back(subagent_id);
+      }
+    }
+
+    return reachable;
+  }
+
+  void agent_system::validate_transport_keys(const std::string& agent_id) const
+  {
+    // Only the endpoints this session can reach are checked. A config may
+    // list an agent on a second provider that is never selected (e.g.
+    // -a main with a greenpt agent present), and demanding its key would
+    // block a session that never talks to it.
+    for (const auto& id : reachable_agent_ids(agent_id))
+    {
+      const auto agent_it = config_.agents.find(id);
+      if (agent_it == config_.agents.end())
+      {
+        continue;
+      }
+      const auto model_it = config_.models.find(agent_it->second.model);
+      if (model_it == config_.models.end())
+      {
+        // Unknown model: get_model_config() reports this when the agent is used.
+        continue;
+      }
+
+      const auto ep = endpoint_for_model(model_it->second);
+      if (ep.api_key_env.empty())
       {
         continue; // Endpoint requires no key
       }
-      if (std::getenv(entry.endpoint.api_key_env.c_str()) == nullptr)
+      if (std::getenv(ep.api_key_env.c_str()) == nullptr)
       {
         throw std::runtime_error(
-          "endpoint " + entry.endpoint.host + ":" + std::to_string(entry.endpoint.port) + " requires " +
-          entry.endpoint.api_key_env + " (environment variable not set)"
+          "endpoint " + ep.host + ":" + std::to_string(ep.port) + " requires " + ep.api_key_env +
+          " (environment variable not set, needed by agent '" + id + "')"
         );
       }
     }
   }
 
-  void agent_system::start_transport(dripcore::scheduler& sched)
+  void agent_system::start_transport(dripcore::scheduler& sched, const std::string& agent_id)
   {
-    validate_transport_keys();
+    validate_transport_keys(agent_id);
 
     for (const auto& entry : endpoints_)
     {
+      // An endpoint may belong to an agent this session never uses, in
+      // which case its key can be unset. Assigning getenv()'s nullptr to
+      // a std::string is undefined behaviour, so check it.
       std::string api_key;
       if (!entry.endpoint.api_key_env.empty())
       {
-        api_key = std::getenv(entry.endpoint.api_key_env.c_str());
+        if (const char* key = std::getenv(entry.endpoint.api_key_env.c_str()); key != nullptr)
+        {
+          api_key = key;
+        }
       }
       sched.spawn<net::http_coordinator_task>(entry.endpoint.host, entry.endpoint.port, api_key, entry.request_ch);
     }

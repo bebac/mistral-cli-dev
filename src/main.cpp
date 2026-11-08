@@ -232,7 +232,7 @@ int main(int argc, char* argv[])
   // Fail fast if a transport endpoint is missing its API key.
   try
   {
-    agent_system.validate_transport_keys();
+    agent_system.validate_transport_keys(agent_id);
   }
   catch (const std::exception& e)
   {
@@ -293,7 +293,7 @@ int main(int argc, char* argv[])
   dripcore::scheduler sched;
 
   // Spawn one HTTP coordinator per transport endpoint.
-  agent_system.start_transport(sched);
+  agent_system.start_transport(sched, agent_id);
 
   // Spawn agent_system_task to capture responses
   sched.spawn<mistral::agent::agent_system_task>(agent_response_ch);

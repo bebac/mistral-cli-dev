@@ -351,6 +351,13 @@ The id must be one the entry offers — a typo fails at startup instead of
 silently falling back to the first id. `/model` still overrides it at
 runtime, for every agent using that entry.
 
+Each entry's `api_key_env` names the environment variable holding that
+provider's key. Startup checks the keys of the endpoints the selected agent
+can reach — its own model, plus the models of the subagents it delegates to —
+and fails naming the endpoint, the variable and the agent that needs it.
+Agents this session never uses are not checked, so a config may keep an agent
+on a second provider without that provider's key being set.
+
 ### Subagents
 
 An agent can delegate tool calls to another agent ("subagent"). This is how
