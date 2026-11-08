@@ -11,3 +11,8 @@ __pycache__/
 
 # OS
 .DS_Store
+.vscode/
+
+# Exclude doc and experimental for now
+doc
+experimental
