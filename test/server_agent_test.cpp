@@ -192,7 +192,7 @@ namespace
       return agent::server_agent_config_fingerprint(
         *cfg.server_agent,
         sys.resolve_server_agent_instructions(cfg),
-        model_override.empty() ? sys.resolve_model_id(cfg.model) : model_override
+        model_override.empty() ? sys.resolve_model_id(cfg) : model_override
       );
     }
 
@@ -970,6 +970,60 @@ TEST_CASE_FIXTURE(server_agent_test_fixture, "updates the server-side agent when
   auto patch_body = json::parse(captured[1].body);
   CHECK(patch_body["model"] == "mistral-small-latest");
   CHECK(captured[2].path == "/v1/conversations");
+}
+
+TEST_CASE_FIXTURE(server_agent_test_fixture, "a /model switch drops the cached server agent id")
+{
+  // One entry with two ids: the researcher starts on the second one.
+  write_config(R"({
+    "models": {
+      "mistral": {
+        "provider": "mistral",
+        "model_id": ["mistral-large-4", "mistral-small-latest"],
+        "api_key_env": "MISTRAL_API_KEY",
+        "base_url": "https://api.mistral.ai",
+        "api_version": "v1"
+      }
+    },
+    "agents": {
+      "researcher": {
+        "model": "mistral",
+        "model_id": "mistral-small-latest",
+        "server_agent": {
+          "name": "mistral-cli-researcher",
+          "description": "test researcher",
+          "instructions": "You research things.",
+          "tools": [{"type": "web_search"}]
+        }
+      }
+    },
+    "policy": {"default": "deny"}
+  })");
+  initialize();
+
+  auto& sys = agent::agent_system::instance();
+  REQUIRE(sys.resolve_model_id(sys.get_agent_config("researcher")) == "mistral-small-latest");
+
+  std::vector<api::api_request> captured;
+  std::vector<std::string> results;
+
+  dripcore::scheduler sched;
+  fake_http_options opts;
+  opts.agent_exists = true;
+  sched.spawn<fake_http_task>(request_ch, &captured, opts);
+  sched.spawn<subagent_caller_task>(request_ch, "researcher", "query", &results);
+  sched.run();
+
+  // The entity id is cached for the session ...
+  REQUIRE(sys.get_server_agent_id("researcher").has_value());
+
+  // ... but the server-side agent owns the model, so a mid-session switch
+  // must drop that cache entry: the next call then re-checks the config
+  // fingerprint and patches the entity's model instead of keeping the one
+  // it was created with.
+  sys.set_active_model_id("mistral", "mistral-large-4");
+  CHECK_FALSE(sys.get_server_agent_id("researcher").has_value());
+  CHECK(sys.resolve_model_id(sys.get_agent_config("researcher")) == "mistral-large-4");
 }
 
 TEST_CASE_FIXTURE(server_agent_test_fixture, "surfaces setup errors through the subagent error path (with hint)")

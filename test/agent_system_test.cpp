@@ -1986,6 +1986,95 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "model switch: an unknown id is report
 
 TEST_SUITE_END;
 
+TEST_SUITE_BEGIN("agent_system::agent_model_id");
+
+namespace
+{
+  // One model entry offering two ids, referenced by two agents: the entry
+  // default is the first id, while an agent that names an id starts on it.
+  nlohmann::json shared_entry_config()
+  {
+    return {
+      {"models",
+       {{"mistral",
+         {{"provider", "mistral"},
+          {"model_id", {"mistral-large-4", "mistral-small-latest"}},
+          {"api_key_env", "MISTRAL_API_KEY"},
+          {"base_url", "https://api.mistral.ai"},
+          {"api_version", "v1"}}}}},
+      {"agents",
+       {{"main", {{"model", "mistral"}, {"tool_policy", "deny"}}},
+        {"researcher", {{"model", "mistral"}, {"model_id", "mistral-small-latest"}, {"tool_policy", "deny"}}}}},
+      {"policy", {{"default", "deny"}}}
+    };
+  }
+} // namespace
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: the agent starts on the id it names")
+{
+  create_config_file(shared_entry_config());
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  // The entry itself still defaults to its first id ...
+  CHECK(system.resolve_model_id("mistral") == "mistral-large-4");
+
+  // ... while each agent resolves through its own default.
+  CHECK(system.resolve_model_id(system.get_agent_config("main")) == "mistral-large-4");
+  CHECK(system.resolve_model_id(system.get_agent_config("researcher")) == "mistral-small-latest");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: the completion context marks the agent's default")
+{
+  create_config_file(shared_entry_config());
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+  system.set_current_agent_id("researcher");
+
+  auto context = system.build_completion_context();
+  REQUIRE(context.model_ids.size() == 2);
+  CHECK(context.model_ids[0].text == "mistral-large-4");
+  CHECK(context.model_ids[0].description.empty());
+  CHECK(context.model_ids[1].text == "mistral-small-latest");
+  CHECK(context.model_ids[1].description == "active");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: /model still overrides the agent default")
+{
+  create_config_file(shared_entry_config());
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  // The switch is per entry, so it wins over every agent's own default.
+  system.set_active_model_id("mistral", "mistral-large-4");
+  CHECK(system.resolve_model_id(system.get_agent_config("researcher")) == "mistral-large-4");
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an id the entry does not offer fails at load")
+{
+  auto config = shared_entry_config();
+  config["agents"]["researcher"]["model_id"] = "not-offered";
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  CHECK_THROWS_AS(system.initialize(config_file, base_dir, notes_dir), std::runtime_error);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an unknown model entry fails at load")
+{
+  auto config = shared_entry_config();
+  config["agents"]["researcher"]["model"] = "no-such-entry";
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  CHECK_THROWS_AS(system.initialize(config_file, base_dir, notes_dir), std::runtime_error);
+}
+
+TEST_SUITE_END;
+
 TEST_SUITE_BEGIN("agent_system_patchset_storage");
 
 TEST_CASE("patchset storage - store and retrieve single patchset")

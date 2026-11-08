@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <unistd.h>
 #include <utility>
@@ -409,6 +410,34 @@ namespace mistral::agent
         agent_config agent_cfg;
         agent_cfg.model = agent_json.value("model", "mistral-medium");
         agent_cfg.system_prompt = agent_json.value("system_prompt", "");
+
+        // Optional default model id within the entry (see
+        // agent_config::model_id). The models section is parsed first, so
+        // the id is validated here: a typo must fail at load time instead
+        // of silently falling back to the entry's first id.
+        if (agent_json.contains("model_id") && agent_json["model_id"].is_string())
+        {
+          const auto default_id = agent_json["model_id"].get<std::string>();
+          if (!default_id.empty())
+          {
+            auto model_it = config.models.find(agent_cfg.model);
+            if (model_it == config.models.end())
+            {
+              throw std::runtime_error(
+                "agent '" + name + "' sets model_id but its model entry '" + agent_cfg.model + "' is not configured"
+              );
+            }
+            const auto& ids = model_it->second.model_ids;
+            if (std::find(ids.begin(), ids.end(), default_id) == ids.end())
+            {
+              throw std::runtime_error(
+                "agent '" + name + "' sets model_id '" + default_id + "', which model entry '" + agent_cfg.model +
+                "' does not offer"
+              );
+            }
+            agent_cfg.model_id = default_id;
+          }
+        }
 
         // Handle tool_policy - can be string or JSON object
         if (agent_json.contains("tool_policy"))
@@ -1305,6 +1334,19 @@ namespace mistral::agent
 
   std::string agent_system::resolve_model_id(const std::string& model_name) const
   {
+    return resolve_model_id(model_name, std::nullopt);
+  }
+
+  std::string agent_system::resolve_model_id(const agent_config& agent_cfg) const
+  {
+    return resolve_model_id(agent_cfg.model, agent_cfg.model_id);
+  }
+
+  std::string agent_system::resolve_model_id(
+    const std::string& model_name,
+    const std::optional<std::string>& default_id
+  ) const
+  {
     auto it = config_.models.find(model_name);
     if (it == config_.models.end() || it->second.model_ids.empty())
     {
@@ -1314,18 +1356,27 @@ namespace mistral::agent
       return model_name;
     }
 
-    std::lock_guard lock(active_model_ids_mtx_);
-    if (auto active = active_model_ids_.find(model_name); active != active_model_ids_.end())
+    const auto& ids = it->second.model_ids;
     {
-      // The selection is validated by set_active_model_id(); re-check
-      // anyway in case the config was reloaded underneath.
-      const auto& ids = it->second.model_ids;
-      if (std::find(ids.begin(), ids.end(), active->second) != ids.end())
+      std::lock_guard lock(active_model_ids_mtx_);
+      if (auto active = active_model_ids_.find(model_name); active != active_model_ids_.end())
       {
-        return active->second;
+        // The selection is validated by set_active_model_id(); re-check
+        // anyway in case the config was reloaded underneath.
+        if (std::find(ids.begin(), ids.end(), active->second) != ids.end())
+        {
+          return active->second;
+        }
       }
     }
-    return it->second.model_ids.front();
+
+    // The agent's own default, when it names an id the entry offers. The
+    // loader validates it; re-check for hand-built configs.
+    if (default_id && std::find(ids.begin(), ids.end(), *default_id) != ids.end())
+    {
+      return *default_id;
+    }
+    return ids.front();
   }
 
   std::vector<std::string> agent_system::model_ids_for(const std::string& model_name) const
@@ -1351,8 +1402,26 @@ namespace mistral::agent
       throw std::runtime_error("Model '" + model_name + "' does not offer model id '" + model_id + "'");
     }
 
-    std::lock_guard lock(active_model_ids_mtx_);
-    active_model_ids_[model_name] = model_id;
+    {
+      std::lock_guard lock(active_model_ids_mtx_);
+      active_model_ids_[model_name] = model_id;
+    }
+
+    // A server-side agent owns its model, and its entity id is cached for
+    // the session (see server_agent_task::ensure_server_agent). Drop the
+    // cached ids of the agents using this entry, so the next call re-checks
+    // the config fingerprint and patches the entity's model instead of
+    // silently keeping the one it was created with.
+    {
+      std::lock_guard lock(server_agent_ids_mtx_);
+      for (const auto& [agent_id, agent_cfg] : config_.agents)
+      {
+        if (agent_cfg.model == model_name)
+        {
+          server_agent_ids_.erase(agent_id);
+        }
+      }
+    }
   }
 
   std::vector<transport_endpoint> agent_system::resolve_transport_endpoints() const
@@ -1592,7 +1661,7 @@ namespace mistral::agent
     {
       return "";
     }
-    return resolve_prompt_string(agent_cfg.server_agent->instructions, resolve_model_id(agent_cfg.model));
+    return resolve_prompt_string(agent_cfg.server_agent->instructions, resolve_model_id(agent_cfg));
   }
 
   std::string server_agent_config_fingerprint(
@@ -1943,7 +2012,7 @@ namespace mistral::agent
       if (has_agent_config(*agent_id))
       {
         const auto& agent_cfg = get_agent_config(*agent_id);
-        const std::string active = resolve_model_id(agent_cfg.model);
+        const std::string active = resolve_model_id(agent_cfg);
         for (const auto& id : model_ids_for(agent_cfg.model))
         {
           context.model_ids.push_back({id, id == active ? "active" : ""});
@@ -1985,7 +2054,7 @@ namespace mistral::agent
     // follow mid-session /model switches.
     if (const auto agent_id = current_agent_id(); agent_id && has_agent_config(*agent_id))
     {
-      status.model_id = resolve_model_id(get_agent_config(*agent_id).model);
+      status.model_id = resolve_model_id(get_agent_config(*agent_id));
     }
 
     auto& mcp_mgr = mcp::mcp_manager::instance();

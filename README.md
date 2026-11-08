@@ -259,7 +259,7 @@ Both interfaces support the same slash commands:
 | Command | Description |
 |---------|-------------|
 | `/help [command]` | List slash commands, or show usage for one. |
-| `/model` | Show the current model. |
+| `/model [id]` | Show or switch the active model. Without an id, lists the model entry's ids, marking the active one. |
 | `/tools [all]` | List the tools available to the current agent (`all` lists every registered tool, marking the ones the agent cannot call). |
 | `/usage [reset]` | Show API usage statistics (`reset` zeroes them). |
 | `/compact [keep]` | Summarize the conversation history, keeping the last `keep` turns verbatim. |
@@ -314,6 +314,42 @@ in `mistral-cli.json`. File edits go through the patchset workflow
 (see `.mistral-cli/sys_patchset_instructions.md`) rather than a direct
 write tool. The code exploration tools are syntax-aware (no matches in
 comments, strings or preprocessor directives).
+
+### Models
+
+Each entry under `models` is one provider endpoint. `model_id` accepts a
+single string or an array of strings:
+
+```json
+"models": {
+  "mistral": {
+    "provider": "mistral",
+    "model_id": ["mistral-large-4", "mistral-small-latest"],
+    "api_key_env": "MISTRAL_API_KEY",
+    "base_url": "https://api.mistral.ai",
+    "api_version": "v1"
+  }
+}
+```
+
+An array makes every id selectable mid-session with `/model <id>`: the
+conversation is kept and only subsequent requests use the new id. The first
+id is the default. The selection is tracked per entry, so it applies to every
+agent referencing that entry, and it is not persisted across sessions.
+
+An agent can name the id it starts on with its own `model_id`, which lets
+several agents share one entry while starting on different models:
+
+```json
+"agents": {
+  "main":       { "model": "mistral" },
+  "researcher": { "model": "mistral", "model_id": "mistral-small-latest" }
+}
+```
+
+The id must be one the entry offers — a typo fails at startup instead of
+silently falling back to the first id. `/model` still overrides it at
+runtime, for every agent using that entry.
 
 ### Subagents
 

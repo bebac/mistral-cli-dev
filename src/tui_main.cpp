@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
   // Fail fast when the agent's model entry is unknown.
   (void)agent_system.get_model_config(agent_config.model);
 
-  std::string resolved_model = agent_system.resolve_model_id(agent_config.model);
+  std::string resolved_model = agent_system.resolve_model_id(agent_config);
 
   mistral::tui::tui_config tui_cfg = {
     .agent_id = agent_id,

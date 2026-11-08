@@ -68,7 +68,7 @@ namespace mistral::agent
     // Without arguments: list the selectable ids, marking the active one.
     if (model_id.empty())
     {
-      const std::string active = agent_sys.resolve_model_id(agent_cfg.model);
+      const std::string active = agent_sys.resolve_model_id(agent_cfg);
       std::string result = "model entry '" + agent_cfg.model + "':\n";
       for (const auto& id : ids)
       {
@@ -90,7 +90,7 @@ namespace mistral::agent
                 "' (available: " + valid + ")";
     }
 
-    if (model_id == agent_sys.resolve_model_id(agent_cfg.model))
+    if (model_id == agent_sys.resolve_model_id(agent_cfg))
     {
       co_return "Already using " + model_id;
     }

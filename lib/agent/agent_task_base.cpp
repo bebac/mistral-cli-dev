@@ -26,7 +26,7 @@ namespace mistral::agent
     const auto& model_cfg = agent_system::instance().get_model_config(agent_cfg.model);
 
     // Set model, api_version, provider, and system prompt
-    model_ = agent_system::instance().resolve_model_id(agent_cfg.model);
+    model_ = agent_system::instance().resolve_model_id(agent_cfg);
     api_version_ = model_cfg.api_version;
     provider_ = api::provider_registry::create(model_cfg.provider);
     system_prompt_ = agent_system::instance().resolve_system_prompt(agent_cfg, model_);

@@ -260,7 +260,7 @@ int main(int argc, char* argv[])
   }
 
   // Resolve model ID and system prompt
-  std::string resolved_model = agent_system.resolve_model_id(agent_config.model);
+  std::string resolved_model = agent_system.resolve_model_id(agent_config);
   std::string resolved_system_prompt = agent_system.resolve_system_prompt(agent_config, resolved_model);
 
   // Show system prompt and exit if requested

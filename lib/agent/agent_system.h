@@ -122,7 +122,17 @@ namespace mistral::agent
 
     // Resolve sampling parameters (model defaults + agent overrides)
     api::sampling_params resolve_sampling_params(const agent_config& agent_cfg) const;
+
+    // Resolved model id of a model entry: the active /model selection when
+    // one was made, otherwise the entry's first id.
     std::string resolve_model_id(const std::string& model_name) const;
+
+    // Resolved model id of an agent: the active /model selection when one
+    // was made, otherwise the agent's own model_id default when it names an
+    // id the entry offers, otherwise the entry's first id. Tasks and
+    // frontends should prefer this overload, so a per-agent default is
+    // honoured.
+    std::string resolve_model_id(const agent_config& agent_cfg) const;
 
     // Selectable model ids of a model entry (empty when the entry is
     // unknown). The first id is the default; the active one is tracked
@@ -344,6 +354,11 @@ namespace mistral::agent
 
     // Resolve a prompt string (handles file:// URLs and templates)
     std::string resolve_prompt_string(const std::string& prompt, const std::string& model_id) const;
+
+    // Shared by the resolve_model_id() overloads: the entry's active
+    // selection, then `default_id` when the entry offers it, then the
+    // entry's first id.
+    std::string resolve_model_id(const std::string& model_name, const std::optional<std::string>& default_id) const;
 
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);

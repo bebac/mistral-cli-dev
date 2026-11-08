@@ -80,6 +80,15 @@ namespace mistral::agent
   struct agent_config
   {
     std::string model; // Name of model from models section
+
+    // Default model id within that entry (see model_config::model_ids).
+    // Empty: the entry's first id. Lets several agents share one model
+    // entry while starting on different ids — e.g. a cheap researcher and
+    // a large main agent. Validated against the entry's ids at load time.
+    // /model still overrides it at runtime, but the selection is tracked
+    // per entry, so it then applies to every agent using that entry.
+    std::optional<std::string> model_id;
+
     std::string system_prompt;
     std::string tool_policy; // Can be: "deny", "allow", "require_approval", a JSON object as string, or
                              // "file://path/to/policy.json"
