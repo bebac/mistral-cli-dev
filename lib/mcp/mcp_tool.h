@@ -4,8 +4,39 @@
 #include "agent/tool_registry.h"
 #include "mcp/mcp_client_interface.h"
 
+#include <cstddef>
+#include <string>
+
 namespace mistral::mcp
 {
+  // Maximum size of an MCP tool result handed to the model. A server can
+  // return an arbitrarily large payload (a broad grep, a whole document);
+  // excess is dropped and flagged rather than passed on, mirroring exec's
+  // stdout/stderr cap, so a single call cannot blow the context window.
+  inline constexpr std::size_t k_max_result_bytes = 64 * 1024;
+
+  // Cap the model-facing size of a tools/call result. A result that fits
+  // is returned unchanged (still the tools/call object); a larger one is
+  // truncated to k_max_result_bytes and returned as a string whose tail
+  // names how much was dropped.
+  inline json cap_result_size(json result)
+  {
+    std::string serialized = result.dump();
+    const std::size_t total = serialized.size();
+    if (total <= k_max_result_bytes)
+    {
+      return result;
+    }
+
+    serialized.resize(k_max_result_bytes);
+    serialized += "\n[... MCP tool result truncated: ";
+    serialized += std::to_string(total - k_max_result_bytes);
+    serialized += " of ";
+    serialized += std::to_string(total);
+    serialized += " bytes omitted ...]";
+    return json(std::move(serialized));
+  }
+
   // Dynamic tool_interface bridging a remote MCP tool into the agent
   // tool registry. The remote inputSchema is forwarded verbatim (MCP
   // schemas use draft-07 with anyOf unions that cannot be re-derived
@@ -25,9 +56,11 @@ namespace mistral::mcp
     dripcore::awaitable<json> execute(const json& args) override
     {
       // Returns the tools/call result object (content[] and, when
-      // declared, structuredContent). Exceptions propagate to
+      // declared, structuredContent), capped to k_max_result_bytes so a
+      // server cannot flood the context. Exceptions propagate to
       // tool_registry::dispatch, which converts them to error strings.
-      co_return co_await client_->call_tool(name_, args);
+      json result = co_await client_->call_tool(name_, args);
+      co_return cap_result_size(std::move(result));
     }
 
     json get_schema(const std::string& tool_name, bool /*strict*/) override
