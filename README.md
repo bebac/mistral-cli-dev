@@ -98,6 +98,31 @@ Where the project is headed, grouped by theme.
   compatible endpoint. Future directions: provider-neutral web research,
   broader provider support, and a rename that reflects it.
 
+### Codebase search & indexing
+
+By default there are **no dedicated built-in code-search tools** — code
+search is delegated to an external MCP server. Four approaches have been
+explored:
+
+1. **Built-in `code_tools` (tree-sitter)** — `find_symbol`, `find_references`,
+   `outline`, `read_symbol`, `ast_search`: precise C/C++ symbol navigation
+   with no external process, but C/C++ only and a heavy binary (~3x size).
+   Optional behind `MISTRAL_ENABLE_TREE_SITTER`.
+2. **XERJ (MCP)** — external Rust node with lexical + semantic + hybrid
+   search over all file types, plus agent memory. The richest option, but
+   it needs a running, indexed node (`preflight` can start it).
+3. **`sqlite-vec-knowledge` (experimental branch)** — persistent
+   sqlite-vec index with embedding-based semantic search over code and
+   docs. Promising for "where is the code that does X", but weak at
+   grep-like lookups and slow to index on large trees.
+4. **`probe` (MCP)** — external npm package with zero setup (`npx`);
+   grep-like and AST-aware search over all file types.
+
+**Recommendation:** keep one external MCP search server configured.
+**`probe`** is the recommended default — zero setup, grep-like + AST
+search; XERJ is the upgrade path when semantic/hybrid search and memory
+are wanted.
+
 ---
 
 ## Requirements
@@ -467,6 +492,20 @@ automatically on startup (no `/mcp connect` needed):
 }
 ```
 
+**Disable an entry** — set `enabled: false` to keep an entry in the file
+without activating it. It is treated exactly as if the entry were not
+there: no auto-connect, not listed by `/mcp`, and template feature flags
+like `xerj_enabled` stay false:
+
+```json
+"xerj": {
+  "enabled": false,
+  "command": "xerj",
+  "args": ["mcp"],
+  ...
+}
+```
+
 **Managing connections** — use the `/mcp` slash command:
 
 | Command | Description |
@@ -487,8 +526,17 @@ relevant MCP server is configured:
 ```
 
 The `xerj_enabled` variable is set automatically when the `xerj` server
-is present in `mcpServers`. Conditional includes silently skip if the
+is present and enabled in `mcpServers` (`"enabled": false` counts as
+absent). Conditional includes silently skip if the
 file doesn't exist, so existing workspaces keep working.
+
+Likewise, `tree_sitter_enabled` is set in builds with the tree-sitter
+code tools (`MISTRAL_ENABLE_TREE_SITTER`) and gates the code-tools
+section of the system prompt:
+
+```
+{{> sys_prompt_code_tools.md if=tree_sitter_enabled}}
+```
 
 ---
 
