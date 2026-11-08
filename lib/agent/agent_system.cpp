@@ -7,6 +7,7 @@
 #include "agent/server_agent_task.h"
 #include "agent/subagent_task.h"
 #include "agent/workspace_bootstrap.h"
+#include "common/process_manager.h"
 #include "http/http_coordinator_task.h"
 #include "mcp/mcp_manager.h"
 #include "tools/file_tools.h"
@@ -18,6 +19,7 @@
 #include "template/template_engine.h"
 #include "tools/ask_tools.h"
 #include "tools/exec_tools.h"
+#include "tools/process_tools.h"
 #include "tools/research_tools.h"
 #include "tools/task_tools.h"
 
@@ -236,6 +238,17 @@ namespace mistral::agent
 
     // Initialize tool instances
     initialize_tools(notes_dir_);
+
+    // Kill background process sessions on shutdown. fire_shutdown()
+    // runs on the scheduler thread (from the interactive agent task's
+    // teardown), so kill_all() shares that thread with the session pump
+    // tasks - no locking needed.
+    shutdown_signal_->add([this] {
+      if (process_manager_)
+      {
+        process_manager_->kill_all();
+      }
+    });
 
     // Build global tool registry
     build_global_tool_registry();
@@ -593,6 +606,8 @@ namespace mistral::agent
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
     research_tools_ = std::make_unique<mistral::tools::research_tools>();
     ask_tools_ = std::make_unique<mistral::tools::ask_tools>();
+    process_manager_ = std::make_unique<mistral::common::process_manager>();
+    process_tools_ = std::make_unique<mistral::tools::process_tools>(*process_manager_);
   }
 
   void agent_system::register_slash_commands()
@@ -811,6 +826,7 @@ namespace mistral::agent
     auto& code_tools = *code_tools_;
 #endif
     auto& exec_tools = *exec_tools_;
+    auto& process_tools = *process_tools_;
     auto& task_tools = *task_tools_;
     auto& patchset_tools = *patchset_tools_;
     auto& research_tools = *research_tools_;
@@ -959,6 +975,73 @@ namespace mistral::agent
       arg("args", "Command arguments as array of strings (optional, defaults to an empty array)", std::vector<std::string>{}),
       arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
       arg("timeout_seconds", "Timeout in seconds", 30)
+    );
+
+    global_tools_.register_tool(
+      "process_start",
+      "Start a long-running background process (dev server, REPL like lldb/gdb, ...) and return "
+      "immediately with a session id - unlike exec, the process keeps running after the call. "
+      "Uses execvp() directly - no shell: the command must be a single executable name and each "
+      "argument a separate array element. stdin/stdout/stderr are piped; the process runs in its "
+      "own process group and is killed when the CLI exits. Drive it with process_write (stdin), "
+      "process_read (output), process_kill (stop), process_list (status). "
+      "When wait_for (a regex) is non-empty, the call blocks until the process output matches it, "
+      "the process exits, or wait_timeout_seconds elapse (default 60) - e.g. wait for a dev server "
+      "to print its ready line; the result's ready flag says whether it matched. "
+      "env is a list of KEY=VALUE strings applied over the inherited environment. "
+      "name optionally sets the session id (letters, digits, '.', '_', '-'; must be unique).",
+      &process_tools,
+      &mistral::tools::process_tools::process_start,
+      arg("command", "Executable name (e.g., 'npm', 'lldb')"),
+      arg("args", "Arguments as array of strings (optional, defaults to an empty array)", std::vector<std::string>{}),
+      arg("cwd", "Working directory (optional, defaults to current)", std::string("")),
+      arg("env", "Environment overrides as KEY=VALUE strings (optional, defaults to none)", std::vector<std::string>{}),
+      arg("name", "Session id to use instead of an auto-generated one (optional)", std::string("")),
+      arg("wait_for", "Regex to wait for in the process output before returning (optional, empty = return immediately)", std::string("")),
+      arg("wait_timeout_seconds", "Max seconds to wait for wait_for (default 60 when wait_for is set)", 0)
+    );
+
+    global_tools_.register_tool(
+      "process_write",
+      "Write input verbatim to the stdin of a background process session started with process_start. "
+      "Include a trailing newline for line-based REPLs (lldb, gdb, python). Returns the number of "
+      "bytes written; fails when the process has exited or the session is unknown.",
+      &process_tools,
+      &mistral::tools::process_tools::process_write,
+      arg("id", "Session id returned by process_start"),
+      arg("input", "Text to write to the process's stdin, verbatim")
+    );
+
+    global_tools_.register_tool(
+      "process_read",
+      "Read output produced by a background process session since byte offset `since` "
+      "(0 = from the start; pass next_offset from the previous read to get only new output). "
+      "stdout and stderr are merged. Each call returns at most max_bytes (default 65536); the "
+      "session retains the last 256 KiB, so very old output is dropped and reported via truncated. "
+      "Returns output, next_offset, total_bytes, running/exited and exit_code.",
+      &process_tools,
+      &mistral::tools::process_tools::process_read,
+      arg("id", "Session id returned by process_start"),
+      arg("since", "Byte offset to read from (use next_offset of the previous read)", int64_t(0)),
+      arg("max_bytes", "Maximum output bytes to return in this call", 64 * 1024)
+    );
+
+    global_tools_.register_tool(
+      "process_list",
+      "List all background process sessions: id, name, command, args, pid, running/exited, "
+      "exit_code, total output bytes and uptime in seconds.",
+      &process_tools,
+      &mistral::tools::process_tools::process_list
+    );
+
+    global_tools_.register_tool(
+      "process_kill",
+      "Kill a background process session: SIGKILL to the whole process group, then reap. "
+      "The session stays listed (exited, with exit_code) and its remaining output stays "
+      "readable via process_read.",
+      &process_tools,
+      &mistral::tools::process_tools::process_kill,
+      arg("id", "Session id returned by process_start")
     );
 
     global_tools_.register_tool(

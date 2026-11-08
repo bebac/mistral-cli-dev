@@ -151,6 +151,7 @@ set(MISTRAL_CORE_SOURCES
     lib/tools/file_tools.cpp
     lib/tools/note_tools.cpp
     lib/tools/exec_tools.cpp
+    lib/tools/process_tools.cpp
     lib/tools/task_tools.cpp
     lib/tools/research_tools.cpp
     lib/tools/ask_tools.cpp
@@ -181,6 +182,7 @@ set(MISTRAL_CORE_SOURCES
     lib/common/string_utils.cpp
     lib/common/executable_finder.cpp
     lib/common/subprocess.cpp
+    lib/common/process_manager.cpp
     lib/trace/trace.cpp
     lib/agent/workspace_bootstrap.cpp
     ${EMBEDDED_TEMPLATES_CPP}

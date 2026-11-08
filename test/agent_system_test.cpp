@@ -313,6 +313,40 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered
   REQUIRE(exec_tool != nullptr);
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: process_* tools are registered")
+{
+  using namespace mistral::agent;
+
+  create_config_file(nlohmann::json({}));
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  auto& global_registry = system.global_tools();
+
+  for (const auto* name : {"process_start", "process_write", "process_read", "process_list", "process_kill"})
+  {
+    CHECK(global_registry.has_tool(name) == true);
+    CHECK(global_registry.get_tool(name) != nullptr);
+  }
+
+  // The process tools are bound to the injected manager instance.
+  CHECK(&system.process_manager() != nullptr);
+  CHECK(&system.process_tools() != nullptr);
+
+  // process_start exposes command/args/cwd like exec, plus the
+  // background-session options.
+  auto schema = global_registry.get_tool("process_start")->get_schema("process_start");
+  const auto& params = schema["function"]["parameters"]["properties"];
+  for (const auto* prop : {"command", "args", "cwd", "env", "name", "wait_for", "wait_timeout_seconds"})
+  {
+    CHECK(params.contains(prop));
+  }
+  // Only command is required; the rest have defaults.
+  const auto& required = schema["function"]["parameters"]["required"];
+  CHECK(required.size() == 1);
+  CHECK(required[0] == "command");
+}
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple models and agents")
 {
   nlohmann::json config = {
@@ -485,7 +519,12 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
     "note_read",
     "note_write",
     "note_search",
-    "ask_user"
+    "ask_user",
+    "process_start",
+    "process_write",
+    "process_read",
+    "process_list",
+    "process_kill"
   };
 
   for (const auto& tool_name : expected_tools)

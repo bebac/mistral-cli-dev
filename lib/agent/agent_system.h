@@ -32,6 +32,11 @@ namespace dripcore
   class scheduler;
 }
 
+namespace mistral::common
+{
+  class process_manager;
+} // namespace mistral::common
+
 namespace mistral::tools
 {
   class file_tools;
@@ -44,6 +49,7 @@ namespace mistral::tools
   class patchset_tools;
   class research_tools;
   class ask_tools;
+  class process_tools;
 } // namespace mistral::tools
 
 namespace mistral::agent
@@ -231,6 +237,14 @@ namespace mistral::agent
     {
       return *ask_tools_;
     }
+    mistral::common::process_manager& process_manager()
+    {
+      return *process_manager_;
+    }
+    mistral::tools::process_tools& process_tools()
+    {
+      return *process_tools_;
+    }
 
     // Request channel for the given agent's transport endpoint
     // (agent -> model -> endpoint -> channel). Throws if the agent or
@@ -352,6 +366,10 @@ namespace mistral::agent
     std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;
     std::unique_ptr<mistral::tools::research_tools> research_tools_;
     std::unique_ptr<mistral::tools::ask_tools> ask_tools_;
+    // Background process sessions (process_* tools). Plain member, not
+    // a singleton, so tests can construct their own manager + tools.
+    std::unique_ptr<mistral::common::process_manager> process_manager_;
+    std::unique_ptr<mistral::tools::process_tools> process_tools_;
 
     tool_registry global_tools_;
 

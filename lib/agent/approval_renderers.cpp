@@ -168,7 +168,9 @@ namespace mistral::agent
       return oss.str();
     }
 
-    std::string render_exec_approval(const json& args, std::string_view reason)
+    // Shared by exec and process_start (same command/args/cwd shape);
+    // `title` is the tool label shown in the prompt header.
+    std::string render_command_approval(const std::string& title, const json& args, std::string_view reason)
     {
       std::ostringstream cmd_line;
       if (args.contains("command") && args["command"].is_string())
@@ -187,7 +189,7 @@ namespace mistral::agent
       }
 
       std::ostringstream oss;
-      oss << "\n[APPROVAL REQUIRED] exec\n\n";
+      oss << "\n[APPROVAL REQUIRED] " << title << "\n\n";
       oss << "  Command: " << cmd_line.str() << "\n";
       if (args.contains("cwd") && args["cwd"].is_string())
       {
@@ -209,7 +211,10 @@ namespace mistral::agent
       return render_patchset_apply_approval(args, reason);
     });
     tools.register_approval_renderer("exec", [](const json& args, std::string_view reason) {
-      return render_exec_approval(args, reason);
+      return render_command_approval("exec", args, reason);
+    });
+    tools.register_approval_renderer("process_start", [](const json& args, std::string_view reason) {
+      return render_command_approval("process_start (background process)", args, reason);
     });
   }
 } // namespace mistral::agent

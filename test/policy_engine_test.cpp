@@ -802,6 +802,74 @@ TEST_CASE("Load executable rule from JSON - require approval")
   CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
 }
 
+// ---- process_start shares exec's command/args/cwd policy shape ----
+
+TEST_CASE("Executable rule with tool=process_start matches process_start calls")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("process_start", "npm");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "process_start",
+    .tool_arguments = mistral::agent::json{{"command", "npm"}, {"args", {"run", "storybook"}}},
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Executable rule with tool=process_start does not match exec calls")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("process_start", "npm");
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments = mistral::agent::json{{"command", "npm"}, {"args", {"run", "storybook"}}},
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("JSON executable rule with tool=process_start matches process_start calls")
+{
+  mistral::agent::policy_engine engine;
+  mistral::agent::json config = {
+    {"default", "deny"},
+    {"require_approval", mistral::agent::json{{{"type", "executable"}, {"tool", "process_start"}, {"command", "lldb"}}}}
+  };
+  engine.load_configuration(config);
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "process_start",
+    .tool_arguments = mistral::agent::json{{"command", "lldb"}, {"args", {"./build/app"}}},
+    .working_directory = "/home/user"
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("process_start cwd argument feeds executable rules with cwd constraint")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("process_start", "npm", {}, "build");
+
+  // agent_task_base::evaluate_tool_policy leaves working_directory
+  // empty, so the tool's own cwd argument drives the match.
+  mistral::agent::policy_context ctx{
+    .tool_name = "process_start",
+    .tool_arguments = mistral::agent::json{{"command", "npm"}, {"cwd", "build"}},
+    .working_directory = ""
+  };
+
+  auto result = engine.evaluate(ctx);
+  CHECK(result.decision == mistral::agent::policy_decision::ALLOW);
+}
+
 TEST_SUITE_END();
 
 // ============================================================================

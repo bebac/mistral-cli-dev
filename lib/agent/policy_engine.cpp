@@ -408,8 +408,10 @@ namespace mistral::agent
       normalized.normalized_path = normalize_path(path);
     }
 
-    // For exec tool, extract command name and args
-    if (ctx.tool_name == "exec" && ctx.tool_arguments.contains("command"))
+    // For exec and process_start, extract command name and args (both
+    // tools take the same command/args/cwd shape, so executable rules
+    // can match either).
+    if ((ctx.tool_name == "exec" || ctx.tool_name == "process_start") && ctx.tool_arguments.contains("command"))
     {
       normalized.command_name = ctx.tool_arguments["command"].get<std::string>();
       if (ctx.tool_arguments.contains("args") && ctx.tool_arguments["args"].is_array())
@@ -426,10 +428,10 @@ namespace mistral::agent
         normalized.command_args = {};
       }
 
-      // Extract cwd from exec tool arguments for policy matching.
+      // Extract cwd from the tool arguments for policy matching.
       // If not specified in tool arguments and not already set from
       // working_directory, default to current working directory — the
-      // exec tool runs in the process's cwd when cwd is empty.
+      // tool runs in the process's cwd when cwd is empty.
       std::string raw_cwd;
       if (ctx.tool_arguments.contains("cwd") && ctx.tool_arguments["cwd"].is_string())
       {

@@ -29,6 +29,11 @@
       "available_tools": [
         "ls",
         "exec",
+        "process_start",
+        "process_write",
+        "process_read",
+        "process_list",
+        "process_kill",
         "read",
         "outline",
         "read_symbol",

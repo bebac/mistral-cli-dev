@@ -3,6 +3,7 @@
 #include "common/string_utils.h"
 #include "mcp/mcp_manager.h"
 #include "tools/exec_tools.h"
+#include "tools/process_tools.h"
 
 #include <algorithm>
 #include <atomic>
@@ -667,13 +668,24 @@ namespace mistral::agent
     const api::json& tool_args
   ) const
   {
-    if (tc.function.name != "exec")
+    // exec and process_start share the command/args/cwd shape, so both
+    // get the same fail-fast validation (no shell syntax, command and
+    // cwd must exist).
+    if (tc.function.name != "exec" && tc.function.name != "process_start")
     {
       return std::nullopt;
     }
 
     // Malformed arguments are reported by the tool dispatcher.
-    auto request = mistral::tools::exec_tools::parse_request(tool_args);
+    std::optional<mistral::tools::exec_request> request;
+    if (tc.function.name == "exec")
+    {
+      request = mistral::tools::exec_tools::parse_request(tool_args);
+    }
+    else
+    {
+      request = mistral::tools::process_tools::parse_request(tool_args);
+    }
     if (!request)
     {
       return std::nullopt;
