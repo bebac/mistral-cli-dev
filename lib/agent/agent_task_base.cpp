@@ -5,6 +5,10 @@
 #include "tools/exec_tools.h"
 #include "tools/process_tools.h"
 
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+#include "knowledge/knowledge_tools.h"
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -88,19 +92,22 @@ namespace mistral::agent
   void agent_task_base::refresh_mcp_tools()
   {
     auto& mgr = mcp::mcp_manager::instance();
-    if (mgr.registry_version() == mcp_registry_version_)
+    if (mgr.registry_version() != mcp_registry_version_)
     {
-      return;
+      mcp_registry_version_ = mgr.registry_version();
+
+      // Rebuild the filtered registry from the global one.
+      const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
+      tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
+      auto schema_opts = agent_system::instance().resolve_tool_schema_options(agent_cfg);
+      tools_.set_strict_mode(schema_opts.strict_mode);
     }
-    mcp_registry_version_ = mgr.registry_version();
 
-    // Rebuild the filtered registry from the global one.
-    const auto& agent_cfg = agent_system::instance().get_agent_config(agent_id_);
-    tools_ = agent_system::instance().create_tool_registry(agent_cfg.available_tools);
-    auto schema_opts = agent_system::instance().resolve_tool_schema_options(agent_cfg);
-    tools_.set_strict_mode(schema_opts.strict_mode);
-
-    // Surface the MCP servers' agent instructions to the model.
+    // Applied on every turn, not only when the registry changed. The
+    // constructor sets the bare system prompt and seeds
+    // mcp_registry_version_ from the manager, so returning early here
+    // left the MCP instructions and the knowledge index summary out of
+    // the request entirely.
     apply_system_prompt();
   }
 
@@ -112,6 +119,16 @@ namespace mistral::agent
     {
       prompt += "\n\n# MCP server instructions\n\n" + instructions;
     }
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    // Name the indexed repositories so the model knows the knowledge
+    // tools exist and what `source` accepts, without spending a call to
+    // discover it. Empty when the index has not been built yet.
+    const std::string index = agent_system::instance().knowledge_tools().index_summary();
+    if (!index.empty())
+    {
+      prompt += "\n\n" + index;
+    }
+#endif
     if (!prompt.empty())
     {
       chat_.set_system_message(prompt);

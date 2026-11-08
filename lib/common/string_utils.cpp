@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <format>
 #include <fstream>
 #include <random>
@@ -12,6 +13,15 @@
 
 namespace mistral::utils
 {
+  bool matches_name_pattern(std::string_view name, std::string_view pattern)
+  {
+    if (!pattern.empty() && pattern.back() == '*')
+    {
+      return name.starts_with(pattern.substr(0, pattern.size() - 1));
+    }
+    return name == pattern;
+  }
+
   // Trim whitespace from both ends
   std::string trim(const std::string& s)
   {
@@ -162,6 +172,29 @@ namespace mistral::utils
 
     // If more than 90% are printable/whitespace, treat as text
     return (printable * 10) >= (bytes_read * 9);
+  }
+
+  // FNV-1a 64-bit hash of data as a 16 character lowercase hex string.
+  std::string fnv1a_64_hex(std::string_view data)
+  {
+    constexpr std::uint64_t fnv_offset_basis = 0xcbf29ce484222325ULL;
+    constexpr std::uint64_t fnv_prime = 0x100000001b3ULL;
+
+    std::uint64_t hash = fnv_offset_basis;
+    for (const char c : data)
+    {
+      hash ^= static_cast<unsigned char>(c);
+      hash *= fnv_prime;
+    }
+
+    static constexpr char hex_digits[] = "0123456789abcdef";
+    std::string hex;
+    hex.reserve(16);
+    for (int shift = 60; shift >= 0; shift -= 4)
+    {
+      hex.push_back(hex_digits[(hash >> shift) & 0xF]);
+    }
+    return hex;
   }
 
 } // namespace mistral::utils

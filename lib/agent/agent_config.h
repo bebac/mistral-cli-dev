@@ -6,6 +6,9 @@
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_index.h"
 #endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+#include "knowledge/knowledge_types.h"
+#endif
 
 #include <map>
 #include <optional>
@@ -176,6 +179,10 @@ namespace mistral::agent
     std::map<std::string, agent_config> agents;
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     tools::code_index_settings code_index;
+#endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    knowledge::knowledge_settings knowledge;
+    knowledge::embedding_settings embeddings;
 #endif
     std::string default_policy = "deny";
     std::map<std::string, mcp_server_config> mcp_servers;

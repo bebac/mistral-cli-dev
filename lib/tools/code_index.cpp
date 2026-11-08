@@ -2,6 +2,7 @@
 
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "common/embedded_resources.h"
+#include "common/string_utils.h"
 
 #include <dripcore/sleep_awaiter.h>
 
@@ -989,14 +990,11 @@ namespace mistral::tools
 
   symbol_index::symbol_index(code_index_settings settings)
   {
-    // Pre-build the excluded names as paths: is_excluded() runs for every
-    // file of a walk, and comparing a path component against a std::string
-    // would construct a path per comparison.
-    excluded_dirs_.reserve(settings.exclude_dirs.size());
-    for (const auto& dir : settings.exclude_dirs)
-    {
-      excluded_dirs_.emplace_back(dir);
-    }
+    // Kept as strings, not paths: is_excluded() compares path component
+    // names against these, and an entry ending in '*' is a prefix match.
+    // Building fs::path here would make "build*" a literal directory name
+    // that never matches anything.
+    excluded_dirs_ = settings.exclude_dirs;
   }
 
   bool symbol_index::is_supported_source(const fs::path& path)
@@ -1019,9 +1017,10 @@ namespace mistral::tools
   {
     for (const auto& part : path)
     {
+      const std::string name = part.string();
       for (const auto& dir : excluded_dirs_)
       {
-        if (part == dir)
+        if (utils::matches_name_pattern(name, dir))
         {
           return true;
         }

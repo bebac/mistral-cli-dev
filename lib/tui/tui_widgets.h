@@ -3,6 +3,7 @@
 
 #include "cpptui.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <string>
 
@@ -67,19 +68,21 @@ namespace mistral::tui
         buffer.set(x + i, y, c);
       }
 
-      auto render_text = [&](const std::string& text, int start_x) {
+      // limit_x is an exclusive bound: text is clipped there as well as
+      // at the widget's right edge.
+      auto render_text = [&](const std::string& text, int start_x, int limit_x) {
         auto chars = cpptui::TextHelper::prepare_text_for_render(text);
         int dx = 0;
         for (const auto& ci : chars)
         {
-          if (start_x + dx >= width)
+          if (start_x + dx >= width || start_x + dx >= limit_x)
             break;
           cpptui::Cell c;
           c.content = ci.content;
           c.fg_color = fg;
           c.bg_color = bg;
           buffer.set(x + start_x + dx, y, c);
-          if (ci.display_width == 2 && start_x + dx + 1 < width)
+          if (ci.display_width == 2 && start_x + dx + 1 < width && start_x + dx + 1 < limit_x)
           {
             cpptui::Cell skip;
             skip.content = "";
@@ -90,23 +93,28 @@ namespace mistral::tui
         }
       };
 
-      // Left (1px left margin)
-      render_text(left_text, 1);
-
-      // Center (within inner width, offset by 1px left margin)
-      int inner_w = width - 2;
+      // Centre first: its start position decides how much room the left
+      // text may use.
+      const int inner_w = width - 2;
       auto center_chars = cpptui::TextHelper::prepare_text_for_render(center_text);
       int center_w = 0;
       for (const auto& ci : center_chars)
         center_w += ci.display_width;
-      render_text(center_text, 1 + (inner_w - center_w) / 2);
+      const int center_x = 1 + (inner_w - center_w) / 2;
+
+      // Left (1px left margin), clipped one column short of the centre.
+      // The centre is drawn over it, so an unclipped left text is
+      // overdrawn mid-word rather than truncated.
+      render_text(left_text, 1, std::max(1, center_x - 1));
+
+      render_text(center_text, center_x, width);
 
       // Right (1px right margin)
       auto right_chars = cpptui::TextHelper::prepare_text_for_render(right_text);
       int right_w = 0;
       for (const auto& ci : right_chars)
         right_w += ci.display_width;
-      render_text(right_text, width - 1 - right_w);
+      render_text(right_text, width - 1 - right_w, width);
     }
   };
 

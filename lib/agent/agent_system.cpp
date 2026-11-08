@@ -16,6 +16,11 @@
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_tools.h"
 #endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+#include "knowledge/hashing_embedder.h"
+#include "knowledge/knowledge_tools.h"
+#include "knowledge/mistral_embedder.h"
+#endif
 #include "template/template_engine.h"
 #include "tools/ask_tools.h"
 #include "tools/exec_tools.h"
@@ -32,8 +37,10 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -612,6 +619,100 @@ namespace mistral::agent
     }
 #endif // MISTRAL_ENABLE_TREE_SITTER
 
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    // Parse knowledge store configuration
+    if (j.contains("knowledge") && j["knowledge"].is_object())
+    {
+      const auto& k = j["knowledge"];
+      if (k.contains("enabled") && k["enabled"].is_boolean())
+      {
+        config.knowledge.enabled = k["enabled"].get<bool>();
+      }
+      if (k.contains("db_path") && k["db_path"].is_string())
+      {
+        config.knowledge.db_path = k["db_path"].get<std::string>();
+      }
+      if (k.contains("include_extensions") && k["include_extensions"].is_array())
+      {
+        config.knowledge.include_extensions = k["include_extensions"].get<std::vector<std::string>>();
+      }
+      if (k.contains("exclude_dirs") && k["exclude_dirs"].is_array())
+      {
+        config.knowledge.exclude_dirs = k["exclude_dirs"].get<std::vector<std::string>>();
+      }
+      if (k.contains("exclude_files") && k["exclude_files"].is_array())
+      {
+        config.knowledge.exclude_files = k["exclude_files"].get<std::vector<std::string>>();
+      }
+      if (k.contains("chunk_max_chars") && k["chunk_max_chars"].is_number())
+      {
+        config.knowledge.chunk_max_chars = k["chunk_max_chars"].get<int>();
+      }
+      if (k.contains("max_file_bytes") && k["max_file_bytes"].is_number())
+      {
+        config.knowledge.max_file_bytes = k["max_file_bytes"].get<int>();
+      }
+      if (k.contains("embedding_dim") && k["embedding_dim"].is_number())
+      {
+        config.knowledge.embedding_dim = k["embedding_dim"].get<int>();
+      }
+      if (k.contains("search_max_results") && k["search_max_results"].is_number())
+      {
+        config.knowledge.search_max_results = k["search_max_results"].get<int>();
+      }
+      if (k.contains("embed_concurrency") && k["embed_concurrency"].is_number())
+      {
+        config.knowledge.embed_concurrency = k["embed_concurrency"].get<int>();
+      }
+    }
+
+    // Parse embedding provider configuration
+    if (j.contains("embeddings") && j["embeddings"].is_object())
+    {
+      const auto& e = j["embeddings"];
+      if (e.contains("provider") && e["provider"].is_string())
+      {
+        config.embeddings.provider = e["provider"].get<std::string>();
+      }
+      if (e.contains("model") && e["model"].is_string())
+      {
+        config.embeddings.model = e["model"].get<std::string>();
+      }
+      if (e.contains("api_key_env") && e["api_key_env"].is_string())
+      {
+        config.embeddings.api_key_env = e["api_key_env"].get<std::string>();
+      }
+      if (e.contains("base_url") && e["base_url"].is_string())
+      {
+        config.embeddings.base_url = e["base_url"].get<std::string>();
+      }
+      if (e.contains("api_version") && e["api_version"].is_string())
+      {
+        config.embeddings.api_version = e["api_version"].get<std::string>();
+      }
+      if (e.contains("output_dimension") && e["output_dimension"].is_number())
+      {
+        config.embeddings.output_dimension = e["output_dimension"].get<int>();
+      }
+      if (e.contains("output_dtype") && e["output_dtype"].is_string())
+      {
+        config.embeddings.output_dtype = e["output_dtype"].get<std::string>();
+      }
+      if (e.contains("batch_size") && e["batch_size"].is_number())
+      {
+        config.embeddings.batch_size = e["batch_size"].get<int>();
+      }
+      if (e.contains("request_timeout_ms") && e["request_timeout_ms"].is_number())
+      {
+        config.embeddings.request_timeout_ms = e["request_timeout_ms"].get<int>();
+      }
+      if (e.contains("max_batch_chars") && e["max_batch_chars"].is_number())
+      {
+        config.embeddings.max_batch_chars = e["max_batch_chars"].get<int>();
+      }
+    }
+#endif // MISTRAL_ENABLE_KNOWLEDGE
+
     // Parse policy
     if (j.contains("policy") && j["policy"].is_object())
     {
@@ -620,6 +721,29 @@ namespace mistral::agent
 
     return config;
   }
+
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+  namespace
+  {
+    // Short phase word for the frontend footer. Empty means idle, which
+    // is how the frontend knows to clear the indicator.
+    std::string index_phase_name(knowledge::index_phase phase)
+    {
+      switch (phase)
+      {
+        case knowledge::index_phase::chunking:
+          return "chunk";
+        case knowledge::index_phase::embedding:
+          return "embed";
+        case knowledge::index_phase::writing:
+          return "write";
+        case knowledge::index_phase::idle:
+          break;
+      }
+      return {};
+    }
+  } // namespace
+#endif
 
   // ---- Tool Initialization ----
 
@@ -630,6 +754,30 @@ namespace mistral::agent
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     code_tools_ = std::make_unique<mistral::tools::code_tools>(config_.code_index);
 #endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    if (config_.knowledge.enabled)
+    {
+      // Index the project documentation from the workspace root (the
+      // current directory, the same default the code tools use for their
+      // search paths). base_dir_ is the .mistral-cli state dir: indexing
+      // from it would exclude every file (".mistral-cli" is in
+      // exclude_dirs) and double the default db_path to
+      // .mistral-cli/.mistral-cli/cache/knowledge.db.
+      knowledge_tools_ =
+        std::make_unique<mistral::knowledge::knowledge_tools>(config_.knowledge, ".", make_knowledge_embedder());
+
+      // Surface indexing in the footer. The callback runs on the
+      // scheduler thread from inside the refresh, so it only stores the
+      // progress and pushes a snapshot.
+      knowledge_tools_->set_progress_callback([this](const knowledge::index_progress& progress) {
+        index_progress_.phase = index_phase_name(progress.phase);
+        index_progress_.done = progress.done;
+        index_progress_.total = progress.total;
+        index_progress_.files_total = progress.files_total;
+        publish_index_progress();
+      });
+    }
+#endif
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
     task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
@@ -638,6 +786,30 @@ namespace mistral::agent
     process_manager_ = std::make_unique<mistral::common::process_manager>();
     process_tools_ = std::make_unique<mistral::tools::process_tools>(*process_manager_);
   }
+
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+  std::unique_ptr<knowledge::embedder> agent_system::make_knowledge_embedder()
+  {
+    if (config_.embeddings.provider == "mistral")
+    {
+      // Remote embeddings ride the shared transport. Registering the
+      // endpoint here means a missing API key fails at startup rather
+      // than at the first search.
+      embeddings_ch_ = transport_add(config_.embeddings.base_url, config_.embeddings.api_key_env);
+      return std::make_unique<knowledge::mistral_embedder>(
+        embeddings_ch_,
+        config_.embeddings.model,
+        config_.embeddings.api_version,
+        config_.embeddings.output_dimension,
+        config_.embeddings.output_dtype,
+        config_.embeddings.batch_size,
+        config_.embeddings.request_timeout_ms,
+        config_.embeddings.max_batch_chars
+      );
+    }
+    return std::make_unique<knowledge::hashing_embedder>(config_.knowledge.embedding_dim);
+  }
+#endif // MISTRAL_ENABLE_KNOWLEDGE
 
   void agent_system::register_slash_commands()
   {
@@ -832,6 +1004,137 @@ namespace mistral::agent
       }
     };
 
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    // Explicit full index build. refresh_docs() is bounded per call
+    // (knowledge.max_inputs_per_refresh), so this loops until nothing is
+    // pending. Live progress is not wired to the UI; the command reports
+    // a summary when it finishes.
+    //
+    // Cost note: each round re-walks the tree and re-hashes every file,
+    // so this is markedly slower than one unbounded pass would be. See
+    // doc/code-search-plan.md §12.1 before adding a second corpus.
+    class index_command : public sc::slash_command
+    {
+    public:
+      std::string name() const override
+      {
+        return "index";
+      }
+      std::string description() const override
+      {
+        return "Build the workspace knowledge index";
+      }
+
+      dripcore::awaitable<std::string> execute(dripcore::task&, const std::string&, agent_system& sys) override
+      {
+        if (!sys.get_config().knowledge.enabled)
+        {
+          co_return "The knowledge store is disabled (knowledge.enabled = false)";
+        }
+
+        // Wall time for the whole operation, breadcrumb refresh included:
+        // the point is to answer "how long did /index take", not to
+        // profile its phases.
+        const auto started = std::chrono::steady_clock::now();
+
+        // Keeps the footer indicator up for the whole operation rather
+        // than clearing it between rounds. The guard clears it on every
+        // exit path, including the early returns below; the destructor
+        // runs when the coroutine frame is destroyed, which is right
+        // after the caller resumes from co_return.
+        struct session_guard
+        {
+          mistral::knowledge::knowledge_tools& tools;
+          explicit session_guard(mistral::knowledge::knowledge_tools& t) : tools(t)
+          {
+            tools.begin_indexing();
+          }
+          ~session_guard()
+          {
+            tools.end_indexing();
+          }
+        } session(sys.knowledge_tools());
+
+        // Both corpora: documents and code. Each refresh is bounded by
+        // knowledge.max_inputs_per_refresh, so loop until nothing is
+        // pending.
+        int rounds = 0;
+        int files_indexed = 0;
+        int chunks_written = 0;
+        for (const auto kind :
+             {mistral::knowledge::corpus_kind::documents, mistral::knowledge::corpus_kind::code})
+        {
+          while (true)
+          {
+            const json result = co_await sys.knowledge_tools().refresh(kind);
+            if (result.contains("error"))
+            {
+              co_return "Indexing failed: " + result["error"].get<std::string>();
+            }
+
+            files_indexed += result.value("files_indexed", 0);
+            chunks_written += result.value("chunks_written", 0);
+            const int files_pending = result.value("files_pending", 0);
+            ++rounds;
+
+            if (files_pending == 0)
+            {
+              break;
+            }
+            // Every round indexes at least one file, so this terminates;
+            // the cap only guards against a pathological corpus.
+            if (rounds >= 1000)
+            {
+              co_return "Indexing stopped after " + std::to_string(rounds) + " rounds with " +
+                        std::to_string(files_pending) + " file(s) still pending";
+            }
+          }
+        }
+
+        // Breadcrumbs are derived data and are never sent to the
+        // embedder, so refresh them in place rather than forcing a
+        // re-embed. Local work only, a few seconds.
+        int breadcrumbs_refreshed = 0;
+        const json rechunk = co_await sys.knowledge_tools().rechunk_breadcrumbs();
+        if (rechunk.contains("error"))
+        {
+          co_return "Indexing failed: " + rechunk["error"].get<std::string>();
+        }
+        for (const auto& [name, entry] : rechunk.items())
+        {
+          breadcrumbs_refreshed += entry.value("chunks_updated", 0);
+        }
+
+        const std::string took = format_elapsed(std::chrono::steady_clock::now() - started);
+
+        if (files_indexed == 0 && chunks_written == 0)
+        {
+          co_return "Index is up to date (" + std::to_string(breadcrumbs_refreshed) +
+                    " breadcrumb(s) refreshed, took " + took + ")";
+        }
+
+        co_return "Indexed " + std::to_string(files_indexed) + " file(s) (" + std::to_string(chunks_written) +
+                  " chunks) in " + std::to_string(rounds) + " round(s), " +
+                  std::to_string(breadcrumbs_refreshed) + " breadcrumb(s) refreshed (took " + took + ")";
+      }
+
+    private:
+      // Seconds below a minute, so a quick incremental pass reads as
+      // "2.4 s"; minutes and seconds above it, so a cold build does not
+      // read as "1183.2 s".
+      static std::string format_elapsed(std::chrono::steady_clock::duration elapsed)
+      {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+        if (ms < 60000)
+        {
+          return std::format("{:.1f} s", static_cast<double>(ms) / 1000.0);
+        }
+        const auto total_seconds = ms / 1000;
+        return std::format("{}m {:02d}s", total_seconds / 60, static_cast<int>(total_seconds % 60));
+      }
+    };
+#endif // MISTRAL_ENABLE_KNOWLEDGE
+
     auto& registry = *slash_command_registry_;
     registry.register_command(std::make_unique<help_command>(registry));
     registry.register_command(std::make_unique<clear_command>());
@@ -844,6 +1147,9 @@ namespace mistral::agent
     registry.register_command(std::make_unique<tool_command>());
     registry.register_command(std::make_unique<compact_command>());
     registry.register_command(std::make_unique<mcp_command>());
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    registry.register_command(std::make_unique<index_command>());
+#endif
   }
 
   void agent_system::build_global_tool_registry()
@@ -853,6 +1159,10 @@ namespace mistral::agent
     auto& note_tools = *note_tools_;
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     auto& code_tools = *code_tools_;
+#endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    const bool has_knowledge = knowledge_tools_ != nullptr;
+    auto* knowledge_tools = knowledge_tools_.get();
 #endif
     auto& exec_tools = *exec_tools_;
     auto& process_tools = *process_tools_;
@@ -987,6 +1297,50 @@ namespace mistral::agent
       arg("query", "Text to search for (case-insensitive)", std::string("")),
       arg("tag", "Filter by tag (case-insensitive)", std::string(""))
     );
+
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    if (has_knowledge)
+    {
+      global_tools_.register_tool(
+        "search_docs",
+        "Search indexed workspace documentation (markdown/text files) by meaning. "
+        "Returns ranked chunks with repository, file path, line range, breadcrumb and "
+        "a snippet; use read with the line range for the full text. Vendored "
+        "documentation is indexed too — pass source to restrict to one repository, "
+        "using the names listed in the result's sources field; the documentation and "
+        "code corpora hold different repositories. The index refreshes incrementally "
+        "before each search.",
+        knowledge_tools,
+        &mistral::knowledge::knowledge_tools::search_docs,
+        arg("query", "Natural language search query"),
+        arg("source", "Restrict to one repository (empty = all)", std::string("")),
+        arg("k", "Maximum number of results", 10)
+      );
+
+      global_tools_.register_tool(
+        "search_code",
+        "Search indexed workspace source code by meaning. Returns ranked chunks with "
+        "repository, file path, line range, breadcrumb and a snippet; use read with the "
+        "line range for the full text. Vendored code and submodules are indexed too — "
+        "pass source to restrict to one repository, using the names listed in the "
+        "result's sources field. For exact identifier or string matching use exec with "
+        "grep, which is exact and cheaper.",
+        knowledge_tools,
+        &mistral::knowledge::knowledge_tools::search_code,
+        arg("query", "Natural language search query"),
+        arg("source", "Restrict to one repository (empty = all)", std::string("")),
+        arg("k", "Maximum number of results", 10)
+      );
+
+      global_tools_.register_tool(
+        "refresh_docs",
+        "Re-index the workspace documentation corpus. Incremental: only new or "
+        "changed files are re-embedded. Returns indexing statistics.",
+        knowledge_tools,
+        &mistral::knowledge::knowledge_tools::refresh_docs
+      );
+    }
+#endif // MISTRAL_ENABLE_KNOWLEDGE
 
     global_tools_.register_tool(
       "exec",
@@ -1448,6 +1802,57 @@ namespace mistral::agent
     return endpoints;
   }
 
+  std::shared_ptr<dripcore::channel<api::api_request>> agent_system::transport_add(
+    const std::string& uri,
+    const std::string& api_key_env
+  )
+  {
+    model_config model;
+    model.base_url = uri;
+    model.api_key_env = api_key_env;
+    const auto ep = endpoint_for_model(model);
+
+    if (!ep.api_key_env.empty() && std::getenv(ep.api_key_env.c_str()) == nullptr)
+    {
+      throw std::runtime_error(
+        "endpoint " + ep.host + ":" + std::to_string(ep.port) + " requires " + ep.api_key_env +
+        " (environment variable not set)"
+      );
+    }
+
+    std::size_t index = endpoints_.size();
+    for (std::size_t i = 0; i < endpoints_.size(); ++i)
+    {
+      if (endpoints_[i].endpoint == ep)
+      {
+        index = i;
+        break;
+      }
+    }
+    if (index == endpoints_.size())
+    {
+      endpoints_.push_back({ep, std::make_shared<dripcore::channel<api::api_request>>(4)});
+      index = endpoints_.size() - 1;
+    }
+
+    auto& entry = endpoints_[index];
+
+    // Registered after start_transport(): spawn the coordinator now. It
+    // connects lazily, so this costs one idle task and no socket.
+    if (transport_sched_ != nullptr && !entry.spawned)
+    {
+      std::string api_key;
+      if (!ep.api_key_env.empty())
+      {
+        api_key = std::getenv(ep.api_key_env.c_str());
+      }
+      transport_sched_->spawn<net::http_coordinator_task>(ep.host, ep.port, api_key, entry.request_ch);
+      entry.spawned = true;
+    }
+
+    return entry.request_ch;
+  }
+
   // ---- Tool Registry ----
 
   tool_registry agent_system::create_tool_registry(const std::vector<std::string>& available_tools) const
@@ -1576,12 +1981,17 @@ namespace mistral::agent
   void agent_system::start_transport(dripcore::scheduler& sched, const std::string& agent_id)
   {
     validate_transport_keys(agent_id);
+    transport_sched_ = &sched;
 
-    for (const auto& entry : endpoints_)
+    for (auto& entry : endpoints_)
     {
       // An endpoint may belong to an agent this session never uses, in
       // which case its key can be unset. Assigning getenv()'s nullptr to
       // a std::string is undefined behaviour, so check it.
+      if (entry.spawned)
+      {
+        continue;
+      }
       std::string api_key;
       if (!entry.endpoint.api_key_env.empty())
       {
@@ -1591,11 +2001,13 @@ namespace mistral::agent
         }
       }
       sched.spawn<net::http_coordinator_task>(entry.endpoint.host, entry.endpoint.port, api_key, entry.request_ch);
+      entry.spawned = true;
     }
   }
 
   void agent_system::stop_transport()
   {
+    transport_sched_ = nullptr;
     for (const auto& entry : endpoints_)
     {
       if (entry.request_ch)
@@ -1670,6 +2082,16 @@ namespace mistral::agent
       // Set feature flags for conditional includes ({{> file if=var}}).
       // xerj_enabled: true when the xerj MCP server is configured.
       tmpl.set_variable("xerj_enabled", config_.mcp_servers.contains("xerj") ? "true" : "false");
+
+      // tree_sitter_enabled: mirrors the build. The code tools are compiled
+      // out by default, so the prompt must not describe them unless they
+      // are actually registered — otherwise the agent calls tools that do
+      // not exist.
+#ifdef MISTRAL_ENABLE_TREE_SITTER
+      tmpl.set_variable("tree_sitter_enabled", "true");
+#else
+      tmpl.set_variable("tree_sitter_enabled", "false");
+#endif
 
       // Process the file as a template
       return tmpl.process_file(file_path);
@@ -2128,8 +2550,29 @@ namespace mistral::agent
       status.total_tokens = tokens->get<int>();
     }
 
-    // A full snapshot supersedes any queued one, so a dropped send is fine.
+    // Carry the latest indexing progress: a search can start indexing
+    // before any phase has reported, and the footer must not lose the
+    // counter when an unrelated snapshot arrives mid-build.
+    status.index = index_progress_;
+
+    // A full snapshot supersedes any queued one, so a dropped send is
+    // fine. Keeping a copy lets publish_index_progress() reuse it.
+    last_ui_status_ = status;
+    ui_status_published_ = true;
     ui_status_ch_->try_send(std::move(status));
+  }
+
+  void agent_system::publish_index_progress()
+  {
+    // Before the first full snapshot there is nothing to reuse, and a
+    // half-built one would clear the MCP names in the footer. The next
+    // publish_ui_status() carries the progress anyway.
+    if (!ui_status_ch_ || !ui_status_published_)
+    {
+      return;
+    }
+    last_ui_status_.index = index_progress_;
+    ui_status_ch_->try_send(last_ui_status_);
   }
 
   void agent_system::set_shutdown_pipe_fd(int fd)

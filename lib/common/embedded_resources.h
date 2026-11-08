@@ -19,6 +19,9 @@ namespace mistral::embedded
   std::string_view sys_prompt();
   std::string_view sys_prompt_researcher();
   std::string_view sys_prompt_xerj();
+  // Included by sys_prompt.md only when the build has the tree-sitter
+  // code tools ({{> sys_prompt_code_tools.md if=tree_sitter_enabled}}).
+  std::string_view sys_prompt_code_tools();
   std::string_view sys_storybook_notes();
   std::string_view policy_json();
   std::string_view config_json();

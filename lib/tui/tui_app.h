@@ -153,7 +153,10 @@ namespace mistral::tui
       slash_popup_->visible = false;
 
       footer_ = std::make_shared<FooterBar>();
-      footer_->left_text = std::filesystem::current_path().string();
+      // The workspace directory is the footer's resting left text; the
+      // indexing line replaces it while a build runs.
+      footer_dir_ = std::filesystem::current_path().string();
+      footer_->left_text = footer_dir_;
       footer_model_ = cfg_.resolved_model;
       footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + footer_model_;
       footer_->right_text = "0 tokens";
@@ -268,7 +271,7 @@ namespace mistral::tui
       {
         footer_model_ = status.model_id;
       }
-      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + footer_model_;
+
       if (!status.mcp_servers.empty())
       {
         std::string names;
@@ -281,13 +284,77 @@ namespace mistral::tui
           names += status.mcp_servers[i];
         }
         const std::string indicator = status.mcp_all_connected ? "\xe2\x97\x8f" : "\xe2\x97\x8b";
-        footer_->center_text += " \xc2\xb7 " + names + " " + indicator;
+        mcp_names_ = names + " " + indicator;
       }
+      else
+      {
+        mcp_names_.clear();
+      }
+
+      index_active_ = !status.index.phase.empty();
+      index_phase_ = status.index.phase;
+      index_done_ = status.index.done;
+      index_total_ = status.index.total;
+      index_files_total_ = status.index.files_total;
+      update_footer_text();
 
       if (status.total_tokens)
       {
         footer_->right_text = std::to_string(*status.total_tokens) + " tokens";
       }
+    }
+
+    // Rebuild the footer's left and centre text.
+    //
+    // The indexing line goes on the left rather than in the centre: its
+    // width changes constantly, and a centred string of changing width
+    // moves its own start position, which reads as the whole footer
+    // jumping. Left-aligned it grows to the right from a fixed origin,
+    // and the centre — agent, model, MCP servers — stays put.
+    void update_footer_text()
+    {
+      footer_->left_text = index_active_ ? index_text() : footer_dir_;
+
+      footer_->center_text = cfg_.agent_id + " \xc2\xb7 " + footer_model_;
+      if (!mcp_names_.empty())
+      {
+        footer_->center_text += " \xc2\xb7 " + mcp_names_;
+      }
+    }
+
+    // The indexing line: "⠹ indexing 128/512 files" while the tree is
+    // being scanned, then "⠹ indexing 512 files · embed 96/256" once the
+    // file count has settled and the per-phase counter carries the
+    // movement.
+    //
+    // The file fraction is the progress only during chunking, because
+    // that is the only phase measured in files. Afterwards the file
+    // count is a constant — the size of the tree — and the phase counter
+    // is what moves. Comparing the phase word is the contract with
+    // agent_system, which sends "chunk", "embed" or "write".
+    std::string index_text() const
+    {
+      const std::string spinner = spinner_frame(index_frame_);
+      if (index_total_ <= 0)
+      {
+        return spinner + " indexing";
+      }
+      if (index_phase_ == "chunk" || index_files_total_ <= 0)
+      {
+        return spinner + " indexing " + std::to_string(index_done_) + "/" + std::to_string(index_total_) + " files";
+      }
+      return spinner + " indexing " + std::to_string(index_files_total_) + " files \xc2\xb7 " + index_phase_ + " " +
+             std::to_string(index_done_) + "/" + std::to_string(index_total_);
+    }
+
+    // Braille spinner frames, one per footer timer tick.
+    static const char* spinner_frame(int frame)
+    {
+      static constexpr const char* frames[] = {
+        "\xe2\xa0\x8b", "\xe2\xa0\x99", "\xe2\xa0\xb9", "\xe2\xa0\xb8", "\xe2\xa0\xbc",
+        "\xe2\xa0\xb4", "\xe2\xa0\xa6", "\xe2\xa0\xa7", "\xe2\xa0\x87", "\xe2\xa0\x8f",
+      };
+      return frames[static_cast<std::size_t>(frame) % (sizeof(frames) / sizeof(frames[0]))];
     }
 
     void setup_timers()
@@ -300,6 +367,17 @@ namespace mistral::tui
         else
         {
           dot_->fg_color = cpptui::Theme::current().border;
+        }
+
+        // Advance the indexing spinner. The frame is driven from here
+        // rather than from the snapshot because a phase can report only
+        // once per embed request, and those have a 60 s deadline: a
+        // frame driven by snapshots alone would sit frozen. The timer
+        // already forces a redraw, so this costs nothing extra.
+        if (index_active_)
+        {
+          ++index_frame_;
+          update_footer_text();
         }
 
         // Everything else the timer used to poll — the footer, the
@@ -468,6 +546,23 @@ namespace mistral::tui
     // Model id shown in the footer; updated from ui_status snapshots so
     // it follows mid-session /model switches.
     std::string footer_model_;
+
+    // Workspace directory shown at the left of the footer, restored when
+    // indexing finishes.
+    std::string footer_dir_;
+
+    // MCP server names from the last snapshot, so the centre text can be
+    // rebuilt when the spinner advances.
+    std::string mcp_names_;
+
+    // Latest knowledge-index progress. The spinner frame is advanced by
+    // the footer timer, not by the snapshot.
+    bool index_active_ = false;
+    std::string index_phase_;
+    int index_done_ = 0;
+    int index_total_ = 0;
+    int index_files_total_ = 0;
+    int index_frame_ = 0;
 
     cpptui::App app_;
     content_area content_area_;

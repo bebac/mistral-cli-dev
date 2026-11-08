@@ -1,6 +1,7 @@
 #include "agent/workspace_bootstrap.h"
 
 #include "common/embedded_resources.h"
+#include "common/string_utils.h"
 
 #include <nlohmann/json.hpp>
 
@@ -81,24 +82,7 @@ namespace mistral::agent
 
   std::string fnv1a_64_hex(std::string_view data)
   {
-    constexpr std::uint64_t fnv_offset_basis = 0xcbf29ce484222325ULL;
-    constexpr std::uint64_t fnv_prime = 0x100000001b3ULL;
-
-    std::uint64_t hash = fnv_offset_basis;
-    for (const char c : data)
-    {
-      hash ^= static_cast<unsigned char>(c);
-      hash *= fnv_prime;
-    }
-
-    static constexpr char hex_digits[] = "0123456789abcdef";
-    std::string hex;
-    hex.reserve(16);
-    for (int shift = 60; shift >= 0; shift -= 4)
-    {
-      hex.push_back(hex_digits[(hash >> shift) & 0xF]);
-    }
-    return hex;
+    return utils::fnv1a_64_hex(data);
   }
 
   bootstrap_result bootstrap_workspace(const fs::path& base_dir, const bootstrap_options& options)
@@ -120,6 +104,7 @@ namespace mistral::agent
       {"sys_prompt.md", embedded::sys_prompt()},
       {"sys_prompt_researcher.md", embedded::sys_prompt_researcher()},
       {"sys_prompt_xerj.md", embedded::sys_prompt_xerj()},
+      {"sys_prompt_code_tools.md", embedded::sys_prompt_code_tools()},
       {"sys_storybook_notes.md", embedded::sys_storybook_notes()},
     };
 

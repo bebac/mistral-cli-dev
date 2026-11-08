@@ -221,7 +221,7 @@ namespace mistral::tools
       std::vector<symbol_definition> definitions;
     };
 
-    std::vector<std::filesystem::path> excluded_dirs_; // from the settings
+    std::vector<std::string> excluded_dirs_; // from the settings
     std::map<std::string, file_entry> files_;          // absolute path -> entry
   };
 

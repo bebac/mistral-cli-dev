@@ -15,39 +15,40 @@ The current date is ${{date +%Y-%m-%d}}. Use this as the reference for "today" w
 ---
 ## Codebase Searching
 
-For **C/C++ questions use the code tools, not `grep`.** They parse the source, so they
-match real code only — never comments, strings or preprocessor directives — and return
-line numbers plus the matched line's text.
+Two tools cover code questions, and they answer different questions.
+
+**`search_code`** — semantic. Use it when you know *what* something does but not
+what it is called: "where is the retry logic", "how are approvals rendered".
+Returns ranked chunks with repository, path, line range and a snippet; follow up
+with `read` on the line range.
+
+**`exec` with `grep`** — exact. Use it when you know the identifier or string:
+"where is `handle_goaway` used", "which files mention `MISTRAL_ENABLE_KNOWLEDGE`".
+Exact, and far cheaper than a semantic search.
 
 | Question | Tool |
 |----------|------|
-| "where is X defined?" | `find_symbol` |
-| "where is X defined and used?" | `find_references` |
-| "what is in this file?" | `outline` |
-| "show me the code of X" | `read_symbol` |
-| "match an AST pattern" | `ast_search` |
+| "where is the code that does X" | `search_code` |
+| "where is `foo` defined / used" | `exec` + `grep` |
+| "what is in this file" | `read` |
+| "which files mention this string" | `exec` + `grep` |
 
 Examples:
 
-- `find_symbol` — `{"name":"register_tool","path":"lib/agent/tool_registry.h"}`
-- `find_references` — `{"name":"on_event","path":"lib/tui"}`
-- `read_symbol` — `{"path":"lib/tools/code_tools.h","name":"find_symbol"}`
-- `outline` — `{"path":"lib/mcp/mcp_manager.h"}`
+- `search_code` — `{"query":"where does the code chunker track its scope stack"}`
+- `search_code` — `{"query":"how does the coordinator handle GOAWAY","source":"third_party/stunning-waddle"}`
+- `exec` — `{"command":"grep","args":["-rn","handle_goaway","lib/"]}`
+- `exec` — `{"command":"git","args":["grep","-n","coordinator"]}`
 
-`path` accepts **a file or a directory**, and defaults to the workspace root. Prefer a
-narrow path over `.`: a tree-wide search is slower and caps at 200 hits.
+`search_code` indexes the workspace's own code **and** vendored code and
+submodules. Pass `source` to restrict to one repository; the valid names are
+listed in the result's `sources` field. The index refreshes incrementally before
+each search, so edits are picked up without a rebuild.
 
-- `outline(path)` — list the symbols defined in a file with their line ranges; see a file's structure before reading parts of it.
-- `read_symbol(path, name)` — extract the exact source text of a definition. Returns every matching definition (overloads); qualify the name (`Class::method`) to pick among same-named definitions.
-- `find_symbol(name, path)` — "where is X defined?"; exact match first, then substring fallback. Qualified names (`ns::Class::method`) narrow same-named symbols. Each hit includes the matched line's text. A zero result carries a `hint` explaining whether the symbol is absent, defined elsewhere, or that no C/C++ files were found.
-- `find_references(name, path, include_definitions=true)` — "where is X defined and used?". Definitions are included by default and flagged `"is_definition": true`; pass `false` for usages only. Matches by name without type resolution, so same-named symbols in unrelated scopes also match.
-- `ast_search(query, path)` — run a tree-sitter query for anything else, e.g. `((call_expression function: (identifier) @fn) (#eq? @fn "foo"))`. Predicates: `#eq?`, `#not-eq?`, `#any-eq?`, `#match?`, `#not-match?`, `#is?`, `#is-not?` (plus `#any-`/`#not-any-` variants).
+Prefer a narrow `grep` path over `.`: a tree-wide search is slower and caps its
+hits.
 
-All code tools are read-only, skip the configured exclude directories, and cap the number of results (`"truncated": true` when the cap is hit).
-
-**Use `exec` instead for:** non-C/C++ files (Markdown, JSON, CMake, scripts), and
-questions these tools cannot express, such as "which files mention this string at all".
-`grep` via `exec` is right for those.
+{{> sys_prompt_code_tools.md if=tree_sitter_enabled}}
 
 {{> sys_prompt_xerj.md if=xerj_enabled}}
 

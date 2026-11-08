@@ -243,4 +243,25 @@ TEST_CASE("glob_to_regex handles empty pattern")
   CHECK(glob_to_regex("") == "^$");
 }
 
+TEST_CASE("matches_name_pattern: exact and trailing-star prefix")
+{
+  using namespace mistral::utils;
+
+  // Exact entries.
+  CHECK(matches_name_pattern("build", "build"));
+  CHECK_FALSE(matches_name_pattern("build_asan", "build"));
+  CHECK_FALSE(matches_name_pattern("builder", "build"));
+
+  // A trailing '*' is a prefix match.
+  CHECK(matches_name_pattern("build", "build*"));
+  CHECK(matches_name_pattern("build_asan", "build*"));
+  CHECK(matches_name_pattern("build_debug", "build*"));
+  CHECK(matches_name_pattern("cmake-build-debug", "cmake-build-*"));
+  CHECK_FALSE(matches_name_pattern("rebuild", "build*"));
+
+  // A bare '*' matches everything, and an empty pattern matches nothing.
+  CHECK(matches_name_pattern("anything", "*"));
+  CHECK_FALSE(matches_name_pattern("anything", ""));
+}
+
 TEST_SUITE_END();

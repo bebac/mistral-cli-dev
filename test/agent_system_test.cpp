@@ -295,6 +295,52 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
   CHECK(system.get_config().default_policy == "deny");
 }
 
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: knowledge section")
+{
+  nlohmann::json config = {
+    {"models",
+     {{"mistral-medium",
+       {{"provider", "mistral"},
+        {"model_id", "mistral-medium-latest"},
+        {"api_key_env", "MISTRAL_API_KEY"},
+        {"base_url", "https://api.mistral.ai"},
+        {"api_version", "v1"}}}}},
+    {"agents",
+     {{"main",
+       {{"model", "mistral-medium"},
+        {"system_prompt", "You are a helpful assistant."},
+        {"tool_policy", "deny"}}}}},
+    {"knowledge",
+     {{"enabled", true},
+      {"db_path", ".mistral-cli/cache/custom.db"},
+      {"include_extensions", {".md", ".rst"}},
+      {"exclude_dirs", {".git", "vendor"}},
+      {"chunk_max_chars", 900},
+      {"embedding_dim", 256},
+      {"search_max_results", 5}}},
+    {"policy", {{"default", "deny"}}}
+  };
+
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  const auto& knowledge = system.get_config().knowledge;
+  CHECK(knowledge.enabled);
+  CHECK(knowledge.db_path == ".mistral-cli/cache/custom.db");
+  REQUIRE(knowledge.include_extensions.size() == 2);
+  CHECK(knowledge.include_extensions[0] == ".md");
+  CHECK(knowledge.include_extensions[1] == ".rst");
+  REQUIRE(knowledge.exclude_dirs.size() == 2);
+  CHECK(knowledge.exclude_dirs[0] == ".git");
+  CHECK(knowledge.exclude_dirs[1] == "vendor");
+  CHECK(knowledge.chunk_max_chars == 900);
+  CHECK(knowledge.embedding_dim == 256);
+  CHECK(knowledge.search_max_results == 5);
+}
+#endif // MISTRAL_ENABLE_KNOWLEDGE
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered")
 {
   using namespace mistral::agent;
@@ -514,6 +560,10 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
     "find_symbol",
     "find_references",
     "ast_search",
+#endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    "search_docs",
+    "refresh_docs",
 #endif
     "note_list",
     "note_read",
@@ -1400,6 +1450,130 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: a subagent c
   CHECK_NOTHROW(system.validate_transport_keys("main"));
   unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
 }
+
+// ============================================================================
+// transport_add Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: equivalent URIs share one channel")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  setenv("MISTRAL_API_KEY", "test-key", 1);
+  const auto ch1 = system.transport_add("https://api.mistral.ai", "MISTRAL_API_KEY");
+  const auto ch2 = system.transport_add("https://api.mistral.ai:443", "MISTRAL_API_KEY");
+  unsetenv("MISTRAL_API_KEY");
+
+  REQUIRE(ch1 != nullptr);
+  CHECK(ch1 == ch2);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: reuses the chat endpoint's channel")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  setenv("MISTRAL_API_KEY", "test-key", 1);
+  const auto ch = system.transport_add("https://api.mistral.ai", "MISTRAL_API_KEY");
+  unsetenv("MISTRAL_API_KEY");
+
+  // The main agent's model endpoint is the same host, port and key, so a
+  // service on it costs no extra connection.
+  CHECK(ch == system.request_ch_for("main"));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: a different key env is a distinct endpoint")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  setenv("MISTRAL_API_KEY", "test-key", 1);
+  setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
+  const auto chat = system.transport_add("https://api.mistral.ai", "MISTRAL_API_KEY");
+  const auto other = system.transport_add("https://api.mistral.ai", "MISTRAL_TRANSPORT_TEST_KEY");
+  unsetenv("MISTRAL_API_KEY");
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+
+  CHECK(chat != other);
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: a missing key env throws naming it")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+  try
+  {
+    system.transport_add("https://api.mistral.ai", "MISTRAL_TRANSPORT_TEST_KEY");
+    FAIL("expected std::runtime_error");
+  }
+  catch (const std::runtime_error& e)
+  {
+    CHECK(std::string(e.what()).find("MISTRAL_TRANSPORT_TEST_KEY") != std::string::npos);
+  }
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: an empty key env needs no key")
+{
+  initialize_agent_system_empty();
+  auto& system = mistral::agent::agent_system::instance();
+
+  CHECK_NOTHROW(system.transport_add("https://api.example.com", ""));
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "transport_add: after start_transport returns a channel without connecting")
+{
+  initialize_agent_system_with_main_agent();
+  auto& system = mistral::agent::agent_system::instance();
+
+  setenv("MISTRAL_API_KEY", "test-key", 1);
+  dripcore::scheduler scheduler;
+  system.start_transport(scheduler, "main");
+
+  // Late registration spawns the coordinator inline. It connects lazily,
+  // so no socket is opened and nothing is sent.
+  const auto ch = system.transport_add("https://api.example.com", "");
+  unsetenv("MISTRAL_API_KEY");
+
+  REQUIRE(ch != nullptr);
+  system.stop_transport();
+}
+
+// The embeddings transport is only registered when the knowledge store is
+// compiled in, so these two cases are guarded the same way as the code.
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "initialize: remote embeddings fail fast on a missing key")
+{
+  nlohmann::json config = create_standard_config("mistral-medium", "mistral-medium-latest");
+  config["embeddings"] =
+    nlohmann::json{{"provider", "mistral"}, {"api_key_env", "MISTRAL_TRANSPORT_TEST_KEY"}};
+  create_config_file(config);
+
+  unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
+  auto& system = mistral::agent::agent_system::instance();
+  try
+  {
+    system.initialize(config_file, base_dir, notes_dir);
+    FAIL("expected std::runtime_error");
+  }
+  catch (const std::runtime_error& e)
+  {
+    CHECK(std::string(e.what()).find("MISTRAL_TRANSPORT_TEST_KEY") != std::string::npos);
+  }
+}
+
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "initialize: local embeddings need no transport")
+{
+  nlohmann::json config = create_standard_config("mistral-medium", "mistral-medium-latest");
+  config["embeddings"] = nlohmann::json{{"provider", "local"}};
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  CHECK_NOTHROW(system.initialize(config_file, base_dir, notes_dir));
+}
+#endif // MISTRAL_ENABLE_KNOWLEDGE
 
 TEST_SUITE_END;
 

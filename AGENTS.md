@@ -39,4 +39,15 @@ and the display cap (`ContentLog::k_max_result_bytes`) are independent.
 | nlohmann/json | JSON parsing | MIT |
 | doctest | Unit testing | MIT |
 | OpenSSL | TLS support | Apache License 2.0 |
+| SQLite + sqlite-vec | Knowledge store (doc search) | MIT |
 
+## Knowledge Store
+
+Semantic search over workspace documentation (memory and external
+corpora come later). SQLite + [sqlite-vec](https://github.com/asg017/sqlite-vec)
+(vendored amalgamation in `third_party/sqlite-vec`), hashing-trick
+embeddings (offline, deterministic). The index lives at
+`.mistral-cli/cache/knowledge.db` and refreshes incrementally before
+each search. Tools: `search_docs`, `refresh_docs`. Config: the
+`knowledge` section of `mistral-cli.json`. Build with
+`-DMISTRAL_ENABLE_KNOWLEDGE=OFF` to disable.

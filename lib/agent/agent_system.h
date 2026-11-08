@@ -52,12 +52,19 @@ namespace mistral::tools
   class process_tools;
 } // namespace mistral::tools
 
+namespace mistral::knowledge
+{
+  class embedder;
+  class knowledge_tools;
+} // namespace mistral::knowledge
+
 namespace mistral::agent
 {
   // ---- Transport Endpoint ----
-  // A distinct model API endpoint derived from the agent configs: one
-  // entry per (host, port, api_key_env) referenced by any agent's
-  // model. Agents that share an endpoint share its request channel.
+  // A distinct API endpoint: one entry per (host, port, api_key_env).
+  // Seeded from the agent configs and extended by transport_add() for
+  // service endpoints that are not chat models. Anything sharing an
+  // endpoint shares its request channel.
   struct transport_endpoint
   {
     std::string host = "api.mistral.ai";
@@ -151,6 +158,26 @@ namespace mistral::agent
     // contribute nothing.
     std::vector<transport_endpoint> resolve_transport_endpoints() const;
 
+    // Create-or-get the transport for a service endpoint that is not a
+    // chat model (e.g. the embeddings API). The URI is an authority only
+    // (scheme://host[:port]); base paths stay per-request in
+    // api_request::path. Equivalent endpoints return the same channel, so
+    // a service sharing the chat endpoint's host, port and key costs no
+    // extra connection.
+    //
+    // Safe to call before or after start_transport(). Before start the
+    // endpoint is only registered and start_transport() spawns it; after
+    // start the coordinator is spawned immediately (it connects lazily,
+    // so this costs one idle task and no socket).
+    //
+    // api_key_env names the environment variable holding the key; empty
+    // means the endpoint needs none. A named-but-unset variable throws
+    // here, naming it.
+    std::shared_ptr<dripcore::channel<api::api_request>> transport_add(
+      const std::string& uri,
+      const std::string& api_key_env
+    );
+
     // Get the full configuration
     const full_config& get_config() const
     {
@@ -206,6 +233,13 @@ namespace mistral::agent
     // only that thread mutates.
     void publish_ui_status();
 
+    // Push the current knowledge-index progress. Reuses the last full
+    // snapshot instead of building one: progress ticks are frequent, and
+    // build_completion_context() walks every MCP server and agent tool,
+    // which is far more work than a footer counter is worth. Must be
+    // called on the scheduler thread.
+    void publish_index_progress();
+
     // Current interactive agent id. Registered by interactive_agent_task so
     // slash commands and completers can resolve "the agent the user is
     // talking to".
@@ -225,6 +259,12 @@ namespace mistral::agent
     mistral::tools::code_tools& code_tools()
     {
       return *code_tools_;
+    }
+#endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    mistral::knowledge::knowledge_tools& knowledge_tools()
+    {
+      return *knowledge_tools_;
     }
 #endif
     mistral::tools::exec_tools& exec_tools()
@@ -372,6 +412,14 @@ namespace mistral::agent
     // Initialize tool instances
     void initialize_tools(const std::string& notes_dir);
 
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    // Build the embedder the knowledge store will use: codestral-embed
+    // over the shared transport when the configured provider is remote,
+    // the offline hashing embedder otherwise. Registers the embeddings
+    // transport as a side effect, so a missing API key fails at startup.
+    std::unique_ptr<knowledge::embedder> make_knowledge_embedder();
+#endif
+
     // Build global tool registry
     void build_global_tool_registry();
 
@@ -385,6 +433,13 @@ namespace mistral::agent
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     std::unique_ptr<mistral::tools::code_tools> code_tools_;
 #endif
+#ifdef MISTRAL_ENABLE_KNOWLEDGE
+    std::unique_ptr<mistral::knowledge::knowledge_tools> knowledge_tools_;
+    // Transport for the embeddings endpoint, registered by
+    // initialize_tools() when the configured provider is remote. Consumed
+    // when the embedder is constructed.
+    std::shared_ptr<dripcore::channel<api::api_request>> embeddings_ch_;
+#endif
     std::unique_ptr<mistral::tools::exec_tools> exec_tools_;
     std::unique_ptr<mistral::tools::task_tools> task_tools_;
     std::unique_ptr<mistral::tools::patchset_tools> patchset_tools_;
@@ -397,14 +452,20 @@ namespace mistral::agent
 
     tool_registry global_tools_;
 
-    // One request channel per distinct transport endpoint, built in
-    // initialize() from the agent configs.
+    // One request channel per distinct transport endpoint. Seeded in
+    // initialize() from the agent configs and extended by transport_add()
+    // for service endpoints that are not chat models.
     struct endpoint_entry
     {
       transport_endpoint endpoint;
       std::shared_ptr<dripcore::channel<api::api_request>> request_ch;
+      bool spawned = false;
     };
     std::vector<endpoint_entry> endpoints_;
+
+    // Set by start_transport() so transport_add() can spawn a coordinator
+    // for an endpoint registered after start. Null before start.
+    dripcore::scheduler* transport_sched_ = nullptr;
 
     // Server-side agent id cache (local agent id -> server agent entity id)
     mutable std::mutex server_agent_ids_mtx_;
@@ -419,6 +480,17 @@ namespace mistral::agent
 
     // UI status channel (see ui_status)
     std::shared_ptr<dripcore::channel<ui_status>> ui_status_ch_;
+
+    // Latest knowledge-index progress, kept so a full snapshot carries it
+    // too: a search can start indexing before any phase has reported.
+    ui_status::index_progress index_progress_;
+
+    // Last full snapshot, reused by publish_index_progress() so a tick
+    // does not rebuild the completion context. ui_status_published_
+    // guards against emitting a half-built one before the first
+    // publish_ui_status().
+    ui_status last_ui_status_;
+    bool ui_status_published_ = false;
 
     // Shutdown broadcast (see shutdown_signal())
     std::shared_ptr<common::shutdown_signal> shutdown_signal_;

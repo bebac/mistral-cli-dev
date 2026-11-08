@@ -10,10 +10,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # -----------------------------------------------------------------------------
 
 # Tree-sitter code tools (outline, read_symbol, find_symbol, find_references,
-# ast_search). When OFF, the binary is smaller and builds faster, but the
-# syntax-aware code tools are unavailable — use XERJ (via MCP) for code
-# search instead.
-option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" ON)
+# ast_search). OFF by default: semantic search (search_code) plus `exec` and
+# grep cover the same ground, and dropping the dependency removes a 24 MB
+# generated parser from the build and ~1700 chunks from the code index.
+# Set ON to build the syntax-aware tools.
+option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" OFF)
 
 # Live MCP integration tests. These talk to real servers - the Storybook dev
 # server on 127.0.0.1:6006, a xerj node on localhost:9200, and godbolt.org
@@ -23,6 +24,11 @@ option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" ON)
 #
 # Enable with: cmake -DMISTRAL_ENABLE_LIVE_MCP_TESTS=ON ..
 option(MISTRAL_ENABLE_LIVE_MCP_TESTS "Build tests that require a live MCP server" OFF)
+
+# Knowledge store (semantic doc search over SQLite + sqlite-vec). When
+# OFF, the binary is smaller and builds faster, but search_docs /
+# refresh_docs are unavailable.
+option(MISTRAL_ENABLE_KNOWLEDGE "Build with the knowledge store (doc search)" ON)
 
 # -----------------------------------------------------------------------------
 # Third-party: dripcore
@@ -67,6 +73,42 @@ if(MISTRAL_ENABLE_TREE_SITTER)
 endif()
 
 # -----------------------------------------------------------------------------
+# Third-party: SQLite + sqlite-vec (knowledge store, optional)
+# -----------------------------------------------------------------------------
+
+if(MISTRAL_ENABLE_KNOWLEDGE)
+  # SQLite amalgamation (public domain, https://sqlite.org), vendored in
+  # third_party/sqlite so the build does not depend on the system SQLite.
+  find_package(Threads REQUIRED)
+  add_library(sqlite3 STATIC third_party/sqlite/sqlite3.c)
+  target_include_directories(sqlite3 PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite
+  )
+  target_compile_definitions(sqlite3 PRIVATE
+      SQLITE_THREADSAFE=1
+      SQLITE_ENABLE_MATH_FUNCTIONS
+  )
+  set_target_properties(sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_link_libraries(sqlite3 PUBLIC
+      Threads::Threads
+      ${CMAKE_DL_LIBS}
+  )
+  if(UNIX)
+    target_link_libraries(sqlite3 PUBLIC m)
+  endif()
+
+  # sqlite-vec amalgamation (MIT, https://github.com/asg017/sqlite-vec).
+  # Compiled with SQLITE_CORE so it links statically against the vendored
+  # SQLite; the store registers it per connection via sqlite3_vec_init.
+  add_library(sqlite-vec STATIC third_party/sqlite-vec/sqlite-vec.c)
+  target_compile_definitions(sqlite-vec PRIVATE SQLITE_CORE)
+  target_include_directories(sqlite-vec PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite-vec
+  )
+  target_link_libraries(sqlite-vec PUBLIC sqlite3)
+endif()
+
+# -----------------------------------------------------------------------------
 # Third-party: OpenSSL
 # -----------------------------------------------------------------------------
 
@@ -95,10 +137,16 @@ add_custom_command(
             -DTEMPLATES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/templates
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_templates.cmake
     DEPENDS
+        # The generator itself: without this, editing the embed list does
+        # not regenerate the output, because a newly added template is
+        # usually older than the already-generated file.
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_templates.cmake
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_patchset_instructions.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_researcher.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_xerj.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_prompt_code_tools.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/templates/sys_storybook_notes.md
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/policy.json
         ${CMAKE_CURRENT_SOURCE_DIR}/templates/mistral-cli.json
     COMMENT "Generating embedded workspace templates"
@@ -196,6 +244,17 @@ if(MISTRAL_ENABLE_TREE_SITTER)
     )
 endif()
 
+if(MISTRAL_ENABLE_KNOWLEDGE)
+    list(APPEND MISTRAL_CORE_SOURCES
+        lib/knowledge/hashing_embedder.cpp
+        lib/knowledge/code_chunker.cpp
+        lib/knowledge/markdown_chunker.cpp
+        lib/knowledge/knowledge_store.cpp
+        lib/knowledge/knowledge_tools.cpp
+        lib/knowledge/mistral_embedder.cpp
+    )
+endif()
+
 add_library(mistral-core STATIC
     ${MISTRAL_CORE_SOURCES}
 )
@@ -220,6 +279,11 @@ set(MISTRAL_CORE_LIBS
 if(MISTRAL_ENABLE_TREE_SITTER)
     list(APPEND MISTRAL_CORE_LIBS tree-sitter tree-sitter-cpp)
     target_compile_definitions(mistral-core PUBLIC MISTRAL_ENABLE_TREE_SITTER=1)
+endif()
+
+if(MISTRAL_ENABLE_KNOWLEDGE)
+    list(APPEND MISTRAL_CORE_LIBS sqlite-vec)
+    target_compile_definitions(mistral-core PUBLIC MISTRAL_ENABLE_KNOWLEDGE=1)
 endif()
 
 target_link_libraries(mistral-core PUBLIC
@@ -265,6 +329,13 @@ if(NOT MISTRAL_ENABLE_TREE_SITTER)
     list(REMOVE_ITEM TEST_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/test/code_tools_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/test/tree_sitter_test.cpp
+    )
+endif()
+
+# Exclude knowledge-store tests when the feature is disabled.
+if(NOT MISTRAL_ENABLE_KNOWLEDGE)
+    list(REMOVE_ITEM TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/knowledge_test.cpp
     )
 endif()
 

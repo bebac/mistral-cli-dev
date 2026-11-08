@@ -40,6 +40,9 @@
         "find_symbol",
         "find_references",
         "ast_search",
+        "search_docs",
+        "search_code",
+        "refresh_docs",
         "patchset_get",
         "patchset_add",
         "patchset_clear",
@@ -99,6 +102,18 @@
       "build", "node_modules", "__pycache__"
     ],
     "max_results": 200
+  },
+  "knowledge": {
+    "enabled": true,
+    "db_path": ".mistral-cli/cache/knowledge.db",
+    "include_extensions": [".md", ".txt"],
+    "exclude_dirs": [
+      ".git", ".mistral-cli", ".cache", ".vscode", ".vibe",
+      "build", "node_modules", "__pycache__"
+    ],
+    "chunk_max_chars": 1500,
+    "embedding_dim": 384,
+    "search_max_results": 10
   },
   "policy": {
     "default": "deny"
