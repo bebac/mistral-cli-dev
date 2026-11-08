@@ -295,6 +295,34 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
   CHECK(system.get_config().default_policy == "deny");
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: mcpServers enabled flag")
+{
+  nlohmann::json config = {
+    {"mcpServers",
+     {{"disabled-http", {{"enabled", false}, {"url", "http://127.0.0.1:6006/mcp"}}},
+      {"disabled-stdio",
+       {{"enabled", false}, {"command", "xerj"}, {"args", {"mcp"}}, {"auto_connect", true}}},
+      {"enabled-explicit", {{"enabled", true}, {"url", "http://localhost:1/mcp"}}},
+      {"default-enabled", {{"command", "probe"}, {"auto_connect", true}}},
+      {"shorthand", "http://localhost:2/mcp"}}}};
+
+  create_config_file(config);
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, notes_dir);
+
+  const auto& servers = system.get_config().mcp_servers;
+  // "enabled": false drops the entry entirely — as if it were absent.
+  // This is also what drives the xerj_enabled template flag.
+  CHECK_FALSE(servers.contains("disabled-http"));
+  CHECK_FALSE(servers.contains("disabled-stdio"));
+  CHECK(servers.contains("enabled-explicit"));
+  CHECK(servers.contains("default-enabled"));
+  CHECK(servers.contains("shorthand"));
+  CHECK(servers.at("enabled-explicit").url == "http://localhost:1/mcp");
+  CHECK(servers.at("default-enabled").auto_connect == true);
+  CHECK(servers.at("shorthand").url == "http://localhost:2/mcp");
+}
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered")
 {
   using namespace mistral::agent;

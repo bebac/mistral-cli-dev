@@ -40,6 +40,10 @@ namespace mistral::mcp
   //       }
   //     }
   //
+  // An entry with "enabled": false is dropped when the config is loaded —
+  // equivalent to the entry not being present (no auto-connect, not
+  // listed by /mcp, template feature flags like xerj_enabled stay false).
+  //
   // Agents opt in to MCP tools via available_tools entries:
   //   "mcp:*"           - all tools from all connected servers
   //   "mcp:storybook"   - all tools from one server

@@ -530,10 +530,20 @@ namespace mistral::agent
     //   "<name>": { "url": "..." }                 (HTTP)
     //   "<name>": { "command": "...", "args": [...], "env": {...} }  (stdio)
     // Optional "preflight": { "check_url", "start_command", "post_start_command" }
+    // Optional "enabled": false drops the entry entirely — equivalent to
+    // it not being present: no auto-connect, not listed by /mcp, and
+    // template feature flags (e.g. xerj_enabled) stay false.
     if (j.contains("mcpServers") && j["mcpServers"].is_object())
     {
       for (auto& [name, server_json] : j["mcpServers"].items())
       {
+        // "enabled": false — skip the entry as if it were not configured.
+        if (server_json.is_object() && server_json.contains("enabled") &&
+            server_json["enabled"].is_boolean() && !server_json["enabled"].get<bool>())
+        {
+          continue;
+        }
+
         agent::mcp_server_config cfg;
 
         if (server_json.is_string())
@@ -1668,7 +1678,8 @@ namespace mistral::agent
       tmpl.set_variable("notes_dir", notes_dir_);
 
       // Set feature flags for conditional includes ({{> file if=var}}).
-      // xerj_enabled: true when the xerj MCP server is configured.
+      // xerj_enabled: true when the xerj MCP server is configured and
+      // enabled ("enabled": false entries are dropped at load time).
       tmpl.set_variable("xerj_enabled", config_.mcp_servers.contains("xerj") ? "true" : "false");
 
       // Process the file as a template

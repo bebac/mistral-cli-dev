@@ -10,6 +10,7 @@
     { "type": "tool", "tool": "ast_search" },
     { "type": "tool", "tool": "mcp:storybook" },
     { "type": "tool", "tool": "mcp:xerj" },
+    { "type": "tool", "tool": "mcp:probe" },
     { "type": "tool", "tool": "task_list" },
     { "type": "tool", "tool": "task_get" },
     { "type": "tool", "tool": "task_update" },

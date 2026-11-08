@@ -142,6 +142,10 @@ namespace mistral::agent
   // Preflight flow: HTTP GET check_url; if it fails, spawn
   // start_command as a detached process, poll check_url until it
   // responds (or timeout), then run post_start_command.
+  //
+  // An entry with "enabled": false is dropped when the config is loaded,
+  // equivalent to the entry not being present (no auto-connect, not
+  // listed by /mcp, template feature flags like xerj_enabled stay false).
   struct mcp_server_config
   {
     // HTTP transport (Streamable HTTP endpoint).

@@ -81,6 +81,19 @@ TEST_CASE("fnv1a_64_hex: known vectors")
   CHECK(mistral::agent::fnv1a_64_hex("foobar") == "85944171f73967e8");
 }
 
+TEST_CASE("embedded templates: config and policy JSON parse")
+{
+  // The seeded files must parse the same way load_config_from_file parses
+  // them (comments ignored) — a syntax error here breaks every freshly
+  // bootstrapped workspace at startup.
+  const json config = json::parse(std::string(mistral::embedded::config_json()), nullptr, true, true);
+  CHECK(config.contains("models"));
+  CHECK(config.contains("agents"));
+  CHECK(config.contains("mcpServers"));
+  const json policy = json::parse(std::string(mistral::embedded::policy_json()), nullptr, true, true);
+  CHECK(policy.contains("allow"));
+}
+
 TEST_CASE("bootstrap: seeds all files into an empty workspace")
 {
   temp_workspace ws;

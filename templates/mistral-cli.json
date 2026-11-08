@@ -1,30 +1,34 @@
 {
   "models": {
-    "mistral-large": {
+    "mistral": {
       "provider": "mistral",
-      "model_id": "mistral-large-4",
+      "model_id": [
+        "mistral-large-4",
+        "deepseek-v4-1-flash-1017",
+        "zai-glm-5-3-flash",
+        "zai-glm-5-3",
+        "mistral-small-latest"
+      ],
       "api_key_env": "MISTRAL_API_KEY",
       "base_url": "https://api.mistral.ai",
       "api_version": "v1"
     },
-    "mistral-medium": {
-      "provider": "mistral",
-      "model_id": "mistral-medium-latest",
-      "api_key_env": "MISTRAL_API_KEY",
-      "base_url": "https://api.mistral.ai",
-      "api_version": "v1"
-    },
-    "mistral-small": {
-      "provider": "mistral",
-      "model_id": "mistral-small-latest",
-      "api_key_env": "MISTRAL_API_KEY",
-      "base_url": "https://api.mistral.ai",
+    "greenpt": {
+      "provider": "greenpt",
+      "model_id": [
+        "deepseek-v4.1-flash-1017",
+        "glm-5.3-flash",
+        "glm-5.3"
+      ],
+      "strict_mode": true,
+      "api_key_env": "GREENPT_API_KEY",
+      "base_url": "https://api.greenpt.ai",
       "api_version": "v1"
     }
   },
   "agents": {
     "main": {
-      "model": "mistral-large",
+      "model": "mistral",
       "system_prompt": "file://.mistral-cli/sys_prompt.md",
       "available_tools": [
         "ls",
@@ -62,7 +66,8 @@
       "tool_policy": "file://.mistral-cli/policy.json"
     },
     "researcher": {
-      "model": "mistral-small",
+      "model": "mistral",
+      "model_id": "mistral-small-latest",
       "server_agent": {
         "name": "mistral-cli-researcher",
         "description": "Web research assistant for mistral-cli",
@@ -77,10 +82,14 @@
     }
   },
   "mcpServers": {
-    "storybook": {
-      "url": "http://127.0.0.1:6006/mcp"
+    "probe": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@probelabs/probe@latest", "mcp"],
+      "auto_connect": true
     },
     "xerj": {
+      "enabled": false,
       "command": "xerj",
       "args": ["mcp"],
       "env": {
@@ -91,6 +100,14 @@
         "start_command": ["xerj", "--insecure", "--data-dir", "~/xerj-data"],
         "post_start_command": ["xerj", "autoindex", "."]
       }
+    },
+    "storybook": {
+      "enabled": false,
+      "url": "http://127.0.0.1:6006/mcp"
+    },
+    "compiler-explorer": {
+      "enabled": false,
+      "url": "https://godbolt.org/mcp"
     }
   },
   "code_index": {
