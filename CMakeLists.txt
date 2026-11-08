@@ -13,7 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ast_search). When OFF, the binary is smaller and builds faster, but the
 # syntax-aware code tools are unavailable — use XERJ (via MCP) for code
 # search instead.
-option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" ON)
+option(MISTRAL_ENABLE_TREE_SITTER "Build with tree-sitter code tools" OFF)
 
 # Live MCP integration tests. These talk to real servers - the Storybook dev
 # server on 127.0.0.1:6006, a xerj node on localhost:9200, and godbolt.org
