@@ -82,6 +82,10 @@ the difference decides which mechanism fits:
   The advisory answer is a deny-list of the flag family, plus version
   pinning so that a stale deny-list fails safe. Under the Landlock rung
   this whole class is moot: the launched program inherits the sandbox.
+  One disguise to note: `make -f x.mk` looks like a location problem -
+  the value is a path - but the danger is the *content* of the named
+  file, which scoping cannot see. See "Known holes in the advisory
+  rung".
 
 ## Current behaviour
 
@@ -238,6 +242,36 @@ Semantics:
   time, so "versioned with the binary" holds without hardcoding.
   Convention: one grammar-bearing rule per command - two rules for the
   same command could disagree about its option grammar.
+
+### Known holes in the advisory rung
+
+Path scoping checks where a value points, not what the file it names
+does. That leaves a class the argv grammar cannot express:
+
+- `make -f inside.mk` passes the path check - the makefile is in the
+  workspace - and then executes arbitrary recipes that can write
+  anywhere. The flag's value is inside the boundary; the recipe's
+  effects are not.
+- `cmake -E` (copy/rename/remove to anywhere) and `-P` (run a script)
+  are allowed by the cmake rule today - a write primitive that never
+  touches a patchset.
+- `tests` / `ctest` run compiled test binaries; changed test source
+  (via an approved patchset) executes silently at the next run.
+
+What stands between the agent and these today is the patchset
+approval: every file write goes through `patchset_apply`, which prompts
+with the diff visible. That defense is as strong as the attention paid
+to it - a rubber-stamped patchset that touches the Makefile is a real
+risk.
+
+Considered and deferred (November 2026): forbidding `-f`/`--file` on
+make and `-E`/`-P` on cmake (trivial, but incomplete - the default
+Makefile and subdir makefiles via `-C` remain reachable); a protected
+Makefile (deny-grade rules on patchset edits to it - needs
+`normalize_context` to read `file_path`, see "Open questions"). The
+accepted mitigation is the approval prompt plus the Landlock rung,
+where a makefile's writes outside the workspace fail at the kernel no
+matter who wrote the makefile.
 
 ## Version pinning at bootstrap
 
