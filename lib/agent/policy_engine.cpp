@@ -173,6 +173,20 @@ namespace mistral::agent
             rule.forbid_args.push_back(arg.get<std::string>());
           }
         }
+        if (rule_json.contains("subcommand"))
+        {
+          for (const auto& sub : rule_json["subcommand"])
+          {
+            rule.subcommand.push_back(sub.get<std::string>());
+          }
+        }
+        if (rule_json.contains("value_args"))
+        {
+          for (const auto& arg : rule_json["value_args"])
+          {
+            rule.value_args.push_back(arg.get<std::string>());
+          }
+        }
         if (rule_json.contains("cwd"))
         {
           rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
@@ -282,7 +296,9 @@ namespace mistral::agent
     const std::string& command,
     const std::vector<std::string>& args,
     const std::optional<std::string>& cwd,
-    const std::vector<std::string>& forbid_args
+    const std::vector<std::string>& forbid_args,
+    const std::vector<std::string>& subcommand,
+    const std::vector<std::string>& value_args
   )
   {
     policy_rule rule{
@@ -291,7 +307,9 @@ namespace mistral::agent
       .tool_name = tool_name,
       .command = command,
       .args = args,
-      .forbid_args = forbid_args
+      .forbid_args = forbid_args,
+      .subcommand = subcommand,
+      .value_args = value_args
     };
     if (cwd)
     {
@@ -305,10 +323,12 @@ namespace mistral::agent
     const std::string& command,
     const std::vector<std::string>& args,
     const std::optional<std::string>& cwd,
-    const std::vector<std::string>& forbid_args
+    const std::vector<std::string>& forbid_args,
+    const std::vector<std::string>& subcommand,
+    const std::vector<std::string>& value_args
   )
   {
-    add_executable_rule(rule_action::ALLOW, tool_name, command, args, cwd, forbid_args);
+    add_executable_rule(rule_action::ALLOW, tool_name, command, args, cwd, forbid_args, subcommand, value_args);
   }
 
   void policy_engine::require_approval_executable(
@@ -316,10 +336,12 @@ namespace mistral::agent
     const std::string& command,
     const std::vector<std::string>& args,
     const std::optional<std::string>& cwd,
-    const std::vector<std::string>& forbid_args
+    const std::vector<std::string>& forbid_args,
+    const std::vector<std::string>& subcommand,
+    const std::vector<std::string>& value_args
   )
   {
-    add_executable_rule(rule_action::REQUIRE_APPROVAL, tool_name, command, args, cwd, forbid_args);
+    add_executable_rule(rule_action::REQUIRE_APPROVAL, tool_name, command, args, cwd, forbid_args, subcommand, value_args);
   }
 
   void policy_engine::set_default_policy(policy_decision default_policy)
@@ -536,6 +558,45 @@ namespace mistral::agent
     });
   }
 
+  std::optional<std::string> policy_engine::extract_subcommand(
+    const std::vector<std::string>& value_args,
+    const std::vector<std::string>& args
+  ) const
+  {
+    for (size_t i = 0; i < args.size(); ++i)
+    {
+      const std::string& arg = args[i];
+
+      if (arg == "--")
+      {
+        // End of options: the next argument, if any, is the subcommand.
+        if (i + 1 < args.size())
+        {
+          return args[i + 1];
+        }
+        return std::nullopt;
+      }
+
+      if (!arg.starts_with('-'))
+      {
+        // First non-option argument.
+        return arg;
+      }
+
+      // An option. A value attached with "=" is part of the same token,
+      // so only an exact match on a value-taking option also consumes
+      // the next argument. Anything else is skipped as a plain flag -
+      // which can only mis-parse towards "no subcommand found", never
+      // towards a wrong allow.
+      if (arg.find('=') == std::string::npos &&
+          std::ranges::any_of(value_args, [&](const std::string& value_arg) { return value_arg == arg; }))
+      {
+        ++i;
+      }
+    }
+    return std::nullopt;
+  }
+
   bool policy_engine::cwd_matches(
     const std::optional<std::string>& rule_cwd,
     const std::optional<std::string>& test_cwd
@@ -671,6 +732,14 @@ namespace mistral::agent
         {
           rule.forbid_args = split_comma(parts[i].substr(12));
         }
+        else if (parts[i].starts_with("subcommand="))
+        {
+          rule.subcommand = split_comma(parts[i].substr(11));
+        }
+        else if (parts[i].starts_with("value_args="))
+        {
+          rule.value_args = split_comma(parts[i].substr(11));
+        }
         else if (parts[i].starts_with("cwd="))
         {
           rule.cwd = normalize_path(parts[i].substr(4));
@@ -773,6 +842,27 @@ namespace mistral::agent
       if (!rule.forbid_args.empty() && ctx.command_args && args_match(rule.forbid_args, *ctx.command_args))
       {
         return rule_match::FORBIDDEN;
+      }
+
+      // Subcommand allow-list: the first non-option argument, with
+      // value-taking options (value_args) and their values skipped. A
+      // mis-parse can only produce a missing or wrong subcommand, which
+      // fails the allow-list - it can never widen.
+      if (!rule.subcommand.empty())
+      {
+        if (!ctx.command_args)
+        {
+          return rule_match::NO_MATCH;
+        }
+        std::optional<std::string> subcommand = extract_subcommand(rule.value_args, *ctx.command_args);
+        if (!subcommand)
+        {
+          return rule_match::NO_MATCH;
+        }
+        if (std::ranges::none_of(rule.subcommand, [&](const std::string& entry) { return glob_match(entry, *subcommand); }))
+        {
+          return rule_match::NO_MATCH;
+        }
       }
 
       // Check args if specified in rule

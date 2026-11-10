@@ -1806,3 +1806,94 @@ TEST_CASE("forbid_args: result reason names the matched rule")
 }
 
 TEST_SUITE_END();
+
+// ============================================================================
+// subcommand: allow-lists on the first non-option argument
+// ============================================================================
+
+TEST_SUITE_BEGIN("Subcommand");
+
+TEST_CASE("subcommand: allow-list matches the first non-option argument")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "git", {}, std::nullopt, {}, {"status", "diff", "log"});
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"diff", "--stat"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"push"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  CHECK(engine.evaluate(exec_args_ctx("git", {})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("subcommand: value-taking options are skipped")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "git", {}, std::nullopt, {}, {"status", "diff", "log"}, {"-C", "--git-dir"});
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-C", "build", "status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"--git-dir=.git", "status"})).decision == mistral::agent::policy_decision::ALLOW);
+  // The value-taking option consumed the last argument: no subcommand.
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-C", "build"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("subcommand: undeclared value-taking option fails safe")
+{
+  // "-c" is not declared value-taking, so "x=y" reads as the subcommand
+  // and the rule does not apply - mis-parsing tightens, never widens.
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "git", {}, std::nullopt, {}, {"status", "diff", "log"}, {"-C"});
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-c", "x=y", "status"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("subcommand: no-value options do not swallow the subcommand")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "git", {}, std::nullopt, {}, {"status"}, {"-C"});
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"--no-pager", "status"})).decision == mistral::agent::policy_decision::ALLOW);
+  // Attached short-option value: one token, nothing extra to skip.
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-Cbuild", "status"})).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("subcommand: JSON rule with value_args and forbid_args")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "git"},
+       {"subcommand", mistral::agent::json::array({"status", "diff", "log"})},
+       {"value_args", mistral::agent::json::array({"-C", "--git-dir"})},
+      {"forbid_args", mistral::agent::json::array({"-c", "--output**"})}
+     }})}
+  });
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-C", "build", "status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"push"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  // -c is forbidden outright, so the alias escape is caught before the
+  // subcommand is even extracted.
+  CHECK(engine.evaluate(exec_args_ctx("git", {"-c", "x=y", "status"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  // Globs are gitignore-style: "*" does not cross "/", so an attached
+  // value needs "**" - "--output*" would miss this and fail silent.
+  CHECK(engine.evaluate(exec_args_ctx("git", {"diff", "--output=/tmp/x"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("subcommand: DSL rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.add_rule("allow:exec:command=git,subcommand=status");
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("git", {"push"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_SUITE_END();

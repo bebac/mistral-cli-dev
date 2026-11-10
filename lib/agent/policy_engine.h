@@ -106,6 +106,11 @@ namespace mistral::agent
     // For EXECUTABLE rule type - forbidden args: any argument matching
     // the list sends the command line to the default policy
     std::vector<std::string> forbid_args;
+    // For EXECUTABLE rule type - optional subcommand allow-list
+    std::vector<std::string> subcommand;
+    // For EXECUTABLE rule type - options that consume the next argument,
+    // used to extract the subcommand
+    std::vector<std::string> value_args;
     // For EXECUTABLE rule type - optional working directory constraint
     std::optional<std::string> cwd;
   };
@@ -140,14 +145,18 @@ namespace mistral::agent
       const std::string& command,
       const std::vector<std::string>& args = {},
       const std::optional<std::string>& cwd = std::nullopt,
-      const std::vector<std::string>& forbid_args = {}
+      const std::vector<std::string>& forbid_args = {},
+      const std::vector<std::string>& subcommand = {},
+      const std::vector<std::string>& value_args = {}
     );
     void require_approval_executable(
       const std::string& tool_name,
       const std::string& command,
       const std::vector<std::string>& args = {},
       const std::optional<std::string>& cwd = std::nullopt,
-      const std::vector<std::string>& forbid_args = {}
+      const std::vector<std::string>& forbid_args = {},
+      const std::vector<std::string>& subcommand = {},
+      const std::vector<std::string>& value_args = {}
     );
 
     // Set default policy
@@ -206,7 +215,9 @@ namespace mistral::agent
       const std::string& command,
       const std::vector<std::string>& args,
       const std::optional<std::string>& cwd,
-      const std::vector<std::string>& forbid_args
+      const std::vector<std::string>& forbid_args,
+      const std::vector<std::string>& subcommand,
+      const std::vector<std::string>& value_args
     );
 
     // Set rule.path from a raw path, honouring a leading "!" negation
@@ -262,6 +273,13 @@ namespace mistral::agent
 
     // Check if args match
     bool args_match(const std::vector<std::string>& rule_args, const std::vector<std::string>& test_args) const;
+
+    // Extract the subcommand: the first non-option argument, skipping
+    // options declared value-taking (and their values)
+    std::optional<std::string> extract_subcommand(
+      const std::vector<std::string>& value_args,
+      const std::vector<std::string>& args
+    ) const;
 
     // Check if cwd matches
     bool cwd_matches(const std::optional<std::string>& rule_cwd, const std::optional<std::string>& test_cwd) const;

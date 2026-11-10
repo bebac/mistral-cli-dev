@@ -1,9 +1,9 @@
 # Exec policy: command-line matching and containment
 
 **Status:** design note. The direction was settled in a design review
-(November 2026). `forbid_args` is implemented; the subcommand field,
-path-taking options and the Landlock rung are not. Passages describing
-current behaviour say so explicitly.
+(November 2026). `forbid_args` and `subcommand` (with `value_args`) are
+implemented; path-taking options and the Landlock rung are not.
+Passages describing current behaviour say so explicitly.
 
 ## Summary
 
@@ -98,7 +98,8 @@ one. That was the whole limitation: no way to express "this command,
 without that flag", and no way to scope the paths a command operates
 on. `forbid_args` (implemented) closes the negation half: any argument
 matching the list sends the command line straight to the default
-policy. Scoping paths and matching subcommands remain open.
+policy. `subcommand` with `value_args` (implemented) closes the git
+case. Scoping paths remains open.
 
 The pre-check (`exec_tools::validate`, `lib/tools/exec_tools.cpp:48`)
 runs before the policy and rejects shell syntax in the command field
@@ -172,7 +173,8 @@ grammar with token kinds matched to the failure mode they cover:
 
 | Token kind | Field | Mechanism | Covers |
 |---|---|---|---|
-| Subcommand | `subcommand` | allow-list on the first non-flag argument | `git push` vs `git status` |
+| Subcommand | `subcommand` | allow-list on the first non-option argument | `git push` vs `git status` |
+| Value-taking option | `value_args` | declares which options consume the next argument, so the subcommand scan can skip them | `git -C build status` |
 | Path-taking option | `path_args` | value resolved and checked against the rule's directory scope | `make -f ../x.mk`, `git -C /etc` |
 | Positional path operand | `path_operands` | non-flag arguments treated as paths, scoped the same way | `find /etc ...` |
 | Execution flag | `forbid_args` | deny-list, checked before everything else | `find -exec`, `git -c` |
@@ -180,7 +182,8 @@ grammar with token kinds matched to the failure mode they cover:
 ```json
 { "type": "executable", "tool": "exec", "command": "git",
   "subcommand": ["status", "diff", "log"],
-  "forbid_args": ["-c", "--exec-path*", "--ext-diff", "--textconv", "--output*"] }
+  "value_args": ["-C", "--git-dir", "--work-tree", "--namespace"],
+  "forbid_args": ["-c", "--exec-path**", "--ext-diff", "--textconv", "--output**"] }
 ```
 
 ```json
@@ -200,21 +203,30 @@ Semantics:
   A match goes straight to the default policy, not to the next matching
   rule: a forbidden argument is a verdict about the command line, not
   about the rule that happened to name it. (Decided; implemented.)
-- `subcommand` needs to know which options take a value (`-c`, `-C`,
-  `--git-dir`, ...) so that `git -c x=y status` is read as subcommand
-  `status`, not `x=y`. There is no generic argv parsing: the grammar
-  table itself declares, per command, which options consume a value.
+- `subcommand` needs to know which options take a value so that
+  `git -C build status` is read as subcommand `status`, not `build`.
+  The rule declares these itself (`value_args`); there is no generic
+  argv parsing. A mis-declared list can only mis-parse towards "no
+  subcommand found" or a subcommand not in the allow-list - both
+  prompt; it can never silently widen. (Decided: per-rule JSON;
+  implemented.)
+- Glob patterns follow the engine's gitignore-style semantics: `*` does
+  not cross `/`, `**` does. A flag whose value attaches with `=`
+  (`--output=/tmp/x`) therefore needs `--output**` in a deny-list, not
+  `--output*` - worth remembering because a too-narrow deny-list entry
+  fails silent, not safe.
 - Each `path_args` value is resolved and must satisfy the rule's scope
   (its `cwd`, or the workspace root). Any outside value means the rule
   does not apply.
 - `path_operands: true` treats non-flag positional arguments as paths
   and scopes them the same way. It is per-command: for `git` the
   positional argument is the subcommand, not a path.
-- The grammar table - which options take values, which are path-taking,
-  which are the execution family - lives in code, versioned with the
-  binary, not in `policy.json`. It encodes knowledge about tools, not
-  about this workspace. `policy.json` names commands and picks
-  constraints.
+- The grammar lives in the rule, not in the engine: the engine is a
+  generic matcher with no built-in command names. Curated defaults ship
+  in `templates/policy.json`, which is embedded in the binary at build
+  time, so "versioned with the binary" holds without hardcoding.
+  Convention: one grammar-bearing rule per command - two rules for the
+  same command could disagree about its option grammar.
 
 ## Version pinning at bootstrap
 
@@ -333,9 +345,10 @@ Match the first non-flag argument against a list.
 - **For:** expresses the git case directly and reads well.
 - **Against:** requires knowing which options take a value, otherwise
   `git -c x=y status` looks like subcommand `x=y`.
-- **Verdict:** adopted. The options-that-take-a-value knowledge lives
-  in the grammar table in code, bounded by the handful of commands in
-  the default policy.
+- **Verdict:** adopted. The options-that-take-a-value knowledge is
+  declared per rule (`value_args`), not built into the engine: a
+  mis-declared list mis-parses towards prompting, never towards a
+  silent allow.
 
 ### C. Full command-line pattern - rejected
 
@@ -432,8 +445,11 @@ is the same shape as the exclusion one: compare
 - `git status` / `diff` / `log` -> allowed; `git push` / `config` /
   `commit` -> not.
 - `git -c alias.p='!sh -c ...' p` -> not allowed.
+- `git -C build status` -> allowed (value-taking option skipped).
+- `git --no-pager status` -> allowed (no-value option skipped).
 - `git -C /elsewhere status` -> not allowed.
-- Glob patterns in `forbid_args` (`-fprint*`).
+- Glob patterns in `forbid_args`: `*` does not cross `/`; attached
+  values need `**` (`-fprint*`, `--output**`).
 - A rule with both `forbid_args` and `args`: forbidden wins.
 - Version pinning: installed version known to the capability table ->
   rule applies; unknown version -> rule does not apply, warning
