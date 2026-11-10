@@ -166,6 +166,13 @@ namespace mistral::agent
             rule.args.push_back(arg.get<std::string>());
           }
         }
+        if (rule_json.contains("forbid_args"))
+        {
+          for (const auto& arg : rule_json["forbid_args"])
+          {
+            rule.forbid_args.push_back(arg.get<std::string>());
+          }
+        }
         if (rule_json.contains("cwd"))
         {
           rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
@@ -274,11 +281,17 @@ namespace mistral::agent
     const std::string& tool_name,
     const std::string& command,
     const std::vector<std::string>& args,
-    const std::optional<std::string>& cwd
+    const std::optional<std::string>& cwd,
+    const std::vector<std::string>& forbid_args
   )
   {
     policy_rule rule{
-      .action = action, .type = rule_type::EXECUTABLE, .tool_name = tool_name, .command = command, .args = args
+      .action = action,
+      .type = rule_type::EXECUTABLE,
+      .tool_name = tool_name,
+      .command = command,
+      .args = args,
+      .forbid_args = forbid_args
     };
     if (cwd)
     {
@@ -291,20 +304,22 @@ namespace mistral::agent
     const std::string& tool_name,
     const std::string& command,
     const std::vector<std::string>& args,
-    const std::optional<std::string>& cwd
+    const std::optional<std::string>& cwd,
+    const std::vector<std::string>& forbid_args
   )
   {
-    add_executable_rule(rule_action::ALLOW, tool_name, command, args, cwd);
+    add_executable_rule(rule_action::ALLOW, tool_name, command, args, cwd, forbid_args);
   }
 
   void policy_engine::require_approval_executable(
     const std::string& tool_name,
     const std::string& command,
     const std::vector<std::string>& args,
-    const std::optional<std::string>& cwd
+    const std::optional<std::string>& cwd,
+    const std::vector<std::string>& forbid_args
   )
   {
-    add_executable_rule(rule_action::REQUIRE_APPROVAL, tool_name, command, args, cwd);
+    add_executable_rule(rule_action::REQUIRE_APPROVAL, tool_name, command, args, cwd, forbid_args);
   }
 
   void policy_engine::set_default_policy(policy_decision default_policy)
@@ -353,23 +368,41 @@ namespace mistral::agent
     {
       for (const auto& rule : rules_ | std::views::reverse)
       {
-        if (rule.type == type && rule_matches(rule, normalized_ctx))
+        if (rule.type != type)
         {
+          continue;
+        }
+        switch (rule_matches(rule, normalized_ctx))
+        {
+        case rule_match::MATCH:
           return make_result(rule);
+        case rule_match::FORBIDDEN:
+          // A forbidden argument is a verdict about the command line,
+          // not about this rule: go straight to the default policy
+          // instead of letting another rule re-litigate it.
+          return default_result(std::format("Forbidden argument matched rule: {}", rule.id));
+        case rule_match::NO_MATCH:
+          break;
         }
       }
     }
 
-    // Apply the default policy.
+    return default_result(std::nullopt);
+  }
+
+  policy_result policy_engine::default_result(const std::optional<std::string>& reason) const
+  {
     switch (default_policy_)
     {
     case policy_decision::ALLOW:
-      return policy_result{policy_decision::ALLOW, "Default policy: allow", std::nullopt};
+      return policy_result{policy_decision::ALLOW, reason.value_or("Default policy: allow"), std::nullopt};
     case policy_decision::REQUIRE_APPROVAL:
-      return policy_result{policy_decision::REQUIRE_APPROVAL, "Default policy: require approval", std::nullopt};
+      return policy_result{
+        policy_decision::REQUIRE_APPROVAL, reason.value_or("Default policy: require approval"), std::nullopt
+      };
     case policy_decision::DENY:
     default:
-      return policy_result{policy_decision::DENY, "Default policy: deny", std::nullopt};
+      return policy_result{policy_decision::DENY, reason.value_or("Default policy: deny"), std::nullopt};
     }
   }
 
@@ -494,7 +527,8 @@ namespace mistral::agent
     const std::vector<std::string>& test_args
   ) const
   {
-    // "List match": any test arg matching any rule arg is enough.
+    // "List match": any test arg matching any rule arg is enough. Also
+    // serves forbid_args, where it means "any forbidden arg is present".
     return std::ranges::any_of(test_args, [&](const std::string& test_arg) {
       return std::ranges::any_of(rule_args, [&](const std::string& rule_arg) {
         return glob_match(rule_arg, test_arg);
@@ -633,6 +667,10 @@ namespace mistral::agent
           std::string args_str = parts[i].substr(5);
           rule.args = split_comma(args_str);
         }
+        else if (parts[i].starts_with("forbid_args="))
+        {
+          rule.forbid_args = split_comma(parts[i].substr(12));
+        }
         else if (parts[i].starts_with("cwd="))
         {
           rule.cwd = normalize_path(parts[i].substr(4));
@@ -641,7 +679,7 @@ namespace mistral::agent
     }
   }
 
-  bool policy_engine::rule_matches(const policy_rule& rule, const policy_context& ctx) const
+  rule_match policy_engine::rule_matches(const policy_rule& rule, const policy_context& ctx) const
   {
     // Check tool name match
     if (rule.tool_name != "*" && rule.tool_name != ctx.tool_name)
@@ -655,12 +693,12 @@ namespace mistral::agent
         const auto& registered = mcp::mcp_manager::instance().tool_names(rule.tool_name.substr(4));
         if (std::find(registered.begin(), registered.end(), ctx.tool_name) == registered.end())
         {
-          return false;
+          return rule_match::NO_MATCH;
         }
       }
       else
       {
-        return false;
+        return rule_match::NO_MATCH;
       }
     }
 
@@ -668,22 +706,26 @@ namespace mistral::agent
     {
     case rule_type::TOOL:
       // Tool name already matched above
-      return true;
+      return rule_match::MATCH;
 
     case rule_type::DIRECTORY:
     {
       // Need a path argument
       if (!ctx.normalized_path)
-        return false;
+        return rule_match::NO_MATCH;
 
-      return path_matches(rule.path, *ctx.normalized_path, rule.path_negated, rule.exclusions);
+      if (path_matches(rule.path, *ctx.normalized_path, rule.path_negated, rule.exclusions))
+      {
+        return rule_match::MATCH;
+      }
+      return rule_match::NO_MATCH;
     }
 
     case rule_type::PATH_PREFIX:
     {
       // Need a path argument
       if (!ctx.normalized_path)
-        return false;
+        return rule_match::NO_MATCH;
 
       const std::string& path = *ctx.normalized_path;
       const std::string& prefix = rule.path_prefix;
@@ -694,17 +736,17 @@ namespace mistral::agent
         // Make sure it's a proper prefix match (not just partial match)
         if (path.size() == prefix.size() || path[prefix.size()] == '/' || prefix.back() == '/')
         {
-          return true;
+          return rule_match::MATCH;
         }
       }
-      return false;
+      return rule_match::NO_MATCH;
     }
 
     case rule_type::EXECUTABLE:
     {
       // Need a command in context
       if (!ctx.command_name)
-        return false;
+        return rule_match::NO_MATCH;
 
       // A rule that pins a cwd names a binary by location, so it also
       // matches path-qualified spellings of that binary: either the
@@ -716,31 +758,40 @@ namespace mistral::agent
         bool path_matches_rule = ctx.resolved_command_path && executable_path_matches(rule, *ctx.resolved_command_path);
         if (!name_and_cwd && !path_matches_rule)
         {
-          return false;
+          return rule_match::NO_MATCH;
         }
       }
       else if (!command_matches(rule.command, *ctx.command_name))
       {
-        return false;
+        return rule_match::NO_MATCH;
+      }
+
+      // Forbidden arguments are checked before the args allow-list and
+      // win over it. The match is a verdict about the command line, not
+      // about this rule, so evaluate() takes it straight to the default
+      // policy.
+      if (!rule.forbid_args.empty() && ctx.command_args && args_match(rule.forbid_args, *ctx.command_args))
+      {
+        return rule_match::FORBIDDEN;
       }
 
       // Check args if specified in rule
       if (!rule.args.empty())
       {
         if (!ctx.command_args)
-          return false;
+          return rule_match::NO_MATCH;
         if (!args_match(rule.args, *ctx.command_args))
         {
-          return false;
+          return rule_match::NO_MATCH;
         }
       }
 
-      return true;
+      return rule_match::MATCH;
     }
 
     case rule_type::UNKNOWN:
     default:
-      return false;
+      return rule_match::NO_MATCH;
     }
   }
 

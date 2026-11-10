@@ -31,7 +31,8 @@
     { "type": "executable", "tool": "exec", "command": "head" },
     { "type": "executable", "tool": "exec", "command": "cat" },
     { "type": "executable", "tool": "exec", "command": "grep" },
-    { "type": "executable", "tool": "exec", "command": "find" },
+    { "type": "executable", "tool": "exec", "command": "find",
+      "forbid_args": ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"] },
     { "type": "executable", "tool": "exec", "command": "ls" },
     { "type": "executable", "tool": "exec", "command": "tests", "cwd": "build" },
     { "type": "executable", "tool": "exec", "command": "make", "cwd": "." }

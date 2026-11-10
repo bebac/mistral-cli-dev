@@ -1,8 +1,9 @@
 # Exec policy: command-line matching and containment
 
-**Status:** not implemented - design note. The direction below was settled
-in a design review (November 2026); this document does not describe
-current behaviour.
+**Status:** design note. The direction was settled in a design review
+(November 2026). `forbid_args` is implemented; the subcommand field,
+path-taking options and the Landlock rung are not. Passages describing
+current behaviour say so explicitly.
 
 ## Summary
 
@@ -93,9 +94,11 @@ An `executable` rule is matched in `rule_matches`
 | cwd | `cwd_matches` | exact, or prefix for subdirectories |
 
 `args` is an allow-list, so it can *require* a flag but never *forbid*
-one. That is the whole limitation: there is no way to express "this
-command, without that flag", and no way to scope the paths a command
-operates on.
+one. That was the whole limitation: no way to express "this command,
+without that flag", and no way to scope the paths a command operates
+on. `forbid_args` (implemented) closes the negation half: any argument
+matching the list sends the command line straight to the default
+policy. Scoping paths and matching subcommands remain open.
 
 The pre-check (`exec_tools::validate`, `lib/tools/exec_tools.cpp:48`)
 runs before the policy and rejects shell syntax in the command field
@@ -193,9 +196,10 @@ grammar with token kinds matched to the failure mode they cover:
 
 Semantics:
 
-- `forbid_args` is checked first; any match means the rule does not
-  apply. (Whether that falls through to the next matching rule or goes
-  straight to the default is an open question, below.)
+- `forbid_args` is checked first and wins over the `args` allow-list.
+  A match goes straight to the default policy, not to the next matching
+  rule: a forbidden argument is a verdict about the command line, not
+  about the rule that happened to name it. (Decided; implemented.)
 - `subcommand` needs to know which options take a value (`-c`, `-C`,
   `--git-dir`, ...) so that `git -c x=y status` is read as subcommand
   `status`, not `x=y`. There is no generic argv parsing: the grammar
@@ -311,8 +315,8 @@ loses nothing, it just does not gain the enforcement rung.
 
 ### A. `forbid_args` deny-list - adopted, for execution flags only
 
-Checked before the `args` allow-list; any match makes the rule not
-apply.
+Checked before the `args` allow-list; any match makes the command line
+go straight to the default policy - no fall-through to other rules.
 
 - **For:** small, and it closes the demonstrated hole.
 - **Against:** deny-lists are open-ended; a flag added by a future
@@ -397,10 +401,6 @@ is the same shape as the exclusion one: compare
 
 ## Open questions
 
-- When `forbid_args` matches, should the rule fall through to the next
-  matching rule, or go straight to the default policy? Fall-through
-  lets a more specific allow rule win; straight-to-default is easier to
-  reason about.
 - Should an `executable` rule with no `args`/`subcommand`/`path_args`
   constraint keep meaning "name only" (today), or be treated as too
   broad to allow?

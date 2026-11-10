@@ -71,6 +71,17 @@ namespace mistral::agent
     REQUIRE_APPROVAL
   };
 
+  // Outcome of matching one rule against a context.
+  enum class rule_match
+  {
+    NO_MATCH,
+    MATCH,
+    // The command line hit a forbidden argument (forbid_args). This is a
+    // verdict about the command line, not about the rule: evaluation goes
+    // straight to the default policy instead of trying other rules.
+    FORBIDDEN
+  };
+
   // ---- Policy Rule ----
 
   struct policy_rule
@@ -92,6 +103,9 @@ namespace mistral::agent
     std::string command;
     // For EXECUTABLE rule type - optional args constraint
     std::vector<std::string> args;
+    // For EXECUTABLE rule type - forbidden args: any argument matching
+    // the list sends the command line to the default policy
+    std::vector<std::string> forbid_args;
     // For EXECUTABLE rule type - optional working directory constraint
     std::optional<std::string> cwd;
   };
@@ -125,13 +139,15 @@ namespace mistral::agent
       const std::string& tool_name,
       const std::string& command,
       const std::vector<std::string>& args = {},
-      const std::optional<std::string>& cwd = std::nullopt
+      const std::optional<std::string>& cwd = std::nullopt,
+      const std::vector<std::string>& forbid_args = {}
     );
     void require_approval_executable(
       const std::string& tool_name,
       const std::string& command,
       const std::vector<std::string>& args = {},
-      const std::optional<std::string>& cwd = std::nullopt
+      const std::optional<std::string>& cwd = std::nullopt,
+      const std::vector<std::string>& forbid_args = {}
     );
 
     // Set default policy
@@ -189,7 +205,8 @@ namespace mistral::agent
       const std::string& tool_name,
       const std::string& command,
       const std::vector<std::string>& args,
-      const std::optional<std::string>& cwd
+      const std::optional<std::string>& cwd,
+      const std::vector<std::string>& forbid_args
     );
 
     // Set rule.path from a raw path, honouring a leading "!" negation
@@ -211,8 +228,11 @@ namespace mistral::agent
     // Normalize context paths and extract exec-specific fields
     policy_context normalize_context(const policy_context& ctx) const;
 
-    // Check if a rule matches the context
-    bool rule_matches(const policy_rule& rule, const policy_context& ctx) const;
+    // Match a rule against the context
+    rule_match rule_matches(const policy_rule& rule, const policy_context& ctx) const;
+
+    // Result for the default policy; `reason` overrides the standard text
+    policy_result default_result(const std::optional<std::string>& reason) const;
 
     // Build the result for a matching rule (custom message lookup included)
     policy_result make_result(const policy_rule& rule) const;

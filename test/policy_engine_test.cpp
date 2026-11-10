@@ -1689,3 +1689,120 @@ TEST_CASE("Rule message overrides the rejection message")
 }
 
 TEST_SUITE_END();
+
+// ============================================================================
+// forbid_args: execution-flag deny-lists for executable rules
+// ============================================================================
+
+TEST_SUITE_BEGIN("ForbidArgs");
+
+namespace
+{
+  mistral::agent::policy_context exec_args_ctx(const std::string& command, const std::vector<std::string>& args)
+  {
+    return mistral::agent::policy_context{
+      .tool_name = "exec",
+      .tool_arguments = mistral::agent::json{{"command", command}, {"args", args}},
+      .working_directory = ""
+    };
+  }
+} // namespace
+
+TEST_CASE("forbid_args: forbidden flag falls to the default policy")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "find"},
+       {"forbid_args", mistral::agent::json::array({"-exec", "-delete"})}
+     }})}
+  });
+
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-name", "x"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_args_ctx("find", {"-name", "x", "-delete"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_args_ctx("find", {"-exec", "rm", "-rf", "/", ";"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("forbid_args: glob patterns match flag families")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "find", {}, std::nullopt, {"-fprint*"});
+
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-print"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-fprint"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  CHECK(
+    engine.evaluate(exec_args_ctx("find", {"-fprint0", "/tmp/x"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("forbid_args wins over the args allow-list")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "git", {"status", "log"}, std::nullopt, {"-c"});
+
+  CHECK(engine.evaluate(exec_args_ctx("git", {"status"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_args_ctx("git", {"-c", "alias.p=!sh", "status"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("forbid_args goes straight to the default policy, not to the next rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::DENY);
+
+  // The TOOL rule would allow any exec call, and EXECUTABLE rules are
+  // checked before TOOL rules: a forbidden match must skip it instead
+  // of falling through to it.
+  engine.allow_tool("exec");
+  engine.allow_executable("exec", "find", {}, std::nullopt, {"-delete"});
+
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-name", "x"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-name", "x", "-delete"})).decision == mistral::agent::policy_decision::DENY);
+}
+
+TEST_CASE("forbid_args: command with no arguments is not forbidden")
+{
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "find", {}, std::nullopt, {"-delete"});
+
+  CHECK(engine.evaluate(exec_args_ctx("find", {})).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("forbid_args: DSL rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.add_rule("allow:exec:command=find,forbid_args=-delete");
+
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-name", "x"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_args_ctx("find", {"-delete"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("forbid_args: result reason names the matched rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_executable("exec", "find", {}, std::nullopt, {"-delete"});
+
+  auto result = engine.evaluate(exec_args_ctx("find", {"-delete"}));
+  CHECK(result.decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  REQUIRE(result.reason.has_value());
+  CHECK(result.reason->find("Forbidden argument") != std::string::npos);
+}
+
+TEST_SUITE_END();
