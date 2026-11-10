@@ -40,7 +40,6 @@ namespace mistral::common
 namespace mistral::tools
 {
   class file_tools;
-  class note_tools;
 #ifdef MISTRAL_ENABLE_TREE_SITTER
   class code_tools;
 #endif
@@ -90,7 +89,7 @@ namespace mistral::agent
     void initialize(
       const std::string& config_file,
       const std::string& base_dir,
-      const std::string& notes_dir
+      const std::string& tasks_dir
     );
 
     // Resolve system prompt (handles file:// URLs). When the agent's
@@ -217,10 +216,6 @@ namespace mistral::agent
     {
       return *file_tools_;
     }
-    mistral::tools::note_tools& note_tools()
-    {
-      return *note_tools_;
-    }
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     mistral::tools::code_tools& code_tools()
     {
@@ -280,10 +275,10 @@ namespace mistral::agent
     // Shared channels
     std::shared_ptr<dripcore::channel<stat_message>> stats_ch() const;
 
-    // Notes directory
-    const std::string& notes_dir() const
+    // Tasks directory
+    const std::string& tasks_dir() const
     {
-      return notes_dir_;
+      return tasks_dir_;
     }
 
     // Last AI response access
@@ -370,7 +365,7 @@ namespace mistral::agent
     std::vector<std::string> reachable_agent_ids(const std::string& agent_id) const;
 
     // Initialize tool instances
-    void initialize_tools(const std::string& notes_dir);
+    void initialize_tools(const std::string& tasks_dir);
 
     // Build global tool registry
     void build_global_tool_registry();
@@ -378,10 +373,9 @@ namespace mistral::agent
   private:
     full_config config_;
     std::string base_dir_;
-    std::string notes_dir_;
+    std::string tasks_dir_;
 
     std::unique_ptr<mistral::tools::file_tools> file_tools_;
-    std::unique_ptr<mistral::tools::note_tools> note_tools_;
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     std::unique_ptr<mistral::tools::code_tools> code_tools_;
 #endif

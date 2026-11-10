@@ -19,7 +19,7 @@ Built with **C++20**, **coroutines** (via [dripcore](https://github.com/bebac/dr
 
 ### Tools & workspace
 
-- **Tool integration** — file listing/reading, syntax-aware code exploration (tree-sitter), exec, notes, task tracking, and patchset-based file editing.
+- **Tool integration** — file listing/reading, syntax-aware code exploration (tree-sitter), exec, task tracking, and patchset-based file editing.
 - **MCP integration** — connect to [Model Context Protocol](https://modelcontextprotocol.io/) servers (HTTP or stdio) for additional tools, with auto-connect on startup and a TUI status indicator.
 - **Multi-agent configuration** — models, agents, and tool policy configured via `.mistral-cli/mistral-cli.json`.
 - **Workspace bootstrap** — default configuration files are embedded in the executables and seeded automatically on startup.
@@ -186,7 +186,7 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 | Option                   | Description                                                        | Default                                      |
 |--------------------------|--------------------------------------------------------------------|----------------------------------------------|
 | `-c, --config-file FILE` | Configuration file path.                                           | `.mistral-cli/mistral-cli.json`              |
-| `-n, --notes-dir DIR`    | Notes directory.                                                   | `.mistral-cli/notes`                         |
+| `-t, --tasks-dir DIR`    | Tasks directory.                                                   | `.mistral-cli/tasks`                         |
 | `-a, --agent AGENT`      | Agent ID to use.                                                   | `main`                                       |
 | `-r, --resume`           | Resume the latest chat session                                     |                                              |
 | `-e, --system-prompt-show` | Show the resolved system prompt, then exit.                      |                                              |
@@ -213,7 +213,7 @@ The model is no longer selected on the command line; it comes from the agent's m
 
 mistral-cli and mistral-tui load their configuration from a `.mistral-cli/`
 directory in the working directory (agents, system prompts, tool policy,
-notes and chat history).
+tasks and chat history).
 
 No manual setup is needed: the default files from `templates/` are embedded
 into the executables and a new `.mistral-cli/` directory is bootstrapped
@@ -328,7 +328,6 @@ In the TUI, **Esc** during an approval prompt rejects the call.
 | `find_references` | Find usage sites of a named symbol across a directory tree (definition sites excluded). |
 | `ast_search` | Search a file or tree with a tree-sitter query (scheme-like syntax). |
 | `exec` | Execute an external command (no shell involved). |
-| `note_list`, `note_read`, `note_write`, `note_search` | Manage notes in the notes directory. |
 | `patchset_add`, `patchset_get`, `patchset_validate`, `patchset_update`, `patchset_remove`, `patchset_apply`, `patchset_clear` | Patchset-based file editing workflow. |
 | `task_create`, `task_list`, `task_get`, `task_update`, `task_search` | Project task tracking. |
 | `web_search` | Search the web via a server-side research agent (Mistral Agents API `web_search` builtin tool). |

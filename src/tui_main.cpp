@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
   std::signal(SIGPIPE, SIG_IGN);
 
   std::string base_dir = ".mistral-cli";
-  std::string notes_dir = ".mistral-cli/notes";
+  std::string tasks_dir = ".mistral-cli/tasks";
   std::string agent_id = "main";
   std::string config_file_path;
   std::string theme_name = "dark";
@@ -133,7 +133,7 @@ int main(int argc, char* argv[])
 
   try
   {
-    agent_system.initialize(config_file.string(), base_dir, notes_dir);
+    agent_system.initialize(config_file.string(), base_dir, tasks_dir);
   }
   catch (const std::exception& e)
   {

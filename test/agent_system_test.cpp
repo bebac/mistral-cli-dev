@@ -6,7 +6,6 @@
 #include "tui/tui_bridge_tasks.h"
 #include "tools/exec_tools.h"
 #include "tools/file_tools.h"
-#include "tools/note_tools.h"
 #include <doctest/doctest.h>
 
 #include <dripcore/scheduler.h>
@@ -35,7 +34,7 @@ struct AgentSystemTestFixture
   std::string temp_dir;
   std::string config_file;
   std::string base_dir;
-  std::string notes_dir;
+  std::string tasks_dir;
 
   AgentSystemTestFixture()
   {
@@ -45,8 +44,8 @@ struct AgentSystemTestFixture
 
     config_file = (std::filesystem::path(temp_dir) / "mistral-cli.json").string();
     base_dir = std::filesystem::path(temp_dir).string();
-    notes_dir = (std::filesystem::path(temp_dir) / "notes").string();
-    std::filesystem::create_directories(notes_dir);
+    tasks_dir = (std::filesystem::path(temp_dir) / "tasks").string();
+    std::filesystem::create_directories(tasks_dir);
   }
 
   ~AgentSystemTestFixture()
@@ -102,7 +101,7 @@ struct AgentSystemTestFixture
   {
     create_config_file(create_standard_config(model_name, model_id));
     auto& system = mistral::agent::agent_system::instance();
-    system.initialize(config_file, base_dir, notes_dir);
+    system.initialize(config_file, base_dir, tasks_dir);
   }
 
   // Helper to initialize agent_system with empty config (for tests that don't need config data)
@@ -110,7 +109,7 @@ struct AgentSystemTestFixture
   {
     create_config_file(nlohmann::json({}));
     auto& system = mistral::agent::agent_system::instance();
-    system.initialize(config_file, base_dir, notes_dir);
+    system.initialize(config_file, base_dir, tasks_dir);
   }
 };
 
@@ -172,7 +171,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: basic config")
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // Check models
   CHECK(system.has_model_config("mistral-medium"));
@@ -215,7 +214,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: model_id array
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   const auto& model = system.get_model_config("mistral-glm");
   REQUIRE(model.model_ids.size() == 3);
@@ -233,7 +232,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "model selection: switch and validatio
 {
   create_config_file(create_standard_config("mistral-medium", "mistral-medium-latest"));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // Extend the entry with a second selectable id.
   {
@@ -249,7 +248,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "model selection: switch and validatio
       {"policy", {{"default", "deny"}}}
     };
     create_config_file(config);
-    system.initialize(config_file, base_dir, notes_dir);
+    system.initialize(config_file, base_dir, tasks_dir);
   }
 
   // Defaults to the first id.
@@ -270,7 +269,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: missing file t
 {
   CHECK_THROWS_AS(
     mistral::agent::agent_system::instance().initialize(
-      "/nonexistent/path/mistral-cli.json", base_dir, notes_dir
+      "/nonexistent/path/mistral-cli.json", base_dir, tasks_dir
     ),
     std::runtime_error
   );
@@ -280,7 +279,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: invalid JSON t
 {
   create_config_file(std::string("this is not valid json {"));
   CHECK_THROWS_AS(
-    mistral::agent::agent_system::instance().initialize(config_file, base_dir, notes_dir), std::runtime_error
+    mistral::agent::agent_system::instance().initialize(config_file, base_dir, tasks_dir), std::runtime_error
   );
 }
 
@@ -288,7 +287,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: empty config")
 {
   create_config_file(nlohmann::json({}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK(system.get_config().models.empty());
   CHECK(system.get_config().agents.empty());
@@ -308,7 +307,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: mcpServers ena
 
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   const auto& servers = system.get_config().mcp_servers;
   // "enabled": false drops the entry entirely — as if it were absent.
@@ -329,7 +328,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: exec tool is registered
 
   create_config_file(nlohmann::json({}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto& global_registry = system.global_tools();
 
@@ -347,7 +346,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: process_* tools are reg
 
   create_config_file(nlohmann::json({}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto& global_registry = system.global_tools();
 
@@ -391,13 +390,13 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "load_config_from_file: multiple model
        {{"model", "gpt-4o-mini"},
         {"system_prompt", "Read-only assistant"},
         {"tool_policy", "require_approval"},
-        {"available_tools", {"read", "note_read"}}}}}},
+        {"available_tools", {"read", "exec"}}}}}},
     {"policy", {{"default", "allow"}}}
   };
 
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // Check multiple models
   CHECK(system.has_model_config("mistral-small"));
@@ -442,7 +441,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_tool_schema_options: model de
 
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // Model default inherited
   auto opts = system.resolve_tool_schema_options(system.get_agent_config("inherits"));
@@ -465,7 +464,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_agent_config: throws for missing 
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK_THROWS_AS(system.get_agent_config("nonexistent"), std::runtime_error);
 }
@@ -474,7 +473,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "get_model_config: throws for missing 
 {
   create_config_file(nlohmann::json({{"models", {}}, {"agents", {}}, {"policy", {"default", "deny"}}}));
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK_THROWS_AS(system.get_model_config("nonexistent"), std::runtime_error);
 }
@@ -543,10 +542,6 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "global_tools: contains all expected t
     "find_references",
     "ast_search",
 #endif
-    "note_list",
-    "note_read",
-    "note_write",
-    "note_search",
     "ask_user",
     "process_start",
     "process_write",
@@ -602,10 +597,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: filters to allo
   CHECK(filtered_registry.has_tool("ls"));
   CHECK(filtered_registry.has_tool("read"));
   CHECK_FALSE(filtered_registry.has_tool("grep"));        // Should be filtered out
-  CHECK_FALSE(filtered_registry.has_tool("note_list"));   // Should be filtered out
-  CHECK_FALSE(filtered_registry.has_tool("note_read"));   // Should be filtered out
-  CHECK_FALSE(filtered_registry.has_tool("note_write"));  // Should be filtered out
-  CHECK_FALSE(filtered_registry.has_tool("note_search")); // Should be filtered out
+  CHECK_FALSE(filtered_registry.has_tool("exec"));        // Should be filtered out
 
   // Schema should only contain allowed tools
   auto schema = filtered_registry.get_schema();
@@ -643,7 +635,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "create_tool_registry: all tools wildc
   CHECK(filtered_registry.has_tool("outline"));
   CHECK(filtered_registry.has_tool("find_symbol"));
 #endif
-  CHECK(filtered_registry.has_tool("note_list"));
+  CHECK(filtered_registry.has_tool("exec"));
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works")
@@ -670,10 +662,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_registry: copy constructor works
     "find_references",
     "ast_search",
 #endif
-    "note_list",
-    "note_read",
-    "note_write",
-    "note_search"
+    "exec"
   };
   for (const auto& tool_name : all_tools)
   {
@@ -796,15 +785,6 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "file_tools: accessible via agent_syst
   CHECK(&file_tools != nullptr);
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "note_tools: accessible via agent_system")
-{
-  initialize_agent_system_empty();
-  auto& system = mistral::agent::agent_system::instance();
-
-  auto& note_tools = system.note_tools();
-  CHECK(&note_tools != nullptr);
-}
-
 TEST_SUITE_END;
 
 TEST_SUITE_BEGIN("agent_system::channels");
@@ -911,7 +891,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: agents o
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 1);
@@ -941,7 +921,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: two prov
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 2);
@@ -974,7 +954,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: models n
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 1);
@@ -997,7 +977,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: explicit
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 1);
@@ -1016,7 +996,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: missing 
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // The config loader defaults base_url to https://api.mistral.ai and
   // api_key_env to MISTRAL_API_KEY
@@ -1042,7 +1022,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: explicit
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 1);
@@ -1071,7 +1051,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "resolve_transport_endpoints: same hos
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto endpoints = system.resolve_transport_endpoints();
   REQUIRE(endpoints.size() == 2);
@@ -1119,7 +1099,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: agents sharing an end
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK(system.request_ch_for("main") == system.request_ch_for("researcher"));
 }
@@ -1145,7 +1125,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: agents on different p
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK(system.request_ch_for("main") != system.request_ch_for("researcher"));
 }
@@ -1177,7 +1157,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: one channel per endpo
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // main and researcher share the Mistral endpoint; helper is on GreenPT
   auto main_ch = system.request_ch_for("main");
@@ -1211,7 +1191,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: throws for agent with
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK_THROWS_AS(system.request_ch_for("main"), std::runtime_error);
 }
@@ -1231,7 +1211,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: re-initialize rebuild
   };
   create_config_file(mistral_config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   auto before = system.request_ch_for("main");
 
   nlohmann::json greenpt_config = {
@@ -1246,7 +1226,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "request_ch_for: re-initialize rebuild
     {"policy", {{"default", "deny"}}}
   };
   create_config_file(greenpt_config);
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   auto after = system.request_ch_for("main");
 
   CHECK(before != after);
@@ -1274,7 +1254,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: throws when 
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   unsetenv("MISTRAL_TRANSPORT_TEST_KEY");
   try
@@ -1304,7 +1284,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: passes when 
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
   CHECK_NOTHROW(system.validate_transport_keys("main"));
@@ -1326,7 +1306,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: endpoint wit
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   CHECK_NOTHROW(system.validate_transport_keys("main"));
 }
@@ -1355,7 +1335,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: an unused ag
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
   unsetenv("MISTRAL_TRANSPORT_UNUSED_KEY");
@@ -1391,7 +1371,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: a subagent's
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
   unsetenv("MISTRAL_TRANSPORT_UNUSED_KEY");
@@ -1422,7 +1402,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "validate_transport_keys: a subagent c
   };
   create_config_file(config);
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   setenv("MISTRAL_TRANSPORT_TEST_KEY", "test-key", 1);
   CHECK_NOTHROW(system.validate_transport_keys("main"));
@@ -1561,7 +1541,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command lists t
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   auto registry = system.slash_commands();
@@ -1588,7 +1568,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command routes 
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   // The interactive task's input channel. The command must not switch the
@@ -1625,7 +1605,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command rejects
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
@@ -1654,7 +1634,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "completion context: the active model 
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   auto context = system.build_completion_context();
@@ -1680,7 +1660,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command lists t
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   auto registry = system.slash_commands();
@@ -1699,7 +1679,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools command lists t
   CHECK(result.find("  - ls") != std::string::npos);
   CHECK(result.find("  - read") != std::string::npos);
   // Registered globally but not available to this agent.
-  CHECK(result.find("note_list") == std::string::npos);
+  CHECK(result.find("task_create") == std::string::npos);
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools all lists every registered tool")
@@ -1709,7 +1689,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools all lists every
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("main");
 
   auto registry = system.slash_commands();
@@ -1725,8 +1705,8 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: tools all lists every
   sched.run();
 
   CHECK(result.find("all registered tools") != std::string::npos);
-  CHECK(result.find("note_list") != std::string::npos);
-  CHECK(result.find("note_list  (not available to this agent)") != std::string::npos);
+  CHECK(result.find("task_create") != std::string::npos);
+  CHECK(result.find("task_create  (not available to this agent)") != std::string::npos);
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_catalog: resolves per-agent tool names")
@@ -1736,12 +1716,12 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "tool_catalog: resolves per-agent tool
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   const auto catalog = system.tool_catalog_snapshot();
   REQUIRE(catalog != nullptr);
   CHECK(std::find(catalog->all.begin(), catalog->all.end(), "ls") != catalog->all.end());
-  CHECK(std::find(catalog->all.begin(), catalog->all.end(), "note_list") != catalog->all.end());
+  CHECK(std::find(catalog->all.begin(), catalog->all.end(), "task_create") != catalog->all.end());
 
   const auto names = system.agent_tool_names("main");
   REQUIRE(names.size() == 2);
@@ -1952,7 +1932,7 @@ namespace
     auto config = fixture.create_standard_config();
     config["agents"]["main"]["available_tools"] = {"exec"};
     fixture.create_config_file(config);
-    mistral::agent::agent_system::instance().initialize(fixture.config_file, fixture.base_dir, fixture.notes_dir);
+    mistral::agent::agent_system::instance().initialize(fixture.config_file, fixture.base_dir, fixture.tasks_dir);
   }
 } // namespace
 
@@ -2070,7 +2050,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "model switch: the [MODEL] control mes
   create_config_file(two_id_config());
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   REQUIRE(system.resolve_model_id("mistral-glm") == "zai-glm-5-3-flash");
 
   // Queue the control message the /model command sends, then close the
@@ -2095,7 +2075,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "model switch: an unknown id is report
   create_config_file(two_id_config());
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   auto input_ch = std::make_shared<dripcore::channel<std::string>>(2);
   REQUIRE(input_ch->try_send(std::string(mistral::agent::model_request_prefix) + "not-offered"));
@@ -2141,7 +2121,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: the agent starts on t
   create_config_file(shared_entry_config());
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // The entry itself still defaults to its first id ...
   CHECK(system.resolve_model_id("mistral") == "mistral-large-4");
@@ -2156,7 +2136,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: the completion contex
   create_config_file(shared_entry_config());
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
   system.set_current_agent_id("researcher");
 
   auto context = system.build_completion_context();
@@ -2172,7 +2152,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: /model still override
   create_config_file(shared_entry_config());
 
   auto& system = mistral::agent::agent_system::instance();
-  system.initialize(config_file, base_dir, notes_dir);
+  system.initialize(config_file, base_dir, tasks_dir);
 
   // The switch is per entry, so it wins over every agent's own default.
   system.set_active_model_id("mistral", "mistral-large-4");
@@ -2186,7 +2166,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an id the entry does 
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  CHECK_THROWS_AS(system.initialize(config_file, base_dir, notes_dir), std::runtime_error);
+  CHECK_THROWS_AS(system.initialize(config_file, base_dir, tasks_dir), std::runtime_error);
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an unknown model entry fails at load")
@@ -2196,7 +2176,7 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an unknown model entr
   create_config_file(config);
 
   auto& system = mistral::agent::agent_system::instance();
-  CHECK_THROWS_AS(system.initialize(config_file, base_dir, notes_dir), std::runtime_error);
+  CHECK_THROWS_AS(system.initialize(config_file, base_dir, tasks_dir), std::runtime_error);
 }
 
 TEST_SUITE_END;

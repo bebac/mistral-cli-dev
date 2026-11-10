@@ -11,7 +11,6 @@
 #include "http/http_coordinator_task.h"
 #include "mcp/mcp_manager.h"
 #include "tools/file_tools.h"
-#include "tools/note_tools.h"
 #include "tools/patchset_tools.h"
 #ifdef MISTRAL_ENABLE_TREE_SITTER
 #include "tools/code_tools.h"
@@ -196,11 +195,11 @@ namespace mistral::agent
   void agent_system::initialize(
     const std::string& config_file,
     const std::string& base_dir,
-    const std::string& notes_dir
+    const std::string& tasks_dir
   )
   {
     base_dir_ = base_dir;
-    notes_dir_ = notes_dir;
+    tasks_dir_ = tasks_dir;
 
     // The server-side agent id cache is per-session: drop entries from a
     // previous initialize() call.
@@ -238,7 +237,7 @@ namespace mistral::agent
     }
 
     // Initialize tool instances
-    initialize_tools(notes_dir_);
+    initialize_tools(tasks_dir_);
 
     // Kill background process sessions on shutdown. fire_shutdown()
     // runs on the scheduler thread (from the interactive agent task's
@@ -633,15 +632,14 @@ namespace mistral::agent
 
   // ---- Tool Initialization ----
 
-  void agent_system::initialize_tools(const std::string& notes_dir)
+  void agent_system::initialize_tools(const std::string& tasks_dir)
   {
     file_tools_ = std::make_unique<mistral::tools::file_tools>();
-    note_tools_ = std::make_unique<mistral::tools::note_tools>(notes_dir);
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     code_tools_ = std::make_unique<mistral::tools::code_tools>(config_.code_index);
 #endif
     exec_tools_ = std::make_unique<mistral::tools::exec_tools>();
-    task_tools_ = std::make_unique<mistral::tools::task_tools>(notes_dir);
+    task_tools_ = std::make_unique<mistral::tools::task_tools>(tasks_dir);
     patchset_tools_ = std::make_unique<mistral::tools::patchset_tools>(*this);
     research_tools_ = std::make_unique<mistral::tools::research_tools>();
     ask_tools_ = std::make_unique<mistral::tools::ask_tools>();
@@ -860,7 +858,6 @@ namespace mistral::agent
   {
     // Register all available tools
     auto& file_tools = *file_tools_;
-    auto& note_tools = *note_tools_;
 #ifdef MISTRAL_ENABLE_TREE_SITTER
     auto& code_tools = *code_tools_;
 #endif
@@ -958,45 +955,6 @@ namespace mistral::agent
       arg("path", "File or directory to search (workspace root by default)", std::string("."))
     );
 #endif // MISTRAL_ENABLE_TREE_SITTER
-
-    global_tools_.register_tool(
-      "note_list",
-      "List notes in the notes directory. Shows path, title, and tags for each note. "
-      "Pass an empty string to list all notes, or a subfolder name to filter.",
-      &note_tools,
-      &mistral::tools::note_tools::list_notes,
-      arg("folder", "Subfolder to list (empty for all)", std::string(""))
-    );
-
-    global_tools_.register_tool(
-      "note_read",
-      "Read a note from the notes directory. Resolves {{> path}} include directives. "
-      "Returns title, tags, and rendered content. The .md extension is optional.",
-      &note_tools,
-      &mistral::tools::note_tools::read_note,
-      arg("path", "Note path relative to notes directory")
-    );
-
-    global_tools_.register_tool(
-      "note_write",
-      "Create or update a note. Use YAML frontmatter for title and tags:\n"
-      "---\ntitle: My Note\ntags: [tag1, tag2]\n---\n"
-      "Use {{> path}} to include other notes (partials). Put reusable snippets in _partials/.",
-      &note_tools,
-      &mistral::tools::note_tools::write_note,
-      arg("path", "Note path relative to notes directory"),
-      arg("content", "Note content (with optional frontmatter)")
-    );
-
-    global_tools_.register_tool(
-      "note_search",
-      "Search notes by text content and/or tag. At least one must be provided. "
-      "Returns matching notes with path, title, tags, and matching line context.",
-      &note_tools,
-      &mistral::tools::note_tools::search_notes,
-      arg("query", "Text to search for (case-insensitive)", std::string("")),
-      arg("tag", "Filter by tag (case-insensitive)", std::string(""))
-    );
 
     global_tools_.register_tool(
       "exec",
@@ -1675,7 +1633,7 @@ namespace mistral::agent
       mistral::tmpl::template_engine tmpl;
       tmpl.set_include_base(base_dir_);
       tmpl.set_variable("model", model_id);
-      tmpl.set_variable("notes_dir", notes_dir_);
+      tmpl.set_variable("tasks_dir", tasks_dir_);
 
       // Set feature flags for conditional includes ({{> file if=var}}).
       // xerj_enabled: true when the xerj MCP server is configured and

@@ -15,7 +15,6 @@
 #include "slash_command/slash_command_executor_task.h"
 #include "slash_command/slash_command_registry.h"
 #include "template/template_engine.h"
-#include "tools/note_tools.h"
 #include "trace/trace.h"
 
 #include <dripcore/channel.h>
@@ -74,7 +73,7 @@ int main(int argc, char* argv[])
 
   // Default configuration.
   std::string base_dir = ".mistral-cli";
-  std::string notes_dir = ".mistral-cli/notes";
+  std::string tasks_dir = ".mistral-cli/tasks";
   bool system_prompt_show = false;
   bool bootstrap_enabled = true;
   bool bootstrap_update_managed = false;
@@ -87,7 +86,7 @@ int main(int argc, char* argv[])
   // Parse command-line arguments.
   static struct option long_options[] = {
     {"config-file", required_argument, 0, 'c'},
-    {"notes-dir", required_argument, 0, 'n'},
+    {"tasks-dir", required_argument, 0, 't'},
     {"agent", required_argument, 0, 'a'},
     {"resume", no_argument, 0, 'r'},
     {"system-prompt-show", no_argument, 0, 'e'},
@@ -98,15 +97,15 @@ int main(int argc, char* argv[])
   };
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "c:n:a:erP:D:BUh", long_options, nullptr)) != -1)
+  while ((opt = getopt_long(argc, argv, "c:t:a:erP:D:BUh", long_options, nullptr)) != -1)
   {
     switch (opt)
     {
     case 'c':
       config_file_path = optarg;
       break;
-    case 'n':
-      notes_dir = optarg;
+    case 't':
+      tasks_dir = optarg;
       break;
     case 'a':
       agent_id = optarg;
@@ -126,7 +125,7 @@ int main(int argc, char* argv[])
     case 'h':
       std::cout << "Usage: mistral-cli [OPTIONS]\n"
                 << "  -c, --config-file FILE         Configuration file path (required)\n"
-                << "  -n, --notes-dir DIR            Notes directory (default: .mistral-cli/notes)\n"
+                << "  -t, --tasks-dir DIR            Tasks directory (default: .mistral-cli/tasks)\n"
                 << "  -a, --agent AGENT              Agent ID to use (default: main)\n"
                 << "  -r, --resume                   Resume the latest chat session\n"
                 << "                                 (.mistral-cli/chats/chat.latest.json)\n"
@@ -208,7 +207,7 @@ int main(int argc, char* argv[])
   std::cout << "Loading configuration from: " << config_file << std::endl;
   try
   {
-    agent_system.initialize(config_file.string(), base_dir, notes_dir);
+    agent_system.initialize(config_file.string(), base_dir, tasks_dir);
   }
   catch (const std::exception& e)
   {

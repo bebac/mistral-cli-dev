@@ -150,7 +150,6 @@ set(MISTRAL_CORE_SOURCES
     lib/api/provider_registry.cpp
     lib/template/template_engine.cpp
     lib/tools/file_tools.cpp
-    lib/tools/note_tools.cpp
     lib/tools/exec_tools.cpp
     lib/tools/process_tools.cpp
     lib/tools/task_tools.cpp

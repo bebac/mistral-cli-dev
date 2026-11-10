@@ -2,7 +2,7 @@
 
 Default configuration files for setting up mistral-cli / mistral-tui in a new
 workspace. The application loads its configuration from a `.mistral-cli/`
-directory in the working directory (agents, system prompts, tool policy, notes
+directory in the working directory (agents, system prompts, tool policy, tasks
 and chat history).
 
 ## Bootstrap a new workspace

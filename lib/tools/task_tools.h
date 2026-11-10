@@ -26,7 +26,7 @@ namespace mistral::tools
   class task_tools
   {
   public:
-    explicit task_tools(std::string notes_dir);
+    explicit task_tools(std::string tasks_dir);
 
     // Create a new task. Returns the created task object with generated ID.
     dripcore::awaitable<json> create_task(
@@ -73,7 +73,7 @@ namespace mistral::tools
     // Build a summary JSON object from a full task object.
     json task_summary(const json& task) const;
 
-    std::string notes_dir_;
+    std::string tasks_dir_;
     std::string tasks_file_;
   };
 

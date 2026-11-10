@@ -65,7 +65,7 @@ namespace mistral::agent
       std::string temp_dir;
       std::string config_file;
       std::string base_dir;
-      std::string notes_dir;
+      std::string tasks_dir;
 
       ApprovalRenderersTestFixture()
       {
@@ -73,8 +73,8 @@ namespace mistral::agent
         std::filesystem::create_directories(temp_dir);
         config_file = (std::filesystem::path(temp_dir) / "mistral-cli.json").string();
         base_dir = temp_dir;
-        notes_dir = (std::filesystem::path(temp_dir) / "notes").string();
-        std::filesystem::create_directories(notes_dir);
+        tasks_dir = (std::filesystem::path(temp_dir) / "tasks").string();
+        std::filesystem::create_directories(tasks_dir);
       }
 
       ~ApprovalRenderersTestFixture()
@@ -94,7 +94,7 @@ namespace mistral::agent
           std::ofstream out(config_file);
           out << "{}";
         } // Close (and flush) the file before initialize() reads it
-        agent_system::instance().initialize(config_file, base_dir, notes_dir);
+        agent_system::instance().initialize(config_file, base_dir, tasks_dir);
       }
     };
   } // namespace

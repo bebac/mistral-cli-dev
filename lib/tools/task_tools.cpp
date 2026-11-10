@@ -31,11 +31,11 @@ namespace mistral::tools
 
   // ---- task_tools ----
 
-  task_tools::task_tools(std::string notes_dir)
-    : notes_dir_(std::move(notes_dir)), tasks_file_((fs::path(notes_dir_) / "_tasks" / "tasks.json").string())
+  task_tools::task_tools(std::string tasks_dir)
+    : tasks_dir_(std::move(tasks_dir)), tasks_file_((fs::path(tasks_dir_) / "tasks.json").string())
   {
-    // Ensure the _tasks directory exists.
-    fs::create_directories(fs::path(notes_dir_) / "_tasks");
+    // Ensure the tasks directory exists.
+    fs::create_directories(fs::path(tasks_dir_));
   }
 
   std::string task_tools::current_timestamp() const
