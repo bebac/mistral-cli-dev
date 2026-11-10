@@ -58,17 +58,33 @@ Where the project is headed, grouped by theme.
 
 ### Safety & containment
 
-- **Stronger policies and approval** — tool calls already go through a
-  policy engine with per-call approval to keep the model inside the
-  workspace, but the default policy (`templates/policy.json`) has holes:
-  it allows `exec` by executable name only, so `find` is allowed with
-  any arguments even though `find -exec` / `find -delete` can alter or
-  delete files, and `make` runs arbitrary recipes from a Makefile. The
-  optional `args` constraint cannot forbid dangerous flags — it only
-  checks that at least one argument matches. Next steps: argument-aware
-  rules or full command-line patterns, and a better approval UX
-  (per-tool approval prompts just landed for `patchset_apply` and
-  `exec`).
+- **Autonomy inside the workspace** — the design goal is that the agent
+  does as much as possible inside the workspace, autonomously, without
+  the user having to approve all the time: reads, edits, builds and
+  read-only inspection should be silent. Approval is the boundary, not
+  a speed bump — it should fire for what actually crosses the line:
+  reading outside the workspace, writing outside it, network access,
+  and arbitrary program execution. Tool calls already go through a
+  policy engine with per-call approval (default policy in
+  `templates/policy.json`), but the default policy has holes that work
+  against both halves of that goal: it allows `exec` by executable
+  name only, so `find` is allowed with any arguments even though
+  `find -exec` / `find -delete` can alter or delete files, and `make`
+  runs arbitrary recipes from a Makefile. The optional `args`
+  constraint cannot forbid dangerous flags — it only checks that at
+  least one argument matches.
+- **Path-aware exec rules** — per the design note
+  (`doc/policy-command-matching.md`): `executable` rules gain subcommand
+  allow-lists (`git status`/`diff`/`log` without `git push`/`config`),
+  path-taking options scoped by the existing directory rules (`make -f`
+  inside the workspace is silent, outside it prompts), and forbidden
+  execution flags (`find -exec`). Tool versions probed at bootstrap
+  pin the rules fail-safe: an installed version the binary's capability
+  table does not know tightens to approval instead of silently trusting
+  a stale deny-list. Later, a Landlock enforcement rung on Linux — exec
+  calls run inside a kernel-enforced filesystem/network sandbox, and
+  flag modelling stops being necessary (`sandbox-exec` on macOS was
+  considered and rejected).
 
 ### Output rendering
 
