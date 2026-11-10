@@ -108,8 +108,11 @@ namespace mistral::agent
     std::vector<std::string> forbid_args;
     // For EXECUTABLE rule type - optional subcommand allow-list
     std::vector<std::string> subcommand;
-    // For EXECUTABLE rule type - options that consume the next argument,
-    // used to extract the subcommand
+    // For EXECUTABLE rule type - options that consume the next argument.
+    // Property-named, parallel to path_args ("takes a value" vs "takes a
+    // path"); the job is subcommand extraction: the scan skips these
+    // options and their values when locating the first non-option
+    // argument, so `git -C build status` reads as subcommand `status`.
     std::vector<std::string> value_args;
     // For EXECUTABLE rule type - options whose values are paths, scoped
     // to the rule's cwd

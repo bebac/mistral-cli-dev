@@ -208,11 +208,13 @@ Semantics:
   about the rule that happened to name it. (Decided; implemented.)
 - `subcommand` needs to know which options take a value so that
   `git -C build status` is read as subcommand `status`, not `build`.
-  The rule declares these itself (`value_args`); there is no generic
-  argv parsing. A mis-declared list can only mis-parse towards "no
-  subcommand found" or a subcommand not in the allow-list - both
-  prompt; it can never silently widen. (Decided: per-rule JSON;
-  implemented.)
+  The rule declares these itself (`value_args` - property-named,
+  parallel to `path_args`: "takes a value" vs "takes a path"; the job
+  is that the subcommand scan skips these options and their values).
+  There is no generic argv parsing. A mis-declared list can only
+  mis-parse towards "no subcommand found" or a subcommand not in the
+  allow-list - both prompt; it can never silently widen. (Decided:
+  per-rule JSON; implemented.)
 - Glob patterns follow the engine's gitignore-style semantics: `*` does
   not cross `/`, `**` does. A flag whose value attaches with `=`
   (`--output=/tmp/x`) therefore needs `--output**` in a deny-list, not
