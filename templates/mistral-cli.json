@@ -9,6 +9,7 @@
         "zai-glm-5-3",
         "mistral-small-latest"
       ],
+      "strict_mode": true,
       "api_key_env": "MISTRAL_API_KEY",
       "base_url": "https://api.mistral.ai",
       "api_version": "v1"
