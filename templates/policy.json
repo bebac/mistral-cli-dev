@@ -31,14 +31,17 @@
     { "type": "executable", "tool": "exec", "command": "head" },
     { "type": "executable", "tool": "exec", "command": "cat" },
     { "type": "executable", "tool": "exec", "command": "grep" },
-    { "type": "executable", "tool": "exec", "command": "git",
+    { "type": "executable", "tool": "exec", "command": "git", "cwd": ".",
       "subcommand": ["status", "diff", "log"],
       "value_args": ["-C", "--git-dir", "--work-tree", "--namespace"],
+      "path_args": ["-C", "--git-dir", "--work-tree"],
       "forbid_args": ["-c", "--exec-path**", "--ext-diff", "--textconv", "--output**"] },
-    { "type": "executable", "tool": "exec", "command": "find",
+    { "type": "executable", "tool": "exec", "command": "find", "cwd": ".",
+      "path_operands": true,
       "forbid_args": ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"] },
     { "type": "executable", "tool": "exec", "command": "ls" },
     { "type": "executable", "tool": "exec", "command": "tests", "cwd": "build" },
-    { "type": "executable", "tool": "exec", "command": "make", "cwd": "." }
+    { "type": "executable", "tool": "exec", "command": "make", "cwd": ".",
+      "path_args": ["-f", "--file", "-C", "--directory"] }
   ]
 }

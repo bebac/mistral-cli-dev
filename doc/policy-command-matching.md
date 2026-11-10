@@ -1,9 +1,10 @@
 # Exec policy: command-line matching and containment
 
 **Status:** design note. The direction was settled in a design review
-(November 2026). `forbid_args` and `subcommand` (with `value_args`) are
-implemented; path-taking options and the Landlock rung are not.
-Passages describing current behaviour say so explicitly.
+(November 2026). `forbid_args`, `subcommand` (with `value_args`) and
+path scoping (`path_args`, `path_operands`) are implemented; only the
+Landlock rung is not. Passages describing current behaviour say so
+explicitly.
 
 ## Summary
 
@@ -99,7 +100,8 @@ without that flag", and no way to scope the paths a command operates
 on. `forbid_args` (implemented) closes the negation half: any argument
 matching the list sends the command line straight to the default
 policy. `subcommand` with `value_args` (implemented) closes the git
-case. Scoping paths remains open.
+case. `path_args` and `path_operands` (implemented) close the location
+half, scoped by the rule's `cwd`.
 
 The pre-check (`exec_tools::validate`, `lib/tools/exec_tools.cpp:48`)
 runs before the policy and rejects shell syntax in the command field
@@ -175,24 +177,25 @@ grammar with token kinds matched to the failure mode they cover:
 |---|---|---|---|
 | Subcommand | `subcommand` | allow-list on the first non-option argument | `git push` vs `git status` |
 | Value-taking option | `value_args` | declares which options consume the next argument, so the subcommand scan can skip them | `git -C build status` |
-| Path-taking option | `path_args` | value resolved and checked against the rule's directory scope | `make -f ../x.mk`, `git -C /etc` |
-| Positional path operand | `path_operands` | non-flag arguments treated as paths, scoped the same way | `find /etc ...` |
+| Path-taking option | `path_args` | value resolved against the call's cwd, checked against the rule's `cwd` | `make -f ../x.mk`, `git -C /etc` |
+| Positional path operand | `path_operands` | leading non-option arguments treated as paths, scoped the same way | `find /etc ...` |
 | Execution flag | `forbid_args` | deny-list, checked before everything else | `find -exec`, `git -c` |
 
 ```json
-{ "type": "executable", "tool": "exec", "command": "git",
+{ "type": "executable", "tool": "exec", "command": "git", "cwd": ".",
   "subcommand": ["status", "diff", "log"],
   "value_args": ["-C", "--git-dir", "--work-tree", "--namespace"],
+  "path_args": ["-C", "--git-dir", "--work-tree"],
   "forbid_args": ["-c", "--exec-path**", "--ext-diff", "--textconv", "--output**"] }
 ```
 
 ```json
-{ "type": "executable", "tool": "exec", "command": "make",
+{ "type": "executable", "tool": "exec", "command": "make", "cwd": ".",
   "path_args": ["-f", "--file", "-C", "--directory"] }
 ```
 
 ```json
-{ "type": "executable", "tool": "exec", "command": "find",
+{ "type": "executable", "tool": "exec", "command": "find", "cwd": ".",
   "forbid_args": ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"],
   "path_operands": true }
 ```
@@ -215,12 +218,18 @@ Semantics:
   (`--output=/tmp/x`) therefore needs `--output**` in a deny-list, not
   `--output*` - worth remembering because a too-narrow deny-list entry
   fails silent, not safe.
-- Each `path_args` value is resolved and must satisfy the rule's scope
-  (its `cwd`, or the workspace root). Any outside value means the rule
-  does not apply.
-- `path_operands: true` treats non-flag positional arguments as paths
-  and scopes them the same way. It is per-command: for `git` the
-  positional argument is the subcommand, not a path.
+- Each `path_args` value resolves the way the OS would resolve it for
+  the program - against the call's cwd - and must land inside the
+  rule's `cwd`, which doubles as the boundary: it constrains where the
+  process runs and where declared path values may point. Any outside
+  value means the rule does not apply. A rule that declares path
+  scoping without a `cwd` has no boundary and never matches - failing
+  safe rather than silently skipping the check. (Decided; implemented.)
+- `path_operands: true` treats the leading non-option arguments as
+  paths and scopes them the same way - find's grammar, where the paths
+  come first and the expression after. For `git` the positional
+  argument is the subcommand, not a path, so git does not set it.
+  (Implemented.)
 - The grammar lives in the rule, not in the engine: the engine is a
   generic matcher with no built-in command names. Curated defaults ship
   in `templates/policy.json`, which is embedded in the binary at build
@@ -417,9 +426,6 @@ is the same shape as the exclusion one: compare
 - Should an `executable` rule with no `args`/`subcommand`/`path_args`
   constraint keep meaning "name only" (today), or be treated as too
   broad to allow?
-- Where do `path_args` values resolve - against the call's cwd, the
-  rule's `cwd`, or the workspace root? How does that compose with a
-  rule-level `cwd`?
 - Unknown-version tightening: silent fall-through to approval, or a
   visible warning in the session?
 - Tool path-awareness: `normalize_context` reads only

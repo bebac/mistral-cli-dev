@@ -187,6 +187,17 @@ namespace mistral::agent
             rule.value_args.push_back(arg.get<std::string>());
           }
         }
+        if (rule_json.contains("path_args"))
+        {
+          for (const auto& arg : rule_json["path_args"])
+          {
+            rule.path_args.push_back(arg.get<std::string>());
+          }
+        }
+        if (rule_json.contains("path_operands"))
+        {
+          rule.path_operands = rule_json["path_operands"].get<bool>();
+        }
         if (rule_json.contains("cwd"))
         {
           rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
@@ -597,6 +608,59 @@ namespace mistral::agent
     return std::nullopt;
   }
 
+  std::vector<std::string> policy_engine::collect_path_values(const policy_rule& rule, const std::vector<std::string>& args) const
+  {
+    std::vector<std::string> values;
+
+    // Leading non-option arguments are path operands - find's grammar,
+    // where the paths come first and the expression after.
+    if (rule.path_operands)
+    {
+      for (const std::string& arg : args)
+      {
+        if (arg.starts_with('-'))
+        {
+          break;
+        }
+        values.push_back(arg);
+      }
+    }
+
+    // Declared path-taking options: the value is the next argument, or
+    // attached with "=" (long form) or directly (short form).
+    for (size_t i = 0; i < args.size(); ++i)
+    {
+      const std::string& arg = args[i];
+      for (const std::string& entry : rule.path_args)
+      {
+        if (arg == entry)
+        {
+          if (i + 1 < args.size())
+          {
+            values.push_back(args[i + 1]);
+          }
+        }
+        else if (arg.starts_with(entry + "="))
+        {
+          values.push_back(arg.substr(entry.size() + 1));
+        }
+        else if (arg.size() > entry.size() && arg.starts_with(entry))
+        {
+          values.push_back(arg.substr(entry.size()));
+        }
+      }
+    }
+    return values;
+  }
+
+  std::string policy_engine::resolve_arg_path(const std::string& value, const std::optional<std::string>& call_cwd) const
+  {
+    // Resolve the way the OS would for the program: against the call's
+    // cwd. An absolute value passes through operator/ unchanged.
+    fs::path base = call_cwd ? fs::path(*call_cwd) : fs::path(".");
+    return normalize_path((base / value).string());
+  }
+
   bool policy_engine::cwd_matches(
     const std::optional<std::string>& rule_cwd,
     const std::optional<std::string>& test_cwd
@@ -740,6 +804,10 @@ namespace mistral::agent
         {
           rule.value_args = split_comma(parts[i].substr(11));
         }
+        else if (parts[i].starts_with("path_args="))
+        {
+          rule.path_args = split_comma(parts[i].substr(10));
+        }
         else if (parts[i].starts_with("cwd="))
         {
           rule.cwd = normalize_path(parts[i].substr(4));
@@ -862,6 +930,27 @@ namespace mistral::agent
         if (std::ranges::none_of(rule.subcommand, [&](const std::string& entry) { return glob_match(entry, *subcommand); }))
         {
           return rule_match::NO_MATCH;
+        }
+      }
+
+      // Path scoping: values of declared path-taking options, and (for
+      // path_operands) leading non-option arguments, resolve the way
+      // the OS would resolve them for the program - against the call's
+      // cwd - and must land inside the rule's cwd, which doubles as
+      // the boundary. A rule that scopes paths without a boundary
+      // cannot verify them and does not match.
+      if ((!rule.path_args.empty() || rule.path_operands) && ctx.command_args)
+      {
+        if (!rule.cwd)
+        {
+          return rule_match::NO_MATCH;
+        }
+        for (const std::string& value : collect_path_values(rule, *ctx.command_args))
+        {
+          if (!cwd_matches(rule.cwd, resolve_arg_path(value, ctx.normalized_cwd)))
+          {
+            return rule_match::NO_MATCH;
+          }
         }
       }
 

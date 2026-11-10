@@ -111,6 +111,12 @@ namespace mistral::agent
     // For EXECUTABLE rule type - options that consume the next argument,
     // used to extract the subcommand
     std::vector<std::string> value_args;
+    // For EXECUTABLE rule type - options whose values are paths, scoped
+    // to the rule's cwd
+    std::vector<std::string> path_args;
+    // For EXECUTABLE rule type - treat the leading non-option arguments
+    // as paths, scoped to the rule's cwd
+    bool path_operands = false;
     // For EXECUTABLE rule type - optional working directory constraint
     std::optional<std::string> cwd;
   };
@@ -280,6 +286,15 @@ namespace mistral::agent
       const std::vector<std::string>& value_args,
       const std::vector<std::string>& args
     ) const;
+
+    // Collect the path values declared by path_args (next argument, or
+    // attached with "=") and, when path_operands is set, the leading
+    // non-option arguments
+    std::vector<std::string> collect_path_values(const policy_rule& rule, const std::vector<std::string>& args) const;
+
+    // Resolve an argument path the way the OS would for the program:
+    // against the call's cwd
+    std::string resolve_arg_path(const std::string& value, const std::optional<std::string>& call_cwd) const;
 
     // Check if cwd matches
     bool cwd_matches(const std::optional<std::string>& rule_cwd, const std::optional<std::string>& test_cwd) const;

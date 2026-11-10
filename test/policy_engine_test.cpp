@@ -1,4 +1,5 @@
 #include "agent/policy_engine.h"
+#include "common/embedded_resources.h"
 #include "mcp/mcp_manager.h"
 #include <doctest/doctest.h>
 
@@ -1894,6 +1895,199 @@ TEST_CASE("subcommand: DSL rule")
 
   CHECK(engine.evaluate(exec_args_ctx("git", {"status"})).decision == mistral::agent::policy_decision::ALLOW);
   CHECK(engine.evaluate(exec_args_ctx("git", {"push"})).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_SUITE_END();
+
+// ============================================================================
+// path_args / path_operands: scoping path values to the rule's cwd
+// ============================================================================
+
+TEST_SUITE_BEGIN("PathScoping");
+
+namespace
+{
+  mistral::agent::policy_context exec_cwd_ctx(
+    const std::string& command,
+    const std::vector<std::string>& args,
+    const std::string& cwd
+  )
+  {
+    return mistral::agent::policy_context{
+      .tool_name = "exec",
+      .tool_arguments = mistral::agent::json{{"command", command}, {"args", args}, {"cwd", cwd}},
+      .working_directory = ""
+    };
+  }
+} // namespace
+
+TEST_CASE("path_args: values resolve against the call's cwd and must stay inside the rule's cwd")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "make"},
+       {"cwd", "/w"},
+       {"path_args", mistral::agent::json::array({"-f", "--file", "-C", "--directory"})}
+     }})}
+  });
+
+  // Inside, however spelled: separate value, ../ from a subdirectory,
+  // attached long form, attached short form, -C subdirectory.
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-f", "Makefile"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-f", "../x.mk"}, "/w/build")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"--file=Makefile"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-fMakefile"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-C", "build"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Outside: relative escape, absolute value, -C elsewhere.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("make", {"-f", "../../evil.mk"}, "/w/build")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("make", {"-f", "/etc/evil.mk"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("make", {"-C", "/elsewhere"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("path_operands: leading non-option arguments are scoped")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "find"}, {"cwd", "/w"}, {"path_operands", true}
+     }})}
+  });
+
+  CHECK(engine.evaluate(exec_cwd_ctx("find", {".", "-name", "x"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("find", {"sub", "-name", "x"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("find", {"/etc", "-name", "x"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // Operands stop at the first option: "-name"'s value is not a path.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("find", {".", "-name", "/etc/passwd"}, "/w")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("path scoping without a boundary fails safe")
+{
+  // path_args without a cwd: the rule cannot verify the values and does
+  // not match, rather than silently skipping the check.
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "make"}, {"path_args", mistral::agent::json::array({"-f"})}
+     }})}
+  });
+
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-f", "Makefile"}, "/w")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("path_args composes with subcommand and value_args")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "git"},
+       {"cwd", "/w"},
+       {"subcommand", mistral::agent::json::array({"status"})},
+       {"value_args", mistral::agent::json::array({"-C"})},
+       {"path_args", mistral::agent::json::array({"-C"})}
+     }})}
+  });
+
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("git", {"-C", "build", "status"}, "/w")).decision == mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("git", {"-C", "/elsewhere", "status"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("path_args: DSL rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.add_rule("allow:exec:command=make,cwd=/w,path_args=-f");
+
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-f", "Makefile"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("make", {"-f", "/etc/evil.mk"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_SUITE_END();
+
+// ============================================================================
+// The shipped policy template: pin the data, not just the engine
+// ============================================================================
+
+TEST_SUITE_BEGIN("ShippedPolicyTemplate");
+
+TEST_CASE("Embedded templates/policy.json behaves as documented")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json::parse(mistral::embedded::policy_json()));
+  CHECK(engine.warnings().empty());
+  CHECK(engine.get_default_policy() == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+
+  // git: subcommand allow-list, value-taking and path-scoped -C,
+  // forbidden -c.
+  CHECK(engine.evaluate(exec_cwd_ctx("git", {"status"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("git", {"-C", "build", "status"}, ".")).decision == mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("git", {"-C", "/elsewhere", "status"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(engine.evaluate(exec_cwd_ctx("git", {"push"}, ".")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("git", {"-c", "x=y", "status"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // find: operands scoped to the workspace, execution family forbidden.
+  CHECK(engine.evaluate(exec_cwd_ctx("find", {".", "-name", "x"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("find", {"/etc", "-name", "x"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("find", {".", "-delete"}, ".")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // make: path-taking -f scoped to the workspace.
+  CHECK(engine.evaluate(exec_cwd_ctx("make", {"-f", "Makefile"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("make", {"-f", "/etc/evil.mk"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // Unlisted commands fall to the default.
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "/"}, ".")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
 }
 
 TEST_SUITE_END();
