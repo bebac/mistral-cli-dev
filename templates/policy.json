@@ -43,6 +43,10 @@
     { "type": "executable", "tool": "exec", "command": "tests", "cwd": "build" },
     { "type": "executable", "tool": "exec", "command": "make", "cwd": ".",
       "path_args": ["-f", "--file", "-C", "--directory"] },
+    { "type": "executable", "tool": "exec", "command": "cmake", "cwd": ".",
+      "path_args": ["--build", "-S", "-B", "-C", "--toolchain", "--install-prefix",
+                     "--graphviz", "--trace-redirect", "--profiling-output"],
+      "forbid_args": ["-E**", "-P**", "--install", "--open"] },
     { "type": "executable", "tool": "exec", "command": "rm", "cwd": ".",
       "path_operands": "all" }
   ]

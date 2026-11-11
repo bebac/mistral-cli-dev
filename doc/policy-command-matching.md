@@ -59,10 +59,10 @@ advisory layer for everywhere else.
 |---|---|---|---|
 | Read/explore code in the workspace | silent | silent (code tools, `read`, `ls` rules) | done |
 | Edit files in the workspace | silent | prompts via `patchset_apply` | path-aware tool arguments (straightforward follow-up) |
-| Build/test in the workspace | silent | silent (`make`, `tests` by name + cwd) | as-is; recipes running arbitrary code is the point of a build |
+| Build/test in the workspace | silent | silent (`make`, `cmake`, `tests` by name + cwd/paths) | as-is; recipes running arbitrary code is the point of a build |
 | Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent, but over-broad (`find -exec` too) | the argv grammar |
 | Read outside the workspace | prompt | prompt (directory rule) | done |
-| Write/delete outside the workspace | prompt | `rm` operands scoped by `path_operands` (advisory); other writers (`find -delete`, `make`, `cmake -E`, `git checkout --`) unenforced - no shell means no `>` redirects | Landlock rung (Linux); advisory grammar elsewhere |
+| Write/delete outside the workspace | prompt | `rm` operands scoped by `path_operands` (advisory); `cmake -E`/`-P`/`--install` deny-listed; other writers (`find -delete`, `make`, `git checkout --`) unenforced - no shell means no `>` redirects | Landlock rung (Linux); advisory grammar elsewhere |
 | Network, installs, everything else | prompt | prompt (default) | done |
 
 ### Two kinds of problem
@@ -262,9 +262,13 @@ does. That leaves a class the argv grammar cannot express:
   workspace - and then executes arbitrary recipes that can write
   anywhere. The flag's value is inside the boundary; the recipe's
   effects are not.
-- `cmake -E` (copy/rename/remove to anywhere) and `-P` (run a script)
-  are allowed by the cmake rule today - a write primitive that never
-  touches a patchset.
+- `cmake -E` (copy/rename/remove to anywhere), `-P` (run a script),
+  `--install` and `--open` are deny-listed by the shipped cmake rule
+  (November 2026). Residual in that rule: the obscure output-to-file
+  flags (`--version`/`--help*` with an optional `[<file>]`,
+  `--system-information`) write fixed content to an unscoped path -
+  `--help` cannot be declared in `path_args`, because the attached
+  short-form match would swallow the whole `--help-*` family.
 - `tests` / `ctest` run compiled test binaries; changed test source
   (via an approved patchset) executes silently at the next run.
 
@@ -275,8 +279,10 @@ to it - a rubber-stamped patchset that touches the Makefile is a real
 risk.
 
 Considered and deferred (November 2026): forbidding `-f`/`--file` on
-make and `-E`/`-P` on cmake (trivial, but incomplete - the default
-Makefile and subdir makefiles via `-C` remain reachable); a protected
+make (trivial, but incomplete - the default Makefile and subdir
+makefiles via `-C` remain reachable). The cmake half is done: the
+shipped rule deny-lists `-E`/`-P`/`--install`/`--open`. Still
+deferred: a protected
 Makefile (deny-grade rules on patchset edits to it - needs
 `normalize_context` to read `file_path`, see "Open questions"). The
 accepted mitigation is the approval prompt plus the Landlock rung,

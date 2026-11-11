@@ -2191,6 +2191,32 @@ TEST_CASE("Embedded templates/policy.json behaves as documented")
     mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 
+  // cmake: build/configure paths scoped to the workspace, the
+  // file-manipulation and script modes forbidden.
+  CHECK(engine.evaluate(exec_cwd_ctx("cmake", {"--build", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("cmake", {"-S", ".", "-B", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("cmake", {"-C", "init.cmake", "-S", ".", "-B", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cmake", {"--build", "/elsewhere"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cmake", {"-C", "/etc/init.cmake", "-S", ".", "-B", "build"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cmake", {"-E", "copy", "a", "b"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cmake", {"-P", "x.cmake"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cmake", {"--install", "build"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
   // rm: operands scoped to the workspace.
   CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-f", "build/foo.o"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
   CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
