@@ -490,6 +490,13 @@ is the same shape as the exclusion one: compare
 - A `directory` rule still does not match the directory itself, and an
   exclusion on a `require_approval` rule removes the rule rather than
   narrowing it - see "Related: path matching boundaries".
+- Policy reload: the engine loads `policy.json` once, when the agent
+  task is constructed; edits mid-session are invisible until restart.
+  Auto-reload (stat per evaluation, re-parse on change) is cheap, but
+  must first define its interaction with the session allow action -
+  the "a" in the approval prompt: does an allowance granted under the
+  old ruleset survive a reload, get revoked, or re-prompt? Deferred
+  until that refactoring is thought through (November 2026).
 - Where is the boundary with the OS beyond Landlock? A permitted
   `make` still runs whatever the approved `Makefile` contains, inside
   the sandbox or not. Is the goal "no silent arbitrary execution" or
