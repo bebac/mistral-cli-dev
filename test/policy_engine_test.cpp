@@ -1460,6 +1460,52 @@ TEST_CASE("Exec rule with cwd matches a bare command run in that cwd")
   CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
 }
 
+TEST_CASE("Exec rule with cwd allows a bare name from a subdirectory of the boundary")
+{
+  // httproute20 scenario: the binary lives at build/tests/<name> and
+  // is not on PATH; the agent invokes it by bare name with that
+  // directory as the call's cwd. The rule pins the boundary
+  // directory: the name matches and the call's cwd is inside it.
+  temp_dir dir;
+  std::filesystem::create_directories(dir.path() + "/build/tests");
+  write_executable(dir.path() + "/build/tests/httproute20_tests");
+
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "httproute20_tests", {}, dir.path());
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", "httproute20_tests"}, {"args", mistral::agent::json::array()}, {"cwd", dir.path() + "/build/tests"}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
+}
+
+TEST_CASE("Exec rule with cwd matches a relative path-qualified command against the call's cwd")
+{
+  // `./tests/httproute20_tests` with cwd build/ must resolve against
+  // the call's cwd - the way the OS would - not against the CLI
+  // process's cwd, or the pre-check reports command not found and the
+  // rule never sees the binary's real path.
+  temp_dir dir;
+  std::filesystem::create_directories(dir.path() + "/build/tests");
+  write_executable(dir.path() + "/build/tests/httproute20_tests");
+
+  mistral::agent::policy_engine engine;
+  engine.allow_executable("exec", "build/tests/httproute20_tests", {}, dir.path());
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", "./tests/httproute20_tests"}, {"args", mistral::agent::json::array()}, {"cwd", dir.path() + "/build"}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
+}
+
 TEST_CASE("Exec rule with cwd does not match a different binary")
 {
   temp_dir dir;

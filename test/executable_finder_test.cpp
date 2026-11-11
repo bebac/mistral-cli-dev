@@ -202,15 +202,22 @@ TEST_CASE("resolve_executable falls back to cwd for a bare name")
   CHECK(fs::equivalent(resolved, exe));
 }
 
-TEST_CASE("resolve_executable does not use the cwd fallback for paths")
+TEST_CASE("resolve_executable resolves a path-qualified command against the cwd")
 {
   temp_dir dir;
   std::string exe = dir.path() + "/mytool";
   write_file(exe, "#!/bin/sh\n");
   make_executable(exe);
 
-  // A path is resolved against the process cwd, never against `cwd`.
-  CHECK(mistral::utils::resolve_executable("./mytool", dir.path()).empty());
+  // The way the OS would resolve it for the program: against the
+  // requested cwd, not against this process's cwd.
+  std::string resolved = mistral::utils::resolve_executable("./mytool", dir.path());
+
+  CHECK(fs::path(resolved).is_absolute());
+  CHECK(fs::equivalent(resolved, exe));
+
+  // Without a cwd, a relative path keeps the process-cwd semantics.
+  CHECK(mistral::utils::resolve_executable("./mytool", "").empty());
 }
 
 TEST_CASE("resolve_executable returns empty for a missing command")

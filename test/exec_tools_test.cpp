@@ -685,22 +685,18 @@ TEST_CASE("exec_tools: exec runs a bare command found in the requested cwd")
   CHECK(result["exit_code"].get<int>() == 0);
 }
 
-TEST_CASE("exec_tools: exec resolves a relative command path against the process cwd")
+TEST_CASE("exec_tools: exec resolves a relative command path against the requested cwd")
 {
   using namespace mistral::tools;
 
   temp_dir dir;
   write_executable(dir.path() + "/mytool");
 
-  // The path is relative to the process cwd, not to the child's cwd:
-  // the child chdirs before exec, so exec must pass an absolute path.
-  std::string relative = std::filesystem::relative(
-                           std::filesystem::weakly_canonical(dir.path() + "/mytool"),
-                           std::filesystem::current_path()
-  )
-                           .string();
-
+  // The way the OS would resolve it for the program: against the
+  // child's cwd, not against this process's cwd. The child chdirs
+  // before exec, so a path relative to the process cwd would point
+  // somewhere else there.
   exec_tools tools;
-  auto result = run_async_exec(tools, relative, {}, dir.path());
+  auto result = run_async_exec(tools, "./mytool", {}, dir.path());
   CHECK(result["exit_code"].get<int>() == 0);
 }
