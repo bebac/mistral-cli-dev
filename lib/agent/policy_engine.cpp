@@ -101,6 +101,11 @@ namespace mistral::agent
           warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
           continue;
         }
+        if (rule.path_operands == path_operand_mode::INVALID)
+        {
+          warnings_.push_back(std::format("ignoring rule with unknown path_operands value: {}", rule_json.dump()));
+          continue;
+        }
         push_rule(std::move(rule));
       }
     }
@@ -116,6 +121,11 @@ namespace mistral::agent
         if (rule.type == rule_type::UNKNOWN)
         {
           warnings_.push_back(std::format("ignoring policy rule with unknown type: {}", rule_json.dump()));
+          continue;
+        }
+        if (rule.path_operands == path_operand_mode::INVALID)
+        {
+          warnings_.push_back(std::format("ignoring rule with unknown path_operands value: {}", rule_json.dump()));
           continue;
         }
         push_rule(std::move(rule));
@@ -196,7 +206,30 @@ namespace mistral::agent
         }
         if (rule_json.contains("path_operands"))
         {
-          rule.path_operands = rule_json["path_operands"].get<bool>();
+          const json& mode = rule_json["path_operands"];
+          if (mode.is_boolean())
+          {
+            // Legacy form: true means find's grammar (leading).
+            rule.path_operands = mode.get<bool>() ? path_operand_mode::LEADING : path_operand_mode::NONE;
+          }
+          else
+          {
+            const std::string value = mode.get<std::string>();
+            if (value == "leading")
+            {
+              rule.path_operands = path_operand_mode::LEADING;
+            }
+            else if (value == "all")
+            {
+              rule.path_operands = path_operand_mode::ALL;
+            }
+            else
+            {
+              // Fail safe: dropped at load time, so the rule can never
+              // match with an unverifiable operand mode.
+              rule.path_operands = path_operand_mode::INVALID;
+            }
+          }
         }
         if (rule_json.contains("cwd"))
         {
@@ -225,6 +258,11 @@ namespace mistral::agent
     policy_rule rule = parse_dsl_rule(rule_dsl);
     if (rule.type != rule_type::UNKNOWN)
     {
+      if (rule.path_operands == path_operand_mode::INVALID)
+      {
+        warnings_.push_back(std::format("ignoring rule with unknown path_operands value: {}", rule_dsl));
+        return;
+      }
       push_rule(std::move(rule));
     }
   }
@@ -612,15 +650,42 @@ namespace mistral::agent
   {
     std::vector<std::string> values;
 
-    // Leading non-option arguments are path operands - find's grammar,
-    // where the paths come first and the expression after.
-    if (rule.path_operands)
+    // Non-option arguments can be path operands. LEADING is find's
+    // grammar - the paths come first, the expression after - so the
+    // scan stops at the first option. ALL is rm's grammar - operands
+    // come after the options and may be interspersed - so the scan
+    // collects every non-option argument, skipping the values of
+    // options declared value-taking. An operand the scan does not
+    // collect starts with '-' and so cannot be an absolute path: it
+    // resolves against the call's cwd, which the rule already
+    // constrains.
+    if (rule.path_operands == path_operand_mode::LEADING)
     {
       for (const std::string& arg : args)
       {
         if (arg.starts_with('-'))
         {
           break;
+        }
+        values.push_back(arg);
+      }
+    }
+    else if (rule.path_operands == path_operand_mode::ALL)
+    {
+      for (size_t i = 0; i < args.size(); ++i)
+      {
+        const std::string& arg = args[i];
+        if (arg.starts_with('-'))
+        {
+          // A value attached with "=" is part of the same token, so
+          // only an exact match on a value-taking option also consumes
+          // the next argument.
+          if (arg.find('=') == std::string::npos &&
+              std::ranges::any_of(rule.value_args, [&](const std::string& value_arg) { return value_arg == arg; }))
+          {
+            ++i;
+          }
+          continue;
         }
         values.push_back(arg);
       }
@@ -808,6 +873,23 @@ namespace mistral::agent
         {
           rule.path_args = split_comma(parts[i].substr(10));
         }
+        else if (parts[i].starts_with("path_operands="))
+        {
+          const std::string value = parts[i].substr(14);
+          if (value == "leading")
+          {
+            rule.path_operands = path_operand_mode::LEADING;
+          }
+          else if (value == "all")
+          {
+            rule.path_operands = path_operand_mode::ALL;
+          }
+          else
+          {
+            // Fail safe: add_rule drops the rule with a warning.
+            rule.path_operands = path_operand_mode::INVALID;
+          }
+        }
         else if (parts[i].starts_with("cwd="))
         {
           rule.cwd = normalize_path(parts[i].substr(4));
@@ -933,15 +1015,18 @@ namespace mistral::agent
         }
       }
 
-      // Path scoping: values of declared path-taking options, and (for
-      // path_operands) leading non-option arguments, resolve the way
-      // the OS would resolve them for the program - against the call's
-      // cwd - and must land inside the rule's cwd, which doubles as
-      // the boundary. A rule that scopes paths without a boundary
-      // cannot verify them and does not match.
-      if ((!rule.path_args.empty() || rule.path_operands) && ctx.command_args)
+      // Path scoping: values of declared path-taking options, and the
+      // path operands selected by path_operands (leading for find, all
+      // for rm), resolve the way the OS would resolve them for the
+      // program - against the call's cwd - and must land inside the
+      // rule's cwd, which doubles as the boundary. A rule that scopes
+      // paths without a boundary cannot verify them and does not
+      // match; the same holds for an operand mode that could not be
+      // parsed (such rules are dropped at load time - this is defense
+      // in depth for rules added by other means).
+      if ((!rule.path_args.empty() || rule.path_operands != path_operand_mode::NONE) && ctx.command_args)
       {
-        if (!rule.cwd)
+        if (!rule.cwd || rule.path_operands == path_operand_mode::INVALID)
         {
           return rule_match::NO_MATCH;
         }

@@ -37,11 +37,13 @@
       "path_args": ["-C", "--git-dir", "--work-tree"],
       "forbid_args": ["-c", "--exec-path**", "--ext-diff", "--textconv", "--output**"] },
     { "type": "executable", "tool": "exec", "command": "find", "cwd": ".",
-      "path_operands": true,
+      "path_operands": "leading",
       "forbid_args": ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"] },
     { "type": "executable", "tool": "exec", "command": "ls" },
     { "type": "executable", "tool": "exec", "command": "tests", "cwd": "build" },
     { "type": "executable", "tool": "exec", "command": "make", "cwd": ".",
-      "path_args": ["-f", "--file", "-C", "--directory"] }
+      "path_args": ["-f", "--file", "-C", "--directory"] },
+    { "type": "executable", "tool": "exec", "command": "rm", "cwd": ".",
+      "path_operands": "all" }
   ]
 }

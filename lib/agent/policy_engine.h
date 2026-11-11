@@ -82,6 +82,20 @@ namespace mistral::agent
     FORBIDDEN
   };
 
+  // Which non-option arguments are path operands, scoped to the rule's
+  // cwd: LEADING is find's grammar (paths first, expression after),
+  // ALL is rm's grammar (options first, operands after and
+  // interspersed). INVALID comes from an unknown JSON or DSL value: a
+  // rule whose operand mode cannot be verified is dropped at load time
+  // and never matches.
+  enum class path_operand_mode
+  {
+    NONE,
+    LEADING,
+    ALL,
+    INVALID
+  };
+
   // ---- Policy Rule ----
 
   struct policy_rule
@@ -117,9 +131,9 @@ namespace mistral::agent
     // For EXECUTABLE rule type - options whose values are paths, scoped
     // to the rule's cwd
     std::vector<std::string> path_args;
-    // For EXECUTABLE rule type - treat the leading non-option arguments
-    // as paths, scoped to the rule's cwd
-    bool path_operands = false;
+    // For EXECUTABLE rule type - which non-option arguments are path
+    // operands, scoped to the rule's cwd (see path_operand_mode)
+    path_operand_mode path_operands = path_operand_mode::NONE;
     // For EXECUTABLE rule type - optional working directory constraint
     std::optional<std::string> cwd;
   };
@@ -291,8 +305,9 @@ namespace mistral::agent
     ) const;
 
     // Collect the path values declared by path_args (next argument, or
-    // attached with "=") and, when path_operands is set, the leading
-    // non-option arguments
+    // attached with "=") and the path operands selected by
+    // path_operands: LEADING stops at the first option, ALL collects
+    // every non-option argument
     std::vector<std::string> collect_path_values(const policy_rule& rule, const std::vector<std::string>& args) const;
 
     // Resolve an argument path the way the OS would for the program:

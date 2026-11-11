@@ -62,7 +62,7 @@ advisory layer for everywhere else.
 | Build/test in the workspace | silent | silent (`make`, `tests` by name + cwd) | as-is; recipes running arbitrary code is the point of a build |
 | Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent, but over-broad (`find -exec` too) | the argv grammar |
 | Read outside the workspace | prompt | prompt (directory rule) | done |
-| Write/delete outside the workspace | prompt | unenforced - no shell means no `>` redirects, but `find -delete`, `make`, `cmake -E`, `git checkout --` write via the program itself | Landlock rung (Linux); advisory grammar elsewhere |
+| Write/delete outside the workspace | prompt | `rm` operands scoped by `path_operands` (advisory); other writers (`find -delete`, `make`, `cmake -E`, `git checkout --`) unenforced - no shell means no `>` redirects | Landlock rung (Linux); advisory grammar elsewhere |
 | Network, installs, everything else | prompt | prompt (default) | done |
 
 ### Two kinds of problem
@@ -182,7 +182,7 @@ grammar with token kinds matched to the failure mode they cover:
 | Subcommand | `subcommand` | allow-list on the first non-option argument | `git push` vs `git status` |
 | Value-taking option | `value_args` | declares which options consume the next argument, so the subcommand scan can skip them | `git -C build status` |
 | Path-taking option | `path_args` | value resolved against the call's cwd, checked against the rule's `cwd` | `make -f ../x.mk`, `git -C /etc` |
-| Positional path operand | `path_operands` | leading non-option arguments treated as paths, scoped the same way | `find /etc ...` |
+| Positional path operand | `path_operands` | `leading` (find's grammar) or `all` (rm's grammar) non-option arguments treated as paths, scoped the same way | `find /etc ...`, `rm -rf /etc` |
 | Execution flag | `forbid_args` | deny-list, checked before everything else | `find -exec`, `git -c` |
 
 ```json
@@ -201,7 +201,12 @@ grammar with token kinds matched to the failure mode they cover:
 ```json
 { "type": "executable", "tool": "exec", "command": "find", "cwd": ".",
   "forbid_args": ["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint*", "-fls"],
-  "path_operands": true }
+  "path_operands": "leading" }
+```
+
+```json
+{ "type": "executable", "tool": "exec", "command": "rm", "cwd": ".",
+  "path_operands": "all" }
 ```
 
 Semantics:
@@ -231,11 +236,16 @@ Semantics:
   value means the rule does not apply. A rule that declares path
   scoping without a `cwd` has no boundary and never matches - failing
   safe rather than silently skipping the check. (Decided; implemented.)
-- `path_operands: true` treats the leading non-option arguments as
-  paths and scopes them the same way - find's grammar, where the paths
-  come first and the expression after. For `git` the positional
-  argument is the subcommand, not a path, so git does not set it.
-  (Implemented.)
+- `path_operands` selects which non-option arguments are paths and
+  scopes them the same way. `"leading"` is find's grammar - the paths
+  come first, the expression after, so the scan stops at the first
+  option. `"all"` is rm's grammar - operands come after the options
+  and may be interspersed, so the scan collects every non-option
+  argument, skipping the values of options declared in `value_args`
+  (a `true` boolean is accepted as `"leading"` for older rules). For
+  `git` the positional argument is the subcommand, not a path, so git
+  does not set it. An unknown value fails safe: the rule is dropped
+  at load time with a warning. (Implemented.)
 - The grammar lives in the rule, not in the engine: the engine is a
   generic matcher with no built-in command names. Curated defaults ship
   in `templates/policy.json`, which is embedded in the binary at build
@@ -271,7 +281,11 @@ Makefile (deny-grade rules on patchset edits to it - needs
 `normalize_context` to read `file_path`, see "Open questions"). The
 accepted mitigation is the approval prompt plus the Landlock rung,
 where a makefile's writes outside the workspace fail at the kernel no
-matter who wrote the makefile.
+matter who wrote the makefile. Related, inside the boundary: `rm` is
+allowed with its operands scoped to the workspace, which means the
+agent can delete the workspace itself (`rm -rf .`). That is within
+the autonomy contract - the workspace is the sandbox - and committed
+work is recoverable through git; uncommitted work is not.
 
 ## Version pinning at bootstrap
 

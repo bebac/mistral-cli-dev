@@ -1966,7 +1966,7 @@ TEST_CASE("path_operands: leading non-option arguments are scoped")
     {"default", "require_approval"},
     {"allow",
      mistral::agent::json::array({mistral::agent::json{
-       {"type", "executable"}, {"tool", "exec"}, {"command", "find"}, {"cwd", "/w"}, {"path_operands", true}
+      {"type", "executable"}, {"tool", "exec"}, {"command", "find"}, {"cwd", "/w"}, {"path_operands", "leading"}
      }})}
   });
 
@@ -1980,6 +1980,111 @@ TEST_CASE("path_operands: leading non-option arguments are scoped")
   CHECK(
     engine.evaluate(exec_cwd_ctx("find", {".", "-name", "/etc/passwd"}, "/w")).decision ==
     mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("path_operands: true is the legacy spelling of leading")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "find"}, {"cwd", "/w"}, {"path_operands", true}
+     }})}
+  });
+
+  CHECK(engine.evaluate(exec_cwd_ctx("find", {".", "-name", "x"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("find", {"/etc", "-name", "x"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("path_operands all: every non-option argument is scoped")
+{
+  // rm's grammar: options first, operands after and interspersed.
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "rm"}, {"cwd", "/w"}, {"path_operands", "all"}
+     }})}
+  });
+
+  // Operands after options, recursive, several at once.
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-f", "build/foo.o"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build", "sub/x"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Operands interspersed with options.
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"build", "-f"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+
+  // Outside: absolute, and .. escape from a subdirectory.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-rf", "/etc"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // .. from a subdirectory stays inside the workspace; .. .. escapes it.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-f", "../x"}, "/w/build")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-f", "../../x"}, "/w/build")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("path_operands all skips values of declared value_args")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "rm"}, {"cwd", "/w"},
+       {"value_args", mistral::agent::json::array({"-o"})},
+       {"path_operands", "all"}
+     }})}
+  });
+
+  // -o's value is skipped by the operand scan; the operands are scoped.
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-o", "val", "foo"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-o", "val", "/etc/x"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("path_operands with an unknown value fails safe")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"}, {"tool", "exec"}, {"command", "rm"}, {"cwd", "/w"}, {"path_operands", "bogus"}
+     }})}
+  });
+
+  // The rule is dropped with a warning and the command line prompts.
+  CHECK(engine.rule_count() == 0);
+  CHECK(!engine.warnings().empty());
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-f", "foo"}, "/w")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("path_operands: DSL rule")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.add_rule("allow:exec:command=rm,cwd=/w,path_operands=all");
+
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-rf", "/etc"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 }
 
@@ -2086,8 +2191,20 @@ TEST_CASE("Embedded templates/policy.json behaves as documented")
     mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 
+  // rm: operands scoped to the workspace.
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-f", "build/foo.o"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-rf", "/etc"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("rm", {"-f", "../x"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
   // Unlisted commands fall to the default.
-  CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "/"}, ".")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  CHECK(engine.evaluate(exec_cwd_ctx("curl", {"https://example.com"}, ".")).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
 }
 
 TEST_SUITE_END();
