@@ -47,6 +47,12 @@
       "path_args": ["--build", "-S", "-B", "-C", "--toolchain", "--install-prefix",
                      "--graphviz", "--trace-redirect", "--profiling-output"],
       "forbid_args": ["-E**", "-P**", "--install", "--open"] },
+    { "type": "executable", "tool": "exec", "command": "ctest", "cwd": ".",
+      "path_args": ["--test-dir", "-O", "--output-log", "--output-junit",
+                    "--resource-spec-file", "--tests-from-file", "--exclude-from-file"],
+      "forbid_args": ["-S**", "--script**", "-D**", "--dashboard**",
+                      "-M**", "--test-model**", "-T**", "--test-action**",
+                      "--build-and-test", "--test-command**"] },
     { "type": "executable", "tool": "exec", "command": "rm", "cwd": ".",
       "path_operands": "all" }
   ]

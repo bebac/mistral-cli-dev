@@ -2263,6 +2263,45 @@ TEST_CASE("Embedded templates/policy.json behaves as documented")
     mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 
+  // ctest: test-dir and output paths scoped to the workspace, the
+  // script, dashboard and build-and-test modes forbidden.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--test-dir", "build", "--output-on-failure"}, ".")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--preset", "default"}, ".")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--output-junit", "build/junit.xml"}, ".")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--test-dir", "/elsewhere"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"-S", "nightly.cmake"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"-D", "Experimental"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"-T", "Submit"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--build-and-test", ".", "build", "--build-generator", "Unix Makefiles"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ctest", {"--test-command", "./evil"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
   // rm: operands scoped to the workspace.
   CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-f", "build/foo.o"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
   CHECK(engine.evaluate(exec_cwd_ctx("rm", {"-rf", "build"}, ".")).decision == mistral::agent::policy_decision::ALLOW);

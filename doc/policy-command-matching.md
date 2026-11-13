@@ -209,6 +209,15 @@ grammar with token kinds matched to the failure mode they cover:
   "path_operands": "all" }
 ```
 
+```json
+{ "type": "executable", "tool": "exec", "command": "ctest", "cwd": ".",
+  "path_args": ["--test-dir", "-O", "--output-log", "--output-junit",
+                "--resource-spec-file", "--tests-from-file", "--exclude-from-file"],
+  "forbid_args": ["-S**", "--script**", "-D**", "--dashboard**",
+                  "-M**", "--test-model**", "-T**", "--test-action**",
+                  "--build-and-test", "--test-command**"] }
+```
+
 Semantics:
 
 - `forbid_args` is checked first and wins over the `args` allow-list.
@@ -270,7 +279,20 @@ does. That leaves a class the argv grammar cannot express:
   `--help` cannot be declared in `path_args`, because the attached
   short-form match would swallow the whole `--help-*` family.
 - `tests` / `ctest` run compiled test binaries; changed test source
-  (via an approved patchset) executes silently at the next run.
+  (via an approved patchset) executes silently at the next run. The
+  shipped ctest rule (November 2026) scopes `--test-dir` and the
+  log/junit output flags to the workspace and deny-lists the three
+  modes that are execution or network primitives: script mode
+  (`-S`/`--script`, `-SP`/`--script-new-process` - runs a
+  cmake-language script, same class as `cmake -P`), dashboard client
+  (`-D`/`--dashboard`, `-M`/`--test-model`, `-T`/`--test-action` -
+  submits to a CDash server; every other dashboard option is inert
+  without these entry points) and `--build-and-test` with
+  `--test-command` (configure, build and run an arbitrary command).
+  Residual in that rule, same class as cmake's fixed-content writes:
+  `--version`/`--help*` with their optional `[<file>]`, and a
+  workspace preset file (`--preset`) can carry test-dir and output
+  paths of its own - same trust class as the Makefile.
 
 What stands between the agent and these today is the patchset
 approval: every file write goes through `patchset_apply`, which prompts
