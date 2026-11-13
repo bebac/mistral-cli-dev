@@ -1049,8 +1049,10 @@ namespace mistral::agent
       "alternative to emitting edit blocks in response text - use one channel per "
       "patchset, never both. Only one patchset can be stored at a time: creating a new "
       "ID while a different non-applied patchset is stored fails - apply it or discard "
-      "it with patchset_clear first. After adding all edits, validate with "
-      "patchset_validate, then apply with patchset_apply.",
+      "it with patchset_clear first. Every add re-validates the whole "
+      "patchset against the current filesystem and reports the outcome in "
+      "a 'validation' field: when all_valid is true, call patchset_apply "
+      "directly; patchset_validate is only needed for a standalone dry run.",
       &patchset_tools,
       &mistral::tools::patchset_tools::patchset_add,
       arg("patchset_id", "The unique identifier of the patchset (alphanumeric, hyphens, underscores)"),
@@ -1088,7 +1090,8 @@ namespace mistral::agent
       "patchset_update",
       "Update a single edit in a stored patchset. file_path keeps the existing value when empty. "
       "search_text and replace_text keep the existing value when omitted or null; "
-      "pass an explicit empty string to clear the field.",
+      "pass an explicit empty string to clear the field. The response includes a "
+      "'validation' summary of the whole patchset, so a fix is confirmed immediately.",
       &patchset_tools,
       &mistral::tools::patchset_tools::patchset_update,
       arg("patchset_id", "The unique identifier of the patchset"),
@@ -1101,7 +1104,8 @@ namespace mistral::agent
     global_tools_.register_tool(
       "patchset_remove",
       "Remove a single edit block from a stored patchset by its patch number. The remaining edits keep their patch "
-      "numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset.",
+      "numbers. Use this to drop broken or unwanted blocks without re-emitting the whole patchset. "
+      "The response includes a 'validation' summary of the whole patchset.",
       &patchset_tools,
       &mistral::tools::patchset_tools::patchset_remove,
       arg("patchset_id", "The unique identifier of the patchset"),

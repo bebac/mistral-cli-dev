@@ -16,6 +16,63 @@ namespace mistral::tools
 {
   using json = nlohmann::ordered_json;
 
+  namespace
+  {
+    // Compact validation summary attached to every patchset_add result, so
+    // the agent gets immediate feedback without a separate
+    // patchset_validate round trip. Mirrors what patchset_apply checks.
+    json validation_summary_json(const validation_result_t& validation)
+    {
+      json summary;
+      const auto total = validation.validations.size();
+      // An empty patchset validates trivially, but patchset_apply rejects
+      // it with no_edits - report that instead of a misleading all_valid.
+      if (total == 0)
+      {
+        summary["all_valid"] = false;
+        summary["edit_count"] = 0;
+        summary["hint"] = "Patchset has 0 edits; patchset_apply would fail with no_edits";
+        return summary;
+      }
+      summary["all_valid"] = validation.all_valid();
+      summary["edit_count"] = static_cast<int>(total);
+      if (validation.all_valid())
+      {
+        summary["hint"] = "All " + std::to_string(total) +
+          " edits are valid against the current filesystem; patchset_apply will succeed without a separate patchset_validate call";
+        return summary;
+      }
+
+      json errors = json::array();
+      int error_count = 0;
+      for (const auto& v : validation.validations)
+      {
+        if (v.valid)
+        {
+          continue;
+        }
+        ++error_count;
+        json error_json;
+        error_json["patch_number"] = v.patch_number;
+        error_json["file_path"] = v.file_path;
+        error_json["error_type"] = v.error_type;
+        error_json["error"] = v.error_message;
+        error_json["match_count"] = v.match_count;
+        error_json["is_fixable"] = v.is_fixable;
+        if (!v.suggestion.empty())
+        {
+          error_json["suggestion"] = v.suggestion;
+        }
+        errors.push_back(error_json);
+      }
+      summary["error_count"] = error_count;
+      summary["errors"] = errors;
+      summary["hint"] = std::to_string(error_count) + " of " + std::to_string(total) +
+        " edits are invalid against the current filesystem; fix them with patchset_update or patchset_remove - patchset_apply re-validates and would refuse to apply";
+      return summary;
+    }
+  } // namespace
+
   patchset_tools::patchset_tools(patchset_store& store) : store_(store)
   {
   }
@@ -105,7 +162,7 @@ namespace mistral::tools
       return make_error_response("store_failed", "Failed to store edit in patchset '" + patchset_id + "'");
     }
 
-    return json{
+    json result{
       {"status", "success"},
       {"patchset_id", patchset_id},
       {"created", !patchset.has_value()},
@@ -113,6 +170,10 @@ namespace mistral::tools
       {"file_path", file_path},
       {"edit_count", stored->edits.size()}
     };
+    // Auto-validate the whole patchset against the current filesystem, so
+    // the agent can skip patchset_validate when everything matches.
+    result["validation"] = validation_summary_json(validate_all_edits(stored->edits));
+    return result;
   }
 
   json patchset_tools::patchset_apply(std::string patchset_id)
@@ -287,12 +348,15 @@ namespace mistral::tools
 
         // Re-store the updated patchset
         store_.store_patchset(patchset_id, patchset->edits);
-        return json{
+        json result{
           {"status", "success"},
           {"patchset_id", patchset_id},
           {"patch_number", patch_number},
           {"file_path", edit.file_path}
         };
+        // Auto-validate like patchset_add, so a fix is confirmed immediately
+        result["validation"] = validation_summary_json(validate_all_edits(patchset->edits));
+        return result;
       }
     }
 
@@ -340,13 +404,17 @@ namespace mistral::tools
       remaining.push_back(edit.patch_number);
     }
 
-    return json{
+    json result{
       {"status", "success"},
       {"patchset_id", patchset_id},
       {"removed_patch_number", patch_number},
       {"remaining_edit_count", patchset->edits.size()},
       {"remaining_patch_numbers", remaining}
     };
+    // Auto-validate like patchset_add, so dropping a broken edit is
+    // confirmed immediately
+    result["validation"] = validation_summary_json(validate_all_edits(patchset->edits));
+    return result;
   }
 
   json patchset_tools::patchset_clear(std::string patchset_id)

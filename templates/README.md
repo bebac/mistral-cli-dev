@@ -35,6 +35,7 @@ export MISTRAL_API_KEY="your_api_key_here"
 | `policy.json` | Tool policy: read-only tools allowed, everything else requires approval |
 | `sys_prompt.md` | System prompt template for the `main` agent |
 | `sys_prompt_code_tools.md` | Tree-sitter code-tools docs (included by `sys_prompt.md` via `if=tree_sitter_enabled`) |
+| `sys_project_map.md` | Session-start repository tree + git state (included by `sys_prompt.md` via `unless=project_map_disabled`) |
 | `sys_prompt_researcher.md` | Instructions for the `researcher` server-side agent (web search) |
 | `sys_patchset_instructions.md` | Patchset editing workflow (included by `sys_prompt.md`) |
 | `bootstrap.json` | Bootstrap manifest: version + hash of the managed `sys_patchset_instructions.md` |
@@ -45,6 +46,10 @@ export MISTRAL_API_KEY="your_api_key_here"
   `{{> file.md}}` are resolved relative to the `.mistral-cli/` directory,
   `${var}` expands variables and `${{command}}` runs shell commands. A missing
   include is a hard error, so only reference files that exist.
+- The project map (`sys_project_map.md`) is included by default. Disable it
+  by setting the `project_map_disabled` environment variable to a truthy
+  value (`true`, `1`, `yes`, `on`), or by removing the include line from your
+  `sys_prompt.md`.
 - If your project has documentation at the workspace root (for example
   `AGENTS.md`), you can pull it into the system prompt with an include such as
   `{{> ../AGENTS.md}}`.

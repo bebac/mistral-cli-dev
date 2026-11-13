@@ -914,6 +914,131 @@ namespace mistral::tools
     CHECK(result["created"] == true);
   }
 
+  TEST_CASE("patchset_add - auto-validates and reports all_valid when edits match")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    auto result = tools.patchset_add("addv1", f.path(), "hello", "goodbye");
+
+    CHECK(result["status"] == "success");
+    CHECK(result.contains("validation"));
+    CHECK(result["validation"]["all_valid"] == true);
+    CHECK(result["validation"]["edit_count"] == 1);
+    CHECK(!result["validation"].contains("errors"));
+  }
+
+  TEST_CASE("patchset_add - auto-validation reports invalid edits with patch numbers")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("addv2", f.path(), "hello", "goodbye");
+    auto result = tools.patchset_add("addv2", f.path(), "nonexistent", "x");
+
+    // The add itself succeeded; validation is informational
+    CHECK(result["status"] == "success");
+    CHECK(result["validation"]["all_valid"] == false);
+    CHECK(result["validation"]["edit_count"] == 2);
+    CHECK(result["validation"]["error_count"] == 1);
+    CHECK(result["validation"]["errors"][0]["patch_number"] == 2);
+    CHECK(result["validation"]["errors"][0]["error_type"] == "search_not_found");
+    CHECK(result["validation"]["errors"][0]["is_fixable"] == true);
+  }
+
+  TEST_CASE("patchset_add - validation covers all stored edits, not just the new one")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("addv3", f.path(), "hello", "goodbye");
+    // File changes externally after the first add: the first edit goes stale
+    f.write("goodbye world");
+    auto result = tools.patchset_add("addv3", f.path(), "world", "there");
+
+    CHECK(result["validation"]["all_valid"] == false);
+    CHECK(result["validation"]["error_count"] == 1);
+    CHECK(result["validation"]["errors"][0]["patch_number"] == 1);
+  }
+
+  TEST_CASE("patchset_add - error responses carry no validation field")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("addv4", f.path(), "hello", "goodbye");
+    auto result = tools.patchset_add("other-id", f.path(), "hello", "x");
+
+    CHECK(result["status"] == "error");
+    CHECK(result["error_type"] == "patchset_conflict");
+    CHECK(!result.contains("validation"));
+  }
+
+  TEST_CASE("patchset_update - response includes validation summary; fixed edit makes patchset valid")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("upd1", f.path(), "nope", "x"); // invalid: search not found
+    auto result = tools.patchset_update("upd1", 1, f.path(), std::optional<std::string>("hello"), std::nullopt);
+
+    CHECK(result["status"] == "success");
+    CHECK(result["validation"]["all_valid"] == true);
+    CHECK(result["validation"]["edit_count"] == 1);
+  }
+
+  TEST_CASE("patchset_update - validation still reports other invalid edits")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    temp_file g("foo bar");
+    tools.patchset_add("upd2", f.path(), "hello", "goodbye"); // patch 1: valid
+    tools.patchset_add("upd2", g.path(), "nope", "x");          // patch 2: invalid
+    auto result = tools.patchset_update("upd2", 1, f.path(), std::nullopt, std::optional<std::string>("hi"));
+
+    CHECK(result["status"] == "success");
+    CHECK(result["validation"]["all_valid"] == false);
+    CHECK(result["validation"]["error_count"] == 1);
+    CHECK(result["validation"]["errors"][0]["patch_number"] == 2);
+  }
+
+  TEST_CASE("patchset_remove - response includes validation summary; removing the bad edit makes patchset valid")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("rmv1", f.path(), "hello", "goodbye"); // patch 1: valid
+    tools.patchset_add("rmv1", f.path(), "nope", "x");        // patch 2: invalid
+    auto result = tools.patchset_remove("rmv1", 2);
+
+    CHECK(result["status"] == "success");
+    CHECK(result["validation"]["all_valid"] == true);
+    CHECK(result["validation"]["edit_count"] == 1);
+  }
+
+  TEST_CASE("patchset_remove - removing the last edit reports an empty patchset")
+  {
+    mock_patchset_store store;
+    patchset_tools tools(store);
+
+    temp_file f("hello world");
+    tools.patchset_add("rmv2", f.path(), "hello", "goodbye");
+    auto result = tools.patchset_remove("rmv2", 1);
+
+    CHECK(result["status"] == "success");
+    CHECK(result["validation"]["all_valid"] == false);
+    CHECK(result["validation"]["edit_count"] == 0);
+    CHECK(result["validation"]["hint"].get<std::string>().find("no_edits") != std::string::npos);
+  }
+
   // ---- patchset_apply already_applied guard ----
 
   TEST_CASE("patchset_apply - already applied returns error")

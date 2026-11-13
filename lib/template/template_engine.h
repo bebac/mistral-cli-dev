@@ -19,6 +19,9 @@ namespace mistral::tmpl
   //   {{> path if=var}}   — Conditional include: only include if `var` is truthy.
   //   {{> path unless=var}} — Conditional include: only include if `var` is NOT truthy.
   //
+  //                         An included file's trailing newline is trimmed, and an
+  //                         excluded conditional include leaves no empty line behind.
+  //
   // Truthy values: "true", "1", "yes", "on" (case-insensitive).
   // Falsy values: "false", "0", "no", "off", "" (empty), or unset.
   //

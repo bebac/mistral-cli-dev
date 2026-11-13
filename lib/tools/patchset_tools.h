@@ -24,6 +24,9 @@ namespace mistral::tools
     // be stored at a time: creating a new ID while a different
     // non-applied patchset is stored fails with patchset_conflict.
     // Empty search_text means new file creation.
+    // The success response carries a "validation" summary of the whole
+    // patchset (all_valid plus per-edit errors), so patchset_validate is
+    // usually unnecessary before patchset_apply.
     json patchset_add(
       std::string patchset_id,
       std::string file_path,
@@ -45,6 +48,7 @@ namespace mistral::tools
     // Update a single edit in a stored patchset
     // file_path, search_text and replace_text are each updated when
     // provided (empty/omitted fields keep their existing values)
+    // The success response carries a "validation" summary of the whole patchset.
     json patchset_update(
       std::string patchset_id,
       int patch_number,
@@ -55,6 +59,7 @@ namespace mistral::tools
 
     // Remove a single edit from a stored patchset by patch number
     // Remaining edits keep their patch numbers (no renumbering)
+    // The success response carries a "validation" summary of the whole patchset.
     json patchset_remove(std::string patchset_id, int patch_number);
 
     // Clear a stored patchset

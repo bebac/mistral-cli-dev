@@ -90,13 +90,24 @@ namespace mistral::tmpl
           should_include = condition_unless ? !truthy : truthy;
         }
 
+        std::string expanded;
         if (should_include)
         {
           // Conditional includes are optional: silently skip if the file
           // doesn't exist (e.g. existing workspaces without the new file).
-          result += expand_include(path, include_stack, is_conditional);
+          expanded = expand_include(path, include_stack, is_conditional);
         }
+        result += expanded;
         pos = end + 2;
+
+        // A conditional include that contributed nothing (excluded by its
+        // condition, or its optional file is missing) would otherwise
+        // leave its own line as an empty line in the output: skip the
+        // newline that follows the directive.
+        if (is_conditional && expanded.empty() && pos < len && input[pos] == '\n')
+        {
+          ++pos;
+        }
       }
       // ${{command}} — shell command expansion.
       else if (pos + 2 < len && input.compare(pos, 3, "${{") == 0)
@@ -247,6 +258,14 @@ namespace mistral::tmpl
     auto content = read_file(target);
     auto expanded = process_impl(content, include_stack);
     include_stack.erase(canonical);
+
+    // Trim the trailing newline so it does not double with the newline
+    // that follows the directive into a blank line (mirrors
+    // expand_command).
+    if (!expanded.empty() && expanded.back() == '\n')
+    {
+      expanded.pop_back();
+    }
 
     return expanded;
   }

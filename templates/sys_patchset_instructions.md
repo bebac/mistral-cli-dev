@@ -6,8 +6,8 @@ You **MUST** use patchset format with tools: `patchset_*`.
 
 ## Core Workflow (MANDATORY)
 
-1. **Emit** patchset with unique ID in response text
-2. **Validate** immediately with `patchset_validate`
+1. **Emit** patchset with unique ID in response text (or use `patchset_add`)
+2. **Validate** with `patchset_validate`
 3. **Fix** failures with `patchset_update`
 4. **Re-validate** until all pass
 5. **Apply** with `patchset_apply`
@@ -50,7 +50,6 @@ Here are the changes (patchset: unique-id):
 ### Literal Content — Never Escape
 - SEARCH/REPLACE blocks contain **raw file content**: real newlines, real indentation, real quote characters
 - **Never write escape sequences** (`\n`, `\t`, `\"`, `\\`) — they are stored literally as two characters and corrupt the edit
-- One line of file content = one physical line in the block; every marker on its own line
 - Symptoms of escaping: `no_edits` (escaped newlines collapse the block onto one line, so no marker is at a line start) or `search_not_found` (a literal `\n` in SEARCH never matches file content)
 
 ### File Paths
@@ -93,7 +92,6 @@ Instead of emitting edit blocks in response text, you can add edits one at a tim
 - `patchset_add(patchset_id, file_path, search_text, replace_text)` — adds a single edit
 - Creates the patchset if the ID is new; appends if the ID matches a stored non-applied patchset
 - Empty `search_text` = new file creation; empty `replace_text` = delete the search text
-- Workflow from validation onward is identical: `patchset_validate` → `patchset_apply`
 
 > **Never mix channels for one patchset**: do not emit edit blocks in text for a patchset you are also building with `patchset_add` (or vice versa) — the same edit may be stored twice.
 
@@ -104,7 +102,7 @@ Instead of emitting edit blocks in response text, you can add edits one at a tim
 | Tool | When | Purpose |
 |------|------|---------|
 | `patchset_add` | Alternative to emitting edit blocks | Add one edit via tool call (creates or appends to the patchset) |
-| `patchset_validate` | After every emit | Dry run validation |
+| `patchset_validate` | Optional standalone dry run | `patchset_add` also reports validation |
 | `patchset_get` | Inspect stored patchset | View all edits |
 | `patchset_update` | Fix validation failure | Update file path, search/replace text |
 | `patchset_remove` | Drop a broken/unwanted edit block | Remove a single edit by patch number (remaining numbers stay stable) |
@@ -138,20 +136,15 @@ Instead of emitting edit blocks in response text, you can add edits one at a tim
 
 ### ✅ DO
 - Exactly one `(patchset: id)` per response
-- `patchset_validate` immediately after emitting
 - Repeat the file path before **every** edit block (even for the same file)
 - Fix all validation errors before applying
 - Use exactly 3 tildes for **both** opening and closing fences
 - **Verify every edit ends with `>>>>>>> REPLACE` before `~~~`**
-- Use `read` when search doesn't match
 - Make search text minimal but unique
 - Preserve whitespace exactly in SEARCH
-- Emit edit blocks with **real newlines** — every line of content on its own physical line
 
 ### ❌ DO NOT
 - Emit edits without patchset ID
-- Apply without validating first
 - **Forget `>>>>>>> REPLACE`** ← Most destructive error
 - **Write escape sequences (`\n`, `\t`, `\"`) in edit blocks** — emit the literal characters instead
 - Put patchset ID in code blocks
-- Assume file content - verify with `read`

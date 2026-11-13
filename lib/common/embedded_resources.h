@@ -20,6 +20,7 @@ namespace mistral::embedded
   std::string_view sys_prompt_researcher();
   std::string_view sys_prompt_xerj();
   std::string_view sys_prompt_code_tools();
+  std::string_view sys_project_map();
   std::string_view sys_storybook_notes();
   std::string_view policy_json();
   std::string_view config_json();

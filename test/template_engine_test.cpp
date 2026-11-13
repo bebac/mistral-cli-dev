@@ -241,6 +241,43 @@ TEST_CASE("template_engine: conditional include with missing file (optional)")
   CHECK(engine.process("A {{> missing if=feature}} B") == "A  B");
 }
 
+TEST_CASE("template_engine: excluded conditional include leaves no empty line")
+{
+  temp_dir tmp;
+  tmp.write("extra.md", "EXTRA");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "false");
+
+  // The directive's own line must not collapse into a blank line.
+  CHECK(engine.process("A\n{{> extra if=feature}}\nB") == "A\nB");
+}
+
+TEST_CASE("template_engine: missing optional include leaves no empty line")
+{
+  temp_dir tmp;
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+  engine.set_variable("feature", "true");
+
+  CHECK(engine.process("A\n{{> missing if=feature}}\nB") == "A\nB");
+}
+
+TEST_CASE("template_engine: include trims the file's trailing newline")
+{
+  temp_dir tmp;
+  tmp.write("part.md", "line1\nline2\n");
+
+  mistral::tmpl::template_engine engine;
+  engine.set_include_base(tmp.path);
+
+  // The file's trailing newline must not double with the directive
+  // line's own newline into a blank line.
+  CHECK(engine.process("A\n{{> part}}\nB") == "A\nline1\nline2\nB");
+}
+
 TEST_CASE("template_engine: truthy values")
 {
   temp_dir tmp;
@@ -280,6 +317,7 @@ TEST_CASE("template_engine: embedded sys_prompt follows feature flags")
   tmp.write("sys_patchset_instructions.md", std::string(mistral::embedded::sys_patchset_instructions()));
   tmp.write("sys_prompt_code_tools.md", std::string(mistral::embedded::sys_prompt_code_tools()));
   tmp.write("sys_prompt_xerj.md", std::string(mistral::embedded::sys_prompt_xerj()));
+  tmp.write("sys_project_map.md", std::string(mistral::embedded::sys_project_map()));
 
   // Both feature flags on: both conditional includes expand.
   {
@@ -304,5 +342,19 @@ TEST_CASE("template_engine: embedded sys_prompt follows feature flags")
     CHECK(out.find("Syntax-aware code tools") == std::string::npos);
     CHECK(out.find("XERJ (optional, via MCP)") == std::string::npos);
     CHECK(out.find("## Codebase Searching") != std::string::npos);
+    // The project map is included by default (project_map_disabled unset).
+    CHECK(out.find("## Project Map") != std::string::npos);
+  }
+
+  // Project map opt-out: project_map_disabled set to a truthy value.
+  {
+    mistral::tmpl::template_engine engine;
+    engine.set_include_base(tmp.path);
+    engine.set_variable("tree_sitter_enabled", "false");
+    engine.set_variable("xerj_enabled", "false");
+    engine.set_variable("project_map_disabled", "true");
+    engine.enable_command_expansion(false);
+    const std::string out = engine.process_file(tmp.path / "sys_prompt.md");
+    CHECK(out.find("## Project Map") == std::string::npos);
   }
 }
