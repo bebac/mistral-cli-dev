@@ -99,6 +99,7 @@ TEST_CASE("process_tools: start, write, read echo through cat, then kill")
 
     json w = co_await t.process_write(id, "hello process\n");
     CHECK(w["written"].get<int64_t>() == 14);
+    CHECK(!w.contains("output")); // no wait requested: lean result
 
     echoed = co_await wait_read(t, id, "hello process");
     CHECK(echoed["output"].get<std::string>().find("hello process") != std::string::npos);
@@ -401,4 +402,178 @@ TEST_CASE("process_tools: parse_request accepts command/args/cwd and rejects mal
   CHECK(!process_tools::parse_request(json{{"command", 42}}).has_value());
   CHECK(!process_tools::parse_request(json{{"command", "x"}, {"args", "not-an-array"}}).has_value());
   CHECK(!process_tools::parse_request(json{{"command", "x"}, {"cwd", 7}}).has_value());
+}
+
+TEST_CASE("process_tools: process_write with wait_for returns the matching output in one call")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("cat", {}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    w = co_await t.process_write(id, "ping123\n", "ping123", 5);
+    CHECK(w["written"].get<int64_t>() == 8);
+    CHECK(w.value("matched", false) == true);
+    CHECK(w["output"].get<std::string>().find("ping123") != std::string::npos);
+    CHECK(w.value("running", false) == true);
+    CHECK(w.value("exited", true) == false);
+    CHECK(w["next_offset"].get<uint64_t>() > 0);
+
+    // A follow-up process_read with next_offset sees nothing new.
+    json again = t.process_read(id, w["next_offset"].get<int64_t>(), 65536);
+    CHECK(again["output"].get<std::string>().empty());
+
+    t.process_kill(id);
+    co_return;
+  });
+
+  mgr.kill_all();
+}
+
+TEST_CASE("process_tools: process_write wait_for times out on a silent process")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("sh", {"-c", "sleep 30"}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    auto begin = std::chrono::steady_clock::now();
+    w = co_await t.process_write(id, "", "NEVER_APPEARS", 1);
+    auto elapsed = std::chrono::steady_clock::now() - begin;
+
+    CHECK(w.value("matched", true) == false);
+    CHECK(w.value("running", false) == true);
+    CHECK(w["output"].get<std::string>().empty());
+    CHECK(w["written"].get<int64_t>() == 0);
+    // It waited about the requested second, not forever.
+    CHECK(elapsed >= std::chrono::milliseconds(900));
+    CHECK(elapsed < std::chrono::seconds(5));
+
+    t.process_kill(id);
+    co_return;
+  });
+
+  mgr.kill_all();
+}
+
+TEST_CASE("process_tools: process_write with a plain wait returns output when the process exits")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("sh", {"-c", "sleep 0.3; echo LATE_MARKER_9"}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    // Empty wait_for + timeout > 0: wait up to 5 s, cut short by exit.
+    w = co_await t.process_write(id, "", "", 5);
+    CHECK(w.value("matched", true) == false); // no pattern requested
+    CHECK(w.value("exited", false) == true);
+    CHECK(w["exit_code"].get<int>() == 0);
+    CHECK(w["output"].get<std::string>().find("LATE_MARKER_9") != std::string::npos);
+    co_return; // the sh exits by itself
+  });
+
+  mgr.kill_all();
+}
+
+TEST_CASE("process_tools: process_write with an invalid wait_for regex reports the error after writing")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("cat", {}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    w = co_await t.process_write(id, "x\n", "([", 5);
+    CHECK(w["error"].get<std::string>().find("invalid wait_for regex") != std::string::npos);
+    CHECK(w["written"].get<int64_t>() == 2); // the write still happened
+
+    t.process_kill(id);
+    co_return;
+  });
+
+  mgr.kill_all();
+}
+
+TEST_CASE("process_tools: process_write write_timeout_seconds fires when the process never reads stdin")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("sh", {"-c", "sleep 30"}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    std::string big(256 * 1024, 'x'); // far more than a pipe buffer holds
+    auto begin = std::chrono::steady_clock::now();
+    w = co_await t.process_write(id, big, "", 0, 1);
+    auto elapsed = std::chrono::steady_clock::now() - begin;
+
+    CHECK(w.contains("error"));
+    CHECK(w.value("timed_out", false) == true);
+    CHECK(w["error"].get<std::string>().find("timed out") != std::string::npos);
+    // The pipe took what it could hold; the rest was not written.
+    int64_t written = w["written"].get<int64_t>();
+    CHECK(written > 0);
+    CHECK(written < static_cast<int64_t>(big.size()));
+    // Bounded wait: about the requested second, not forever.
+    CHECK(elapsed >= std::chrono::milliseconds(900));
+    CHECK(elapsed < std::chrono::seconds(5));
+
+    t.process_kill(id);
+    co_return;
+  });
+
+  mgr.kill_all();
+}
+
+TEST_CASE("process_tools: process_write with write_timeout_seconds completes against a reading process")
+{
+  using namespace mistral::tools;
+  ::signal(SIGPIPE, SIG_IGN);
+
+  process_manager mgr;
+  process_tools tools(mgr);
+
+  json w;
+  run_scenario(tools, [&](process_tools& t) -> dripcore::awaitable<void> {
+    json started = co_await t.process_start("cat", {}, "", {}, "", "", 0);
+    std::string id = started["id"].get<std::string>();
+
+    std::string big(256 * 1024, 'y');
+    w = co_await t.process_write(id, big, "", 0, 10);
+    CHECK(!w.contains("error"));
+    CHECK(w["written"].get<int64_t>() == static_cast<int64_t>(big.size()));
+
+    t.process_kill(id);
+    co_return;
+  });
+
+  mgr.kill_all();
 }

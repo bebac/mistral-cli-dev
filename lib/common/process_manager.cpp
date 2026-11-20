@@ -370,17 +370,28 @@ namespace mistral::common
 
   bool process_manager::output_matches(const std::string& id, const std::regex& re) const
   {
+    return output_matches_since(id, 0, re);
+  }
+
+  bool process_manager::output_matches_since(const std::string& id, uint64_t since, const std::regex& re) const
+  {
     const auto* s = find(id);
     if (!s)
     {
       return false;
     }
-    // The buffer is capped at 256 KiB, so this scan is bounded.
+    // The buffer is capped at 256 KiB, so this scan is bounded. Only
+    // chunks overlapping [since, ...) are scanned.
     std::string all;
     all.reserve(s->buffered_bytes);
     for (const auto& [offset, data] : s->chunks)
     {
-      all += data;
+      if (offset + data.size() <= since)
+      {
+        continue;
+      }
+      size_t from = offset < since ? static_cast<size_t>(since - offset) : 0;
+      all.append(data, from, data.size() - from);
     }
     return std::regex_search(all, re);
   }

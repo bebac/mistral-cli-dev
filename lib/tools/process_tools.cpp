@@ -25,6 +25,27 @@ namespace mistral::tools
     {
       return {{"error", std::move(message)}};
     }
+
+    // Shared shape of the read fields every process_* result carries:
+    // process_read returns exactly this; process_write adds written
+    // and matched when it waits for output.
+    json read_fields_json(const std::string& id, const common::process_read_result& r)
+    {
+      json result{
+        {"id", id},
+        {"output", r.output},
+        {"next_offset", r.next_offset},
+        {"total_bytes", r.total_bytes},
+        {"truncated", r.truncated},
+        {"running", r.running},
+        {"exited", r.exited},
+      };
+      if (r.exited)
+      {
+        result["exit_code"] = r.exit_code;
+      }
+      return result;
+    }
   } // namespace
 
   dripcore::awaitable<json> process_tools::process_start(
@@ -110,7 +131,13 @@ namespace mistral::tools
     co_return result;
   }
 
-  dripcore::awaitable<json> process_tools::process_write(std::string id, std::string input)
+  dripcore::awaitable<json> process_tools::process_write(
+    std::string id,
+    std::string input,
+    std::string wait_for,
+    int wait_timeout_seconds,
+    int write_timeout_seconds
+  )
   {
     int fd = mgr_.stdin_fd(id);
     if (fd < 0)
@@ -124,9 +151,30 @@ namespace mistral::tools
       co_return json{{"error", "process has exited"}, {"id", id}, {"exit_code", exit_code}};
     }
 
+    // The wait/return below covers output produced from this call on
+    // onward, so capture the offset before writing: nothing that
+    // arrives during the write can be missed by the filter or the
+    // returned output.
+    uint64_t since = 0;
+    if (auto* s = mgr_.find(id))
+    {
+      since = s->total_bytes;
+    }
+
     // The fd is non-blocking: write what fits now, wait for POLLOUT
     // on EAGAIN. SIGPIPE is ignored by every CLI entry point, so a
     // dead child surfaces as EPIPE here instead of killing the CLI.
+    //
+    // With write_timeout_seconds > 0 the wait is bounded: instead of
+    // parking on POLLOUT (which only fires when the child reads), the
+    // loop polls in 50 ms slices and re-checks the deadline and the
+    // child's exit, so a process that never reads stdin cannot hang
+    // the call forever.
+    auto write_deadline = std::chrono::steady_clock::time_point::max();
+    if (write_timeout_seconds > 0)
+    {
+      write_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(write_timeout_seconds);
+    }
     size_t written = 0;
     while (written < input.size())
     {
@@ -142,6 +190,36 @@ namespace mistral::tools
       }
       if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
       {
+        if (write_timeout_seconds > 0)
+        {
+          int exit_code = 0;
+          if (mgr_.exited(id, exit_code))
+          {
+            co_return json{
+              {"error", "process has exited"},
+              {"id", id},
+              {"exit_code", exit_code},
+              {"written", written},
+            };
+          }
+          if (std::chrono::steady_clock::now() >= write_deadline)
+          {
+            co_return json{
+              {"error",
+               std::format(
+                 "write timed out after {}s: stdin pipe full and the process did not read",
+                 write_timeout_seconds
+               )},
+              {"id", id},
+              {"written", written},
+              {"timed_out", true},
+            };
+          }
+          co_await dripcore::sleep_awaiter{
+            dripcore::executor::current(), nullptr, std::chrono::milliseconds(50)
+          };
+          continue;
+        }
         co_await dripcore::io_awaiter{fd, POLLOUT, dripcore::executor::current(), nullptr};
         continue;
       }
@@ -151,7 +229,63 @@ namespace mistral::tools
         {"written", written},
       };
     }
-    co_return json{{"id", id}, {"written", written}};
+
+    // No wait requested: keep the lean result.
+    if (wait_for.empty() && wait_timeout_seconds <= 0)
+    {
+      co_return json{{"id", id}, {"written", written}};
+    }
+
+    std::regex pattern;
+    if (!wait_for.empty())
+    {
+      try
+      {
+        pattern = std::regex(wait_for);
+      }
+      catch (const std::regex_error& e)
+      {
+        co_return json{
+          {"error", std::format("invalid wait_for regex: {}", e.what())},
+          {"id", id},
+          {"written", written},
+        };
+      }
+    }
+
+    // Same wait shape as process_start's wait_for: poll until the new
+    // output matches, the process exits, or the deadline passes. With
+    // an empty wait_for this is a plain timed wait, still cut short
+    // when the process exits.
+    int timeout = wait_timeout_seconds > 0 ? wait_timeout_seconds : k_default_wait_timeout_seconds;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout);
+    bool matched = false;
+    while (true)
+    {
+      if (!wait_for.empty() && mgr_.output_matches_since(id, since, pattern))
+      {
+        matched = true;
+        break;
+      }
+      int exit_code = 0;
+      if (mgr_.exited(id, exit_code))
+      {
+        break; // process ended before the pattern appeared
+      }
+      if (std::chrono::steady_clock::now() >= deadline)
+      {
+        break;
+      }
+      co_await dripcore::sleep_awaiter{
+        dripcore::executor::current(), nullptr, std::chrono::milliseconds(50)
+      };
+    }
+
+    auto r = mgr_.read(id, since, static_cast<size_t>(k_default_max_read_bytes));
+    json result = read_fields_json(id, r);
+    result["written"] = written;
+    result["matched"] = matched;
+    co_return result;
   }
 
   json process_tools::process_read(std::string id, int64_t since, int max_bytes)
@@ -165,20 +299,7 @@ namespace mistral::tools
     {
       return error_result(std::format("unknown session: {}", id));
     }
-    json result{
-      {"id", id},
-      {"output", r.output},
-      {"next_offset", r.next_offset},
-      {"total_bytes", r.total_bytes},
-      {"truncated", r.truncated},
-      {"running", r.running},
-      {"exited", r.exited},
-    };
-    if (r.exited)
-    {
-      result["exit_code"] = r.exit_code;
-    }
-    return result;
+    return read_fields_json(id, r);
   }
 
   json process_tools::process_list()

@@ -143,6 +143,10 @@ namespace mistral::common
     // Used by the pump task and by process_start's wait_for:
     void append_output(process_session& s, const char* data, size_t n);
     bool output_matches(const std::string& id, const std::regex& re) const;
+    // Like output_matches, but only scans output at/after byte offset
+    // `since` (used by process_write's wait_for so already-seen output
+    // does not re-match).
+    bool output_matches_since(const std::string& id, uint64_t since, const std::regex& re) const;
     bool exited(const std::string& id, int& exit_code) const;
 
   private:

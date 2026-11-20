@@ -27,9 +27,19 @@ A new tool family backed by a `process_manager`, instead of extending
   group and returns immediately with a session id. `wait_for` (regex)
   blocks until the output matches, the process exits, or the timeout
   elapses — the "wait until the dev server is ready" primitive.
-- `process_write(id, input)` writes verbatim to the session's stdin
-  (non-blocking fd + `io_awaiter` POLLOUT on EAGAIN; SIGPIPE is ignored
-  by the entry points, so a dead child is an EPIPE error, not a crash).
+- `process_write(id, input, wait_for, wait_timeout_seconds, write_timeout_seconds)`
+  writes verbatim to the session's stdin (non-blocking fd + `io_awaiter`
+  POLLOUT on EAGAIN; SIGPIPE is ignored by the entry points, so a dead
+  child is an EPIPE error, not a crash). When `wait_for` (a regex) is
+  non-empty or `wait_timeout_seconds` > 0, the call then waits for
+  output produced since the call started — until the output matches
+  `wait_for`, the process exits, or the timeout elapses (default 60 s
+  when `wait_for` is set) — and returns the read fields plus `written`
+  and `matched`, so a write+read round trip is a single call.
+  `write_timeout_seconds` bounds the write itself when the stdin pipe
+  is full (the process is not reading): default 0 parks on POLLOUT
+  indefinitely; a positive value polls in 50 ms slices and fails with
+  `timed_out` plus the partial `written` count on expiry.
 - `process_read(id, since, max_bytes)` returns output produced since
   byte offset `since` (use `next_offset` from the previous read for
   incremental reads). Each session keeps a 256 KiB ring buffer of

@@ -1002,11 +1002,32 @@ namespace mistral::agent
       "process_write",
       "Write input verbatim to the stdin of a background process session started with process_start. "
       "Include a trailing newline for line-based REPLs (lldb, gdb, python). Returns the number of "
-      "bytes written; fails when the process has exited or the session is unknown.",
+      "bytes written; fails when the process has exited or the session is unknown. "
+      "When wait_for (a regex) is non-empty or wait_timeout_seconds > 0, the call then waits for "
+      "output produced since the call started - until the output matches wait_for, the process "
+      "exits, or wait_timeout_seconds elapse (default 60 when wait_for is set) - and also returns "
+      "the read fields (output, next_offset, total_bytes, truncated, running/exited, exit_code) "
+      "plus written and matched (whether wait_for matched; false when wait_for is empty). This "
+      "combines a write+read round trip into a single call. "
+      "Set write_timeout_seconds > 0 to bound how long the write itself may block when the process "
+      "does not read its stdin (pipe full); on expiry the call fails with timed_out and the partial "
+      "written count.",
       &process_tools,
       &mistral::tools::process_tools::process_write,
       arg("id", "Session id returned by process_start"),
-      arg("input", "Text to write to the process's stdin, verbatim")
+      arg("input", "Text to write to the process's stdin, verbatim"),
+      arg("wait_for", "Regex to wait for in the output produced after this write (optional, empty = no pattern)", std::string("")),
+      arg(
+        "wait_timeout_seconds",
+        "Max seconds to wait after writing (default 60 when wait_for is set; 0 with empty wait_for = return immediately after the write)",
+        0
+      ),
+      arg(
+        "write_timeout_seconds",
+        "Max seconds the write itself may block on a full stdin pipe (default 0 = wait indefinitely). "
+        "On expiry the call fails with a timed_out error and the bytes written so far",
+        0
+      )
     );
 
     global_tools_.register_tool(

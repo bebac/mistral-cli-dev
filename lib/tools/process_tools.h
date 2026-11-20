@@ -56,7 +56,25 @@ namespace mistral::tools
     // Write input verbatim to the session's stdin (include a trailing
     // newline for line-based REPLs). Blocks only while the pipe is
     // full; fails when the process has exited.
-    dripcore::awaitable<json> process_write(std::string id, std::string input);
+    //
+    // When wait_for (a regex) is non-empty or wait_timeout_seconds > 0,
+    // the call then waits for output produced since the call started -
+    // until the output matches wait_for, the process exits, or
+    // wait_timeout_seconds elapse (default 60 when wait_for is set) -
+    // and returns the read fields (output, next_offset, ...) plus
+    // written and matched, so a write+read round trip is one call.
+    //
+    // write_timeout_seconds > 0 bounds how long the write itself may
+    // block on a full stdin pipe (a process that never reads): on
+    // expiry the call fails with a timed_out error and the bytes
+    // written so far. 0 (default) waits indefinitely, as before.
+    dripcore::awaitable<json> process_write(
+      std::string id,
+      std::string input,
+      std::string wait_for = "",
+      int wait_timeout_seconds = 0,
+      int write_timeout_seconds = 0
+    );
 
     // Output produced since byte offset `since` (0 = from the start;
     // pass next_offset from the previous read for only new output),
