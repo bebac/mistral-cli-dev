@@ -4,6 +4,7 @@
 #include "doctest/doctest.h"
 #include "tools/edit_parser.h"
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -265,6 +266,60 @@ namespace mistral::agent::test
   {
     api::api_event evt{};
     CHECK(!agent_task_base::is_retryable_error(evt));
+  }
+
+  TEST_SUITE_END;
+
+  // ===========================================================================
+  // retry policy tests (max_retries_for / retry_delay_for)
+  // ===========================================================================
+
+  TEST_SUITE_BEGIN("agent_task_base_retry_policy");
+
+  TEST_CASE("429 gets a larger retry budget than transient errors")
+  {
+    api::api_event evt429{api::event_type::error, "HTTP 429: Too Many Requests", 429};
+    api::api_event evt503{api::event_type::error, "HTTP 503: Service Unavailable", 503};
+    api::api_event evt_conn{api::event_type::error, "connection closed"};
+
+    CHECK(agent_task_base::max_retries_for(evt429) > agent_task_base::max_retries_for(evt503));
+    CHECK(agent_task_base::max_retries_for(evt503) == agent_task_base::max_retries_for(evt_conn));
+  }
+
+  TEST_CASE("429 backoff starts higher, doubles, and is capped")
+  {
+    api::api_event evt429{api::event_type::error, "HTTP 429: Too Many Requests", 429};
+
+    CHECK(agent_task_base::retry_delay_for(evt429, 1) == std::chrono::seconds(5));
+    CHECK(agent_task_base::retry_delay_for(evt429, 2) == std::chrono::seconds(10));
+    CHECK(agent_task_base::retry_delay_for(evt429, 3) == std::chrono::seconds(20));
+    CHECK(agent_task_base::retry_delay_for(evt429, 4) == std::chrono::seconds(40));
+    CHECK(agent_task_base::retry_delay_for(evt429, 5) == std::chrono::seconds(60));
+    // Capped: further attempts stay at 60s.
+    CHECK(agent_task_base::retry_delay_for(evt429, 6) == std::chrono::seconds(60));
+  }
+
+  TEST_CASE("transient errors keep the original 1s/2s/4s backoff")
+  {
+    api::api_event evt503{api::event_type::error, "HTTP 503: Service Unavailable", 503};
+    api::api_event evt_conn{api::event_type::error, "connection closed"};
+
+    CHECK(agent_task_base::retry_delay_for(evt503, 1) == std::chrono::seconds(1));
+    CHECK(agent_task_base::retry_delay_for(evt503, 2) == std::chrono::seconds(2));
+    CHECK(agent_task_base::retry_delay_for(evt503, 3) == std::chrono::seconds(4));
+    CHECK(agent_task_base::retry_delay_for(evt_conn, 1) == std::chrono::seconds(1));
+    CHECK(agent_task_base::retry_delay_for(evt_conn, 3) == std::chrono::seconds(4));
+  }
+
+  TEST_CASE("429 delay is never shorter than the transient delay for the same attempt")
+  {
+    api::api_event evt429{api::event_type::error, "HTTP 429: Too Many Requests", 429};
+    api::api_event evt503{api::event_type::error, "HTTP 503: Service Unavailable", 503};
+
+    for (int attempt = 1; attempt <= 5; ++attempt)
+    {
+      CHECK(agent_task_base::retry_delay_for(evt429, attempt) >= agent_task_base::retry_delay_for(evt503, attempt));
+    }
   }
 
   TEST_SUITE_END;

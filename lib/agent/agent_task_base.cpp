@@ -127,7 +127,6 @@ namespace mistral::agent
     auto tools_schema = tools_.get_schema();
     bool final_answer = false;
     int retry_count = 0;
-    constexpr int max_retries = 3;
 
     while (!final_answer)
     {
@@ -165,6 +164,7 @@ namespace mistral::agent
       bool cancelled = false;
       bool retry = false;
       std::string retry_error;
+      std::optional<api::api_event> retry_evt;
 
       while (true)
       {
@@ -178,13 +178,17 @@ namespace mistral::agent
         }
         if (evt->type == api::event_type::done)
         {
+          // The request came through — reset the retry budget so a later,
+          // unrelated failure gets the full retry count again.
+          retry_count = 0;
           break;
         }
         if (evt->type == api::event_type::error)
         {
-          if (retry_count < max_retries && is_retryable_error(*evt))
+          if (retry_count < max_retries_for(*evt) && is_retryable_error(*evt))
           {
             retry_error = evt->payload;
+            retry_evt = *evt;
             retry = true;
             break;
           }
@@ -264,9 +268,11 @@ namespace mistral::agent
         retry_count++;
         if (in_thinking_)
           thinking_end();
-        auto delay = std::chrono::seconds(1 << (retry_count - 1));
+        auto delay = retry_delay_for(*retry_evt, retry_count);
         agent_loop_on_error(
-          std::format("Retrying ({}/{}) after {}s: {}", retry_count, max_retries, delay.count(), retry_error)
+          std::format(
+            "Retrying ({}/{}) after {}s: {}", retry_count, max_retries_for(*retry_evt), delay.count(), retry_error
+          )
         );
         co_await sleep_for(delay);
         continue;
@@ -730,5 +736,29 @@ namespace mistral::agent
       return true;
     }
     return false;
+  }
+
+  int agent_task_base::max_retries_for(const api::api_event& evt)
+  {
+    // 429 (rate limited / backend out of capacity) is worth more patience
+    // than a transient 5xx or a dropped connection.
+    if (evt.http_status && *evt.http_status == 429)
+    {
+      return 5;
+    }
+    return 3;
+  }
+
+  std::chrono::seconds agent_task_base::retry_delay_for(const api::api_event& evt, int retry_count)
+  {
+    if (evt.http_status && *evt.http_status == 429)
+    {
+      // Rate limited: start at 5s, double per attempt, capped at 60s
+      // (5s, 10s, 20s, 40s, 60s).
+      int shift = std::min(retry_count - 1, 4);
+      return std::chrono::seconds(std::min(5 << shift, 60));
+    }
+    // Transient errors: 1s, 2s, 4s.
+    return std::chrono::seconds(1 << (retry_count - 1));
   }
 } // namespace mistral::agent

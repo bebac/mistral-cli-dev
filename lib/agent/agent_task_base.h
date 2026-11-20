@@ -19,6 +19,7 @@
 #include <dripcore/task.h>
 #include <dripcore/task_handle.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -41,6 +42,16 @@ namespace mistral::agent
     // Returns true if the error is transient and the request should be
     // retried (e.g. HTTP 503, connection closed, stream reset).
     static bool is_retryable_error(const api::api_event& evt);
+
+    // Maximum number of retry attempts for a retryable error. HTTP 429
+    // (rate limited / backend out of capacity) gets a larger budget than
+    // transient 5xx or connection-level errors.
+    static int max_retries_for(const api::api_event& evt);
+
+    // Backoff before retry attempt number `retry_count` (1-based) for the
+    // given error. HTTP 429 uses a longer base delay because the server is
+    // explicitly asking us to slow down.
+    static std::chrono::seconds retry_delay_for(const api::api_event& evt, int retry_count);
 
   protected:
     // Virtual methods for customizing behavior
