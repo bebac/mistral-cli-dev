@@ -60,7 +60,7 @@ advisory layer for everywhere else.
 | Read/explore code in the workspace | silent | silent (code tools, `read`, `ls` rules) | done |
 | Edit files in the workspace | silent | silent: `patchset_apply` is allowed when every stored edit path resolves inside the workspace (directory rule over `tool_paths`); an escaping edit still prompts | done (November 2026) |
 | Build/test in the workspace | silent | silent (`make`, `cmake`, `tests` by name + cwd/paths) | as-is; recipes running arbitrary code is the point of a build |
-| Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent, but over-broad (`find -exec` too) | the argv grammar |
+| Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent; `cat`/`tail`/`head`/`wc`/`grep`/`ls` operands scoped to workspace + `/tmp` (November 2026); `find -exec` still over-broad | the argv grammar |
 | Read outside the workspace | prompt | prompt (directory rule) | done |
 | Write/delete outside the workspace | prompt | `rm` operands scoped by `path_operands` (advisory); `cmake -E`/`-P`/`--install` deny-listed; other writers (`find -delete`, `make`, `git checkout --`) unenforced - no shell means no `>` redirects | Landlock rung (Linux); advisory grammar elsewhere |
 | Network, installs, everything else | prompt | prompt (default); `curl` via `exec` gets an explicit require-approval rule pointing at `web_fetch` | done for prompting; `web_fetch` itself blocked on async connect (see E) |
@@ -96,7 +96,7 @@ An `executable` rule is matched in `rule_matches`
 |---|---|---|
 | command | `command_matches` (`:552`) | exact string, or glob (`*`, `?`) |
 | args | `args_match` (`:579`) | **any-of allow-list**: at least one test arg must equal (or glob-match) one rule arg |
-| cwd | `cwd_matches` | exact, or prefix for subdirectories |
+| cwd | `cwd_matches` | exact, or prefix for subdirectories; a JSON array (or repeated DSL `cwd=` parts) makes it any-of, for both the call's cwd and the path boundary |
 
 `args` is an allow-list, so it can *require* a flag but never *forbid*
 one. That was the whole limitation: no way to express "this command,
@@ -126,6 +126,17 @@ workspace (`..`, absolute path, symlink - all resolved by
 `normalize_path`) falls through to the default prompt. A protected
 file is now expressible as an exclusion, e.g.
 `{ "type": "directory", "tool": "patchset_apply", "path": ".", "exclude": ["Makefile"] }`.
+
+The shipped read-only executables (`cat`, `tail`, `head`, `wc`,
+`grep`, `ls`) are allowed with `"cwd": [".", "/tmp"]` and
+`"path_operands": "all"` (November 2026): every operand must resolve
+inside the workspace or the `/tmp` scratchpad, so `cat /etc/passwd`
+prompts while `cat /tmp/scratch` does not. `cwd` accepts an array
+(any-of) in JSON, or repeated `cwd=` parts in the DSL; a single string
+still works. Note `cwd` alone only constrains where the command *runs* -
+scoping the files it touches needs `path_operands` (or `path_args`),
+with the cwd entries as the boundary. `date` deny-lists `-f`/`--file`,
+which reads a file.
 
 ## Why it matters
 

@@ -233,7 +233,20 @@ namespace mistral::agent
         }
         if (rule_json.contains("cwd"))
         {
-          rule.cwd = normalize_path(rule_json["cwd"].get<std::string>());
+          // A string or an array of strings: each entry is a directory
+          // the call may run in and the boundary for path scoping.
+          const json& cwd_json = rule_json["cwd"];
+          if (cwd_json.is_array())
+          {
+            for (const auto& entry : cwd_json)
+            {
+              rule.cwds.push_back(normalize_path(entry.get<std::string>()));
+            }
+          }
+          else
+          {
+            rule.cwds.push_back(normalize_path(cwd_json.get<std::string>()));
+          }
         }
       }
     }
@@ -362,7 +375,7 @@ namespace mistral::agent
     };
     if (cwd)
     {
-      rule.cwd = normalize_path(*cwd);
+      rule.cwds.push_back(normalize_path(*cwd));
     }
     push_rule(std::move(rule));
   }
@@ -762,28 +775,26 @@ namespace mistral::agent
 
   bool policy_engine::executable_path_matches(const policy_rule& rule, const std::string& resolved_path) const
   {
-    if (!rule.cwd)
+    // The rule names <cwd>/<command> under each of its cwds; both sides
+    // are normalized paths.
+    for (const std::string& cwd : rule.cwds)
     {
-      return false;
-    }
-
-    // The rule names <cwd>/<command>; both sides are normalized paths.
-    std::string expected = normalize_path((fs::path(*rule.cwd) / rule.command).string());
-    if (expected == resolved_path)
-    {
-      return true;
-    }
-
-    // Glob patterns in the command apply to the file name inside the
-    // rule's directory.
-    if (rule.command.find('*') != std::string::npos || rule.command.find('?') != std::string::npos)
-    {
-      fs::path resolved(resolved_path);
-      if (normalize_path(resolved.parent_path().string()) != normalize_path(*rule.cwd))
+      std::string expected = normalize_path((fs::path(cwd) / rule.command).string());
+      if (expected == resolved_path)
       {
-        return false;
+        return true;
       }
-      return command_matches(rule.command, resolved.filename().string());
+
+      // Glob patterns in the command apply to the file name inside the
+      // rule's directory.
+      if (rule.command.find('*') != std::string::npos || rule.command.find('?') != std::string::npos)
+      {
+        fs::path resolved(resolved_path);
+        if (normalize_path(resolved.parent_path().string()) == normalize_path(cwd))
+        {
+          return command_matches(rule.command, resolved.filename().string());
+        }
+      }
     }
 
     return false;
@@ -911,7 +922,8 @@ namespace mistral::agent
         }
         else if (parts[i].starts_with("cwd="))
         {
-          rule.cwd = normalize_path(parts[i].substr(4));
+          // Repeated cwd= parts accumulate: the DSL spelling of an array.
+          rule.cwds.push_back(normalize_path(parts[i].substr(4)));
         }
       }
     }
@@ -1003,11 +1015,15 @@ namespace mistral::agent
 
       // A rule that pins a cwd names a binary by location, so it also
       // matches path-qualified spellings of that binary: either the
-      // command name matches and it runs in the constrained directory,
-      // or the resolved executable is exactly <cwd>/<command>.
-      if (rule.cwd)
+      // command name matches and it runs in one of the constrained
+      // directories, or the resolved executable is exactly
+      // <cwd>/<command> for one of them.
+      if (!rule.cwds.empty())
       {
-        bool name_and_cwd = command_matches(rule.command, *ctx.command_name) && cwd_matches(rule.cwd, ctx.normalized_cwd);
+        bool name_and_cwd = command_matches(rule.command, *ctx.command_name) && ctx.normalized_cwd &&
+                            std::ranges::any_of(rule.cwds, [&](const std::string& cwd) {
+                              return cwd_matches(cwd, ctx.normalized_cwd);
+                            });
         bool path_matches_rule = ctx.resolved_command_path && executable_path_matches(rule, *ctx.resolved_command_path);
         if (!name_and_cwd && !path_matches_rule)
         {
@@ -1052,21 +1068,25 @@ namespace mistral::agent
       // Path scoping: values of declared path-taking options, and the
       // path operands selected by path_operands (leading for find, all
       // for rm), resolve the way the OS would resolve them for the
-      // program - against the call's cwd - and must land inside the
-      // rule's cwd, which doubles as the boundary. A rule that scopes
-      // paths without a boundary cannot verify them and does not
-      // match; the same holds for an operand mode that could not be
+      // program - against the call's cwd - and must land inside one of
+      // the rule's cwds, which double as the boundary. A rule that
+      // scopes paths without a boundary cannot verify them and does
+      // not match; the same holds for an operand mode that could not be
       // parsed (such rules are dropped at load time - this is defense
       // in depth for rules added by other means).
       if ((!rule.path_args.empty() || rule.path_operands != path_operand_mode::NONE) && ctx.command_args)
       {
-        if (!rule.cwd || rule.path_operands == path_operand_mode::INVALID)
+        if (rule.cwds.empty() || rule.path_operands == path_operand_mode::INVALID)
         {
           return rule_match::NO_MATCH;
         }
         for (const std::string& value : collect_path_values(rule, *ctx.command_args))
         {
-          if (!cwd_matches(rule.cwd, resolve_arg_path(value, ctx.normalized_cwd)))
+          std::string resolved = resolve_arg_path(value, ctx.normalized_cwd);
+          bool inside = std::ranges::any_of(rule.cwds, [&](const std::string& cwd) {
+            return cwd_matches(cwd, resolved);
+          });
+          if (!inside)
           {
             return rule_match::NO_MATCH;
           }
@@ -1197,9 +1217,17 @@ namespace mistral::agent
           oss << rule.args[i];
         }
       }
-      if (rule.cwd)
+      if (!rule.cwds.empty())
       {
-        oss << ":cwd=" << *rule.cwd;
+        oss << ":cwd=";
+        for (size_t i = 0; i < rule.cwds.size(); ++i)
+        {
+          if (i > 0)
+          {
+            oss << ",";
+          }
+          oss << rule.cwds[i];
+        }
       }
       break;
     case rule_type::TOOL:

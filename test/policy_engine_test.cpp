@@ -2189,6 +2189,85 @@ TEST_CASE("path_args: DSL rule")
   );
 }
 
+TEST_CASE("cwd as a JSON array: the call may run in any entry and operands may land in any entry")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "cat"},
+       {"cwd", mistral::agent::json::array({"/w", "/tmp"})},
+       {"path_operands", "all"}
+     }})}
+  });
+
+  // Call from /w with a relative operand.
+  CHECK(engine.evaluate(exec_cwd_ctx("cat", {"file.txt"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  // Call from /w with an absolute operand under /tmp (the scratchpad).
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"/tmp/scratch.txt"}, "/w")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  // Call from /tmp with a relative operand.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"scratch.txt"}, "/tmp")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  // Operand outside every boundary.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"/etc/passwd"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // Call cwd outside the list.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"file.txt"}, "/elsewhere")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("cwd array in the DSL: repeated cwd= parts accumulate")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.add_rule("allow:exec:command=cat,cwd=/w,cwd=/tmp,path_operands=all");
+
+  CHECK(engine.evaluate(exec_cwd_ctx("cat", {"/tmp/x"}, "/w")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"/etc/x"}, "/w")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("Exec rule with a cwd array matches a path-qualified command under any entry")
+{
+  temp_dir dir;
+  write_executable(dir.path() + "/tests");
+
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "executable"},
+       {"tool", "exec"},
+       {"command", "tests"},
+       {"cwd", mistral::agent::json::array({"/nonexistent", dir.path()})}
+     }})}
+  });
+
+  mistral::agent::policy_context ctx{
+    .tool_name = "exec",
+    .tool_arguments =
+      mistral::agent::json{{"command", dir.path() + "/tests"}, {"args", mistral::agent::json::array()}},
+    .working_directory = ""
+  };
+
+  CHECK(engine.evaluate(ctx).decision == mistral::agent::policy_decision::ALLOW);
+}
+
 TEST_SUITE_END();
 
 // ============================================================================
@@ -2464,6 +2543,31 @@ TEST_CASE("Embedded templates/policy.json behaves as documented")
   CHECK(engine.evaluate(patchset_apply_ctx({"src/a.cpp", "lib/b.h"})).decision == mistral::agent::policy_decision::ALLOW);
   CHECK(
     engine.evaluate(patchset_apply_ctx({"src/a.cpp", "../outside.txt"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // cat/grep/ls: operands scoped to the workspace and the /tmp scratchpad.
+  CHECK(engine.evaluate(exec_cwd_ctx("cat", {"src/a.cpp"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"/tmp/scratch.txt"}, ".")).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("cat", {"/etc/passwd"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(engine.evaluate(exec_cwd_ctx("grep", {"foo", "src"}, ".")).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("grep", {"foo", "/etc"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("ls", {"/etc"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // date: -f/--file reads a file and is deny-listed.
+  CHECK(
+    engine.evaluate(exec_cwd_ctx("date", {"-f", "/etc/passwd"}, ".")).decision ==
     mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 

@@ -142,8 +142,12 @@ namespace mistral::agent
     // For EXECUTABLE rule type - which non-option arguments are path
     // operands, scoped to the rule's cwd (see path_operand_mode)
     path_operand_mode path_operands = path_operand_mode::NONE;
-    // For EXECUTABLE rule type - optional working directory constraint
-    std::optional<std::string> cwd;
+    // For EXECUTABLE rule type - working directory constraint(s),
+    // normalized. The call must run in one of them (or name the binary
+    // by path under one of them), and path-scoped arguments must land
+    // inside one of them. JSON accepts a string or an array; the DSL
+    // accepts repeated cwd= parts.
+    std::vector<std::string> cwds;
   };
 
   // ---- Policy Engine ----
@@ -335,7 +339,7 @@ namespace mistral::agent
     bool cwd_matches(const std::optional<std::string>& rule_cwd, const std::optional<std::string>& test_cwd) const;
 
     // Check if the resolved executable is the binary a rule names
-    // (<rule.cwd>/<rule.command>)
+    // (<one of rule.cwds>/<rule.command>)
     bool executable_path_matches(const policy_rule& rule, const std::string& resolved_path) const;
 
   private:
