@@ -505,11 +505,30 @@ namespace mistral::agent
       normalized.normalized_cwd = normalize_path(ctx.working_directory);
     }
 
-    // Normalize path argument if present
-    if (ctx.tool_arguments.contains("path"))
+    // Collect every path the call touches: the "path" argument, the
+    // "file_path" argument used by the patchset tools, and any paths the
+    // caller supplied directly (tool_paths - e.g. the stored edits of a
+    // patchset_apply call). Each is normalized, so "..", absolute paths
+    // and symlinks resolve before matching.
+    auto add_tool_path = [&](const std::string& raw_path) {
+      std::string norm = normalize_path(raw_path);
+      normalized.normalized_paths.push_back(norm);
+      if (!normalized.normalized_path)
+      {
+        normalized.normalized_path = norm;
+      }
+    };
+    if (ctx.tool_arguments.contains("path") && ctx.tool_arguments["path"].is_string())
     {
-      std::string path = ctx.tool_arguments["path"].get<std::string>();
-      normalized.normalized_path = normalize_path(path);
+      add_tool_path(ctx.tool_arguments["path"].get<std::string>());
+    }
+    if (ctx.tool_arguments.contains("file_path") && ctx.tool_arguments["file_path"].is_string())
+    {
+      add_tool_path(ctx.tool_arguments["file_path"].get<std::string>());
+    }
+    for (const std::string& raw_path : ctx.tool_paths)
+    {
+      add_tool_path(raw_path);
     }
 
     // For exec and process_start, extract command name and args (both
@@ -929,6 +948,15 @@ namespace mistral::agent
 
     case rule_type::DIRECTORY:
     {
+      // Multi-path calls (e.g. patchset_apply over the stored edits)
+      // aggregate over every touched path.
+      if (!ctx.normalized_paths.empty())
+      {
+        return multi_path_match(rule, ctx.normalized_paths, [&](const std::string& path) {
+          return path_matches(rule.path, path, rule.path_negated, rule.exclusions);
+        });
+      }
+
       // Need a path argument
       if (!ctx.normalized_path)
         return rule_match::NO_MATCH;
@@ -942,23 +970,29 @@ namespace mistral::agent
 
     case rule_type::PATH_PREFIX:
     {
+      const std::string& prefix = rule.path_prefix;
+      auto prefix_predicate = [&](const std::string& path) {
+        // Check if path starts with prefix, on a proper boundary (not
+        // just a partial match)
+        if (!path.starts_with(prefix))
+        {
+          return false;
+        }
+        return path.size() == prefix.size() || path[prefix.size()] == '/' || prefix.back() == '/';
+      };
+
+      // Multi-path calls (e.g. patchset_apply over the stored edits)
+      // aggregate over every touched path.
+      if (!ctx.normalized_paths.empty())
+      {
+        return multi_path_match(rule, ctx.normalized_paths, prefix_predicate);
+      }
+
       // Need a path argument
       if (!ctx.normalized_path)
         return rule_match::NO_MATCH;
 
-      const std::string& path = *ctx.normalized_path;
-      const std::string& prefix = rule.path_prefix;
-
-      // Check if path starts with prefix
-      if (path.starts_with(prefix))
-      {
-        // Make sure it's a proper prefix match (not just partial match)
-        if (path.size() == prefix.size() || path[prefix.size()] == '/' || prefix.back() == '/')
-        {
-          return rule_match::MATCH;
-        }
-      }
-      return rule_match::NO_MATCH;
+      return prefix_predicate(*ctx.normalized_path) ? rule_match::MATCH : rule_match::NO_MATCH;
     }
 
     case rule_type::EXECUTABLE:
@@ -1057,6 +1091,21 @@ namespace mistral::agent
     default:
       return rule_match::NO_MATCH;
     }
+  }
+
+  rule_match policy_engine::multi_path_match(
+    const policy_rule& rule,
+    const std::vector<std::string>& paths,
+    const std::function<bool(const std::string&)>& path_predicate
+  ) const
+  {
+    // An ALLOW rule vouches for the whole call only when every touched
+    // path is covered; a REQUIRE_APPROVAL rule fires when any path is.
+    if (rule.action == rule_action::ALLOW)
+    {
+      return std::ranges::all_of(paths, path_predicate) ? rule_match::MATCH : rule_match::NO_MATCH;
+    }
+    return std::ranges::any_of(paths, path_predicate) ? rule_match::MATCH : rule_match::NO_MATCH;
   }
 
   bool policy_engine::path_matches(

@@ -666,6 +666,23 @@ namespace mistral::agent
   policy_result agent_task_base::evaluate_tool_policy(const api::tool_call& tc, const api::json& tool_args) const
   {
     policy_context ctx{.tool_name = tc.function.name, .tool_arguments = tool_args, .working_directory = ""};
+
+    // patchset_apply writes the files stored in the patchset, not a path
+    // named in its arguments: feed the stored edit paths to the engine so
+    // directory / path_prefix rules can scope the apply. The patchset is
+    // stored before tool calls execute, so the list is complete here.
+    if (tc.function.name == "patchset_apply" && tool_args.contains("patchset_id") &&
+        tool_args["patchset_id"].is_string())
+    {
+      if (auto patchset = agent_system::instance().get_patchset(tool_args["patchset_id"].get<std::string>()))
+      {
+        for (const auto& edit : patchset->edits)
+        {
+          ctx.tool_paths.push_back(edit.file_path);
+        }
+      }
+    }
+
     return policy_engine_.evaluate(ctx);
   }
 

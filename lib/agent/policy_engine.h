@@ -2,6 +2,7 @@
 #define MISTRAL_POLICY_ENGINE_H
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -33,8 +34,15 @@ namespace mistral::agent
     json tool_arguments;
     std::string working_directory;
 
+    // Paths the call touches when they are not (only) named in the tool
+    // arguments - patchset_apply writes the files stored in the patchset,
+    // so the caller feeds the stored edit paths here.
+    std::vector<std::string> tool_paths;
+
     // Normalized paths for matching (computed internally)
     std::optional<std::string> normalized_path;
+    // Every touched path, normalized; normalized_path is the first of these
+    std::vector<std::string> normalized_paths;
     std::optional<std::string> normalized_cwd;
 
     // For EXECUTABLE rule type - extracted command name from exec tool arguments
@@ -264,6 +272,15 @@ namespace mistral::agent
 
     // Match a rule against the context
     rule_match rule_matches(const policy_rule& rule, const policy_context& ctx) const;
+
+    // Aggregate a per-path predicate over every touched path: an ALLOW
+    // rule covers the call only when all paths match, a REQUIRE_APPROVAL
+    // rule fires when any path does
+    rule_match multi_path_match(
+      const policy_rule& rule,
+      const std::vector<std::string>& paths,
+      const std::function<bool(const std::string&)>& path_predicate
+    ) const;
 
     // Result for the default policy; `reason` overrides the standard text
     policy_result default_result(const std::optional<std::string>& reason) const;

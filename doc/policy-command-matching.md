@@ -58,7 +58,7 @@ advisory layer for everywhere else.
 | Use case | Desired | Today | Served by |
 |---|---|---|---|
 | Read/explore code in the workspace | silent | silent (code tools, `read`, `ls` rules) | done |
-| Edit files in the workspace | silent | prompts via `patchset_apply` | path-aware tool arguments (straightforward follow-up) |
+| Edit files in the workspace | silent | silent: `patchset_apply` is allowed when every stored edit path resolves inside the workspace (directory rule over `tool_paths`); an escaping edit still prompts | done (November 2026) |
 | Build/test in the workspace | silent | silent (`make`, `cmake`, `tests` by name + cwd/paths) | as-is; recipes running arbitrary code is the point of a build |
 | Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent, but over-broad (`find -exec` too) | the argv grammar |
 | Read outside the workspace | prompt | prompt (directory rule) | done |
@@ -112,13 +112,20 @@ runs before the policy and rejects shell syntax in the command field
 and backticks/`$(` in arguments (`:59`, `:73`). It does not inspect what
 a permitted program will itself launch.
 
-Separately, the policy only understands a tool argument named `path`:
-`normalize_context` (`lib/agent/policy_engine.cpp:492`) reads
-`tool_arguments["path"]` and nothing else. `patchset_add` and
-`patchset_update` use `file_path`, so a `directory` rule cannot
-correctly scope either today. Letting each tool declare which of its
-arguments are paths is straightforward follow-up work, independent of
-the argv grammar.
+Separately, `normalize_context` (`lib/agent/policy_engine.cpp`) reads
+the tool arguments `path` and `file_path`, plus any paths the caller
+supplies in `policy_context::tool_paths`. That last channel is what
+makes `patchset_apply` path-aware (November 2026): the tool's arguments
+name only the patchset id, so `agent_task_base::evaluate_tool_policy`
+feeds the stored edits' `file_path`s into `tool_paths`, and a
+`directory`/`path_prefix` rule aggregates over all of them - an `allow`
+rule matches only when *every* edit lands inside the rule's directory,
+a `require_approval` rule fires when *any* edit does. The shipped
+policy allows `patchset_apply` under `"."`; an edit that escapes the
+workspace (`..`, absolute path, symlink - all resolved by
+`normalize_path`) falls through to the default prompt. A protected
+file is now expressible as an exclusion, e.g.
+`{ "type": "directory", "tool": "patchset_apply", "path": ".", "exclude": ["Makefile"] }`.
 
 ## Why it matters
 
@@ -294,22 +301,23 @@ does. That leaves a class the argv grammar cannot express:
   workspace preset file (`--preset`) can carry test-dir and output
   paths of its own - same trust class as the Makefile.
 
-What stands between the agent and these today is the patchset
-approval: every file write goes through `patchset_apply`, which prompts
-with the diff visible. That defense is as strong as the attention paid
-to it - a rubber-stamped patchset that touches the Makefile is a real
-risk.
+File writes go through `patchset_apply`. Since November 2026 the
+shipped policy allows it when every stored edit resolves inside the
+workspace (`{ "type": "directory", "tool": "patchset_apply", "path": "." }`
+- see "Current behaviour"), so ordinary edits are silent; an edit that
+escapes the workspace still prompts with the diff visible. That prompt
+is as strong as the attention paid to it - a rubber-stamped patchset
+that touches the Makefile is a real risk. A protected Makefile is now
+expressible as an exclusion on that rule (`"exclude": ["Makefile"]`,
+which makes any patchset touching it prompt); not shipped by default.
+The accepted hard mitigation remains the Landlock rung, where a
+makefile's writes outside the workspace fail at the kernel no matter
+who wrote the makefile.
 
 Considered and deferred (November 2026): forbidding `-f`/`--file` on
 make (trivial, but incomplete - the default Makefile and subdir
 makefiles via `-C` remain reachable). The cmake half is done: the
-shipped rule deny-lists `-E`/`-P`/`--install`/`--open`. Still
-deferred: a protected
-Makefile (deny-grade rules on patchset edits to it - needs
-`normalize_context` to read `file_path`, see "Open questions"). The
-accepted mitigation is the approval prompt plus the Landlock rung,
-where a makefile's writes outside the workspace fail at the kernel no
-matter who wrote the makefile. Related, inside the boundary: `rm` is
+shipped rule deny-lists `-E`/`-P`/`--install`/`--open`. Related, inside the boundary: `rm` is
 allowed with its operands scoped to the workspace, which means the
 agent can delete the workspace itself (`rm -rf .`). That is within
 the autonomy contract - the workspace is the sandbox - and committed
@@ -547,9 +555,10 @@ is the same shape as the exclusion one: compare
   broad to allow?
 - Unknown-version tightening: silent fall-through to approval, or a
   visible warning in the session?
-- Tool path-awareness: `normalize_context` reads only
-  `tool_arguments["path"]`; patchset tools use `file_path`. Making each
-  tool declare its path arguments is straightforward follow-up work.
+- Tool path-awareness: `normalize_context` reads `path`, `file_path`
+  and caller-supplied `tool_paths` (done November 2026 for
+  `patchset_apply`); a per-tool declaration of which arguments are
+  paths would generalize it beyond the two hardcoded names.
 - A `directory` rule still does not match the directory itself, and an
   exclusion on a `require_approval` rule removes the rule rather than
   narrowing it - see "Related: path matching boundaries".

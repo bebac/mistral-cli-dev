@@ -21,6 +21,7 @@
     { "type": "tool", "tool": "patchset_clear" },
     { "type": "tool", "tool": "patchset_validate" },
     { "type": "tool", "tool": "patchset_update" },
+    { "type": "directory", "tool": "patchset_apply", "path": "." },
     { "type": "tool", "tool": "web_search" },
     { "type": "tool", "tool": "ask_user" },
     { "type": "tool", "tool": "process_write"},

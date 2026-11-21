@@ -2192,6 +2192,151 @@ TEST_CASE("path_args: DSL rule")
 TEST_SUITE_END();
 
 // ============================================================================
+// Multi-path rules: patchset_apply scopes the stored edit paths
+// ============================================================================
+
+TEST_SUITE_BEGIN("MultiPathRules");
+
+namespace
+{
+  // patchset_apply shape: the touched paths come from the stored patchset
+  // and are supplied via tool_paths, not from the tool arguments.
+  mistral::agent::policy_context patchset_apply_ctx(const std::vector<std::string>& edit_paths)
+  {
+    mistral::agent::policy_context ctx{
+      .tool_name = "patchset_apply",
+      .tool_arguments = mistral::agent::json{{"patchset_id", "abc"}},
+      .working_directory = ""
+    };
+    ctx.tool_paths = edit_paths;
+    return ctx;
+  }
+} // namespace
+
+TEST_CASE("multi-path directory allow: every edit inside the directory is allowed")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_directory("patchset_apply", "/w");
+
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/w/lib/b.h"})).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+}
+
+TEST_CASE("multi-path directory allow: one edit outside falls through to the default")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_directory("patchset_apply", "/w");
+
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/etc/cron.d/x"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // A .. escape normalizes outside the rule's directory and does not match.
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/w/src/../../etc/x"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("multi-path require_approval directory: any edit inside fires")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::DENY);
+  engine.require_approval_directory("patchset_apply", "/etc");
+
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/a.cpp", "/etc/x"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/a.cpp", "/w/b.cpp"})).decision ==
+    mistral::agent::policy_decision::DENY
+  );
+}
+
+TEST_CASE("multi-path path_prefix require_approval: any edit under the prefix fires")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::DENY);
+  engine.require_approval_path_prefix("patchset_apply", "/etc");
+
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/a.cpp", "/etc/passwd"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+  // A shared string prefix is not a boundary: /etcetera is outside /etc.
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/a.cpp", "/etcetera/x"})).decision ==
+    mistral::agent::policy_decision::DENY
+  );
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/a.cpp", "/w/b.cpp"})).decision ==
+    mistral::agent::policy_decision::DENY
+  );
+}
+
+TEST_CASE("multi-path path_prefix allow: every edit must be under the prefix")
+{
+  mistral::agent::policy_engine engine;
+  engine.load_configuration(mistral::agent::json{
+    {"default", "require_approval"},
+    {"allow",
+     mistral::agent::json::array({mistral::agent::json{
+       {"type", "path_prefix"}, {"tool", "patchset_apply"}, {"prefix", "/w/src"}
+     }})}
+  });
+
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/w/src/sub/b.cpp"})).decision ==
+    mistral::agent::policy_decision::ALLOW
+  );
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/w/lib/b.cpp"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_CASE("file_path tool argument feeds directory rules (patchset_add shape)")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_directory("patchset_add", "/w");
+
+  mistral::agent::policy_context inside{
+    .tool_name = "patchset_add",
+    .tool_arguments = mistral::agent::json{{"patchset_id", "x"}, {"file_path", "/w/src/a.cpp"}},
+    .working_directory = ""
+  };
+  CHECK(engine.evaluate(inside).decision == mistral::agent::policy_decision::ALLOW);
+
+  mistral::agent::policy_context outside{
+    .tool_name = "patchset_add",
+    .tool_arguments = mistral::agent::json{{"patchset_id", "x"}, {"file_path", "/etc/x"}},
+    .working_directory = ""
+  };
+  CHECK(engine.evaluate(outside).decision == mistral::agent::policy_decision::REQUIRE_APPROVAL);
+}
+
+TEST_CASE("multi-path allow respects exclusions (protected file)")
+{
+  mistral::agent::policy_engine engine;
+  engine.set_default_policy(mistral::agent::policy_decision::REQUIRE_APPROVAL);
+  engine.allow_directory("patchset_apply", "/w", {"Makefile"});
+
+  CHECK(engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"/w/src/a.cpp", "/w/Makefile"})).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+}
+
+TEST_SUITE_END();
+
+// ============================================================================
 // The shipped policy template: pin the data, not just the engine
 // ============================================================================
 
@@ -2311,6 +2456,14 @@ TEST_CASE("Embedded templates/policy.json behaves as documented")
   );
   CHECK(
     engine.evaluate(exec_cwd_ctx("rm", {"-f", "../x"}, ".")).decision ==
+    mistral::agent::policy_decision::REQUIRE_APPROVAL
+  );
+
+  // patchset_apply: the shipped directory rule scopes the stored edit
+  // paths (supplied via tool_paths) to the workspace.
+  CHECK(engine.evaluate(patchset_apply_ctx({"src/a.cpp", "lib/b.h"})).decision == mistral::agent::policy_decision::ALLOW);
+  CHECK(
+    engine.evaluate(patchset_apply_ctx({"src/a.cpp", "../outside.txt"})).decision ==
     mistral::agent::policy_decision::REQUIRE_APPROVAL
   );
 
