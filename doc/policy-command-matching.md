@@ -501,23 +501,22 @@ cannot block because `args` cannot *require* `-q`). Version pinning
 would make a stale list fail safe, but the tool is the cleaner
 boundary: one code path, auditable, and expressible in the policy.
 
-**Blocker (November 2026, updated after the blocking-offload work):
-connect is still partly synchronous.** Name resolution no longer
-blocks the executor: the HTTP coordinator resolves via dripcore's
-`task::run_blocking` on a blocking pool with a 5 s deadline
-(`http_coordinator_task::handle_new_request`,
-`lib/http/http_coordinator_task.h`; pre-resolved overload
-`http_client::connect(addr, host, port)`), landed together with
-dripcore's blocking-offload primitive (`run_blocking`,
-`resume_external`; see
-`third_party/dripcore/doc/blocking_offload_proposal.md`). What still
-runs on the scheduler thread is the TCP connect loop and the
-`SSL_connect` handshake (`tls_connection::connect`,
-`lib/http/tls_connection.cpp`), and `mcp_client::connect` still
-resolves inline. Until non-blocking connect driven by
-`readable()`/`writable()` with `SSL_connect` in the io loop lands,
-`web_fetch` stays unimplemented and network egress keeps prompting.
-Recorded here so the decision and the curl analysis survive the wait.
+**Resolved on the HTTP path (November 2026): connect is fully
+non-blocking.** Name resolution runs on dripcore's blocking pool
+(`task::run_blocking`, 5 s deadline); the TCP connect and the TLS
+handshake are non-blocking on the event loop, driven by
+`co_await writable()` / `co_await readable()` over a
+`dripcore::socket` that is non-blocking from creation and never
+toggles blocking modes (`lib/http/tcp_connect_task.h`,
+`tcp_connect_task::tcp_connect()` / `tls_handshake()`; the
+coordinator derives from `tcp_connect_task` and wires them into
+`http_coordinator_task::handle_new_request`). There is no per-attempt
+deadline: an unreachable host is bounded by the kernel's SYN-retry
+timeout, and task cancellation resumes promptly. `mcp_client::connect`
+still resolves, connects, and handshakes inline (blocking), so
+`web_fetch` stays unimplemented and network egress keeps prompting
+until that path moves onto the same primitives. Recorded here so the
+decision and the curl analysis survive the wait.
 
 ### F. Path-taking options - adopted, for location problems
 

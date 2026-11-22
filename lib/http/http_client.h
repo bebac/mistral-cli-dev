@@ -39,26 +39,20 @@ namespace mistral::net
       return conn_->connected();
     }
 
-    void connect(std::string host, int port)
+    // Attach an already-connected non-blocking socket (from
+    // tcp_connect_task.h) and prepare the TLS handshake; the handshake
+    // is then driven by tls_handshake() (also tcp_connect_task.h).
+    // Nothing in this path blocks the scheduler thread or toggles
+    // blocking modes.
+    void attach_connected(dripcore::socket sock, const std::string& host)
     {
-      // NOTE: TCP connect + TLS handshake are still blocking; a
-      // non-blocking connect remains future work. Name resolution should
-      // use the overload below so getaddrinfo runs off the scheduler
-      // thread.
-      conn_->connect(host, std::to_string(port));
-      // Switch to non-blocking mode for dripcore event loop
-      conn_->set_non_blocking(true);
+      conn_->attach_connected(std::move(sock), host);
     }
 
-    // Connect using a pre-resolved address list. The caller resolves via
-    // dripcore's task::run_blocking() so a slow getaddrinfo cannot stall
-    // the scheduler thread. TCP connect + TLS handshake are still
-    // blocking.
-    void connect(net::address_info addr, const std::string& host, int port)
+    // The connection the TLS handshake (tcp_connect_task.h) operates on.
+    tls_connection& connection()
     {
-      conn_->connect(addr, host, std::to_string(port));
-      // Switch to non-blocking mode for dripcore event loop
-      conn_->set_non_blocking(true);
+      return *conn_;
     }
 
     int shutdown()

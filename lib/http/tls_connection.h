@@ -4,7 +4,8 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
-#include <fcntl.h>
+#include <dripcore/socket.h>
+
 #include <netdb.h>
 #include <unistd.h>
 
@@ -117,7 +118,6 @@ namespace mistral::net
     void set_hostname(const std::string& host);
     void set_fd(int fd);
     int connect();
-    void set_non_blocking(bool enable);
     std::string_view alpn_selected() const;
 
   private:
@@ -137,26 +137,28 @@ namespace mistral::net
   // Returns the singleton ssl_error_category instance.
   const std::error_category& ssl_error_category_instance();
 
-  // High-level TLS connection that manages TCP socket + SSL.
-  // Performs blocking connect and TLS handshake, then switches to non-blocking.
+  // High-level TLS connection that owns a connected socket + SSL. The
+  // socket is attached already connected and non-blocking (see
+  // tcp_connect_task.h) and never toggles blocking modes; the TLS handshake
+  // is driven there by tls_handshake() via readable()/writable().
   class tls_connection
   {
   public:
     tls_connection() = default;
 
-    // Connect to host:port with TLS + HTTP/2 ALPN. Resolves the host
-    // first — a blocking getaddrinfo; prefer the overload below when the
-    // caller resolves off the scheduler thread.
-    void connect(std::string_view host, std::string_view port);
+    // Attach an already-connected non-blocking socket and prepare the
+    // TLS handshake (h2 ALPN, SNI, SSL handle bound to the socket).
+    // The handshake itself is driven by tls_handshake() in
+    // tcp_connect_task.h — only a task can co_await readable()/writable().
+    void attach_connected(dripcore::socket sock, std::string_view host);
 
-    // Connect to a pre-resolved address list with TLS + HTTP/2 ALPN.
-    // The TCP connect and the TLS handshake are still blocking; only
-    // name resolution is the caller's to move off-thread.
-    void connect(const address_info& addr, std::string_view host, std::string_view port);
+    // Verify the ALPN negotiated by the completed handshake; throws
+    // unless the server selected 'h2'.
+    void verify_alpn();
 
     int fd() const
     {
-      return sock_;
+      return sock_ ? sock_->platform_handle() : -1;
     }
     SSL* ssl() const
     {
@@ -164,12 +166,14 @@ namespace mistral::net
     }
     bool connected() const
     {
-      return sock_ >= 0;
+      return sock_.has_value();
     }
 
-    void set_non_blocking(bool enable)
+    // Calling it platform_handle means we can call dripcore
+    // readable/writable with a tls_connection instance.
+    int platform_handle() const
     {
-      ssl_.set_non_blocking(enable);
+      return fd();
     }
 
     int read(std::span<std::byte> in)
@@ -199,9 +203,9 @@ namespace mistral::net
       // SSL_shutdown to also do a shutdown on the fd, but that doesn't seem to work.
       // return SSL_shutdown(ssl_.get());
       shutting_down_ = true;
-      if (sock_ >= 0)
+      if (sock_)
       {
-        return ::shutdown(sock_, SHUT_RDWR);
+        return ::shutdown(sock_->platform_handle(), SHUT_RDWR);
       }
       else
       {
@@ -212,19 +216,15 @@ namespace mistral::net
     // Get error details from OpenSSL's error queue (for SSL_ERROR_SSL)
     static std::pair<std::string, std::error_code> get_ssl_error_details();
 
-    ~tls_connection();
-
     tls_connection(tls_connection&&) = default;
     tls_connection& operator=(tls_connection&&) = default;
     tls_connection(const tls_connection&) = delete;
     tls_connection& operator=(const tls_connection&) = delete;
 
   private:
-    int create_tcp_socket(const address_info& addr, std::string_view host, std::string_view port);
-
     ssl_context ssl_ctx_;
     ssl_handle ssl_;
-    int sock_ = -1;
+    std::optional<dripcore::socket> sock_;
     bool shutting_down_ = false;
   };
 

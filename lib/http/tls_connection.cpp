@@ -145,20 +145,6 @@ namespace mistral::net
     return SSL_connect(ssl_);
   }
 
-  void ssl_handle::set_non_blocking(bool enable)
-  {
-    int fd = SSL_get_fd(ssl_);
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (enable)
-    {
-      fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-    else
-    {
-      fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
-    }
-  }
-
   std::string_view ssl_handle::alpn_selected() const
   {
     if (!ssl_)
@@ -195,75 +181,47 @@ namespace mistral::net
 
   // ---- tls_connection ----
 
-  tls_connection::~tls_connection()
+  namespace
   {
-    if (sock_ >= 0)
+    void apply_socket_options(int sock)
     {
-      ::close(sock_);
-      sock_ = -1;
-    }
-  }
-
-  int tls_connection::create_tcp_socket(const address_info& addr, std::string_view host, std::string_view port)
-  {
-    for (auto* res : addr)
-    {
-      int sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-      if (sock == -1)
-        continue;
-
-      if (::connect(sock, res->ai_addr, res->ai_addrlen) == 0)
-      {
-        // Disable Nagle's algorithm — critical for HTTP/2 where we send
-        // small control frames (WINDOW_UPDATE, SETTINGS_ACK) that must
-        // not be delayed.
-        int yes = 1;
-        setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+      // Disable Nagle's algorithm — critical for HTTP/2 where we send
+      // small control frames (WINDOW_UPDATE, SETTINGS_ACK) that must
+      // not be delayed.
+      int yes = 1;
+      setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 
 #if defined(__APPLE__)
-        int value = 1;
-        if (setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &value, sizeof(value)) < 0)
-        {
-          std::cerr << "[http] Failed to enable SO_NOSIGPIPE" << std::endl;
-        }
-#else
-        // TODO
-#endif
-        return sock;
+      int value = 1;
+      if (setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &value, sizeof(value)) < 0)
+      {
+        std::cerr << "[http] Failed to enable SO_NOSIGPIPE" << std::endl;
       }
-      ::close(sock);
+#else
+      // TODO
+#endif
     }
+  } // namespace
 
-    throw std::runtime_error(std::format("failed to connect to {}:{}", host, port));
-  }
-
-  void tls_connection::connect(std::string_view host, std::string_view port)
+  void tls_connection::attach_connected(dripcore::socket sock, std::string_view host)
   {
-    auto addr = address_info::resolve(host, port);
-    if (!addr)
-    {
-      throw std::runtime_error(std::format("failed to resolve {}:{}", host, port));
-    }
-    connect(*addr, host, port);
-  }
+    // The socket arrives already connected and non-blocking (see
+    // tcp_connect_task.h) and never leaves non-blocking mode: the TLS
+    // handshake is driven by tls_handshake() there via
+    // readable()/writable().
+    sock_.emplace(std::move(sock));
+    apply_socket_options(sock_->platform_handle());
 
-  void tls_connection::connect(const address_info& addr, std::string_view host, std::string_view port)
-  {
     ssl_ctx_.enable_h2();
-
-    sock_ = create_tcp_socket(addr, host, port);
-
     ssl_ = ssl_handle(ssl_ctx_.get());
 
     std::string host_str(host);
     ssl_.set_hostname(host_str);
-    ssl_.set_fd(sock_);
+    ssl_.set_fd(sock_->platform_handle());
+  }
 
-    if (ssl_.connect() <= 0)
-    {
-      throw std::runtime_error("TLS handshake failed");
-    }
-
+  void tls_connection::verify_alpn()
+  {
     auto alpn = ssl_.alpn_selected();
     if (alpn != "h2")
     {

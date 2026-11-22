@@ -7,6 +7,7 @@
 #include "http/http_read_task.h"
 #include "http/http_request_task.h"
 #include "http/http_write_task.h"
+#include "http/tcp_connect_task.h"
 #include "http/tls_connection.h"
 #include "trace/trace.h"
 
@@ -112,7 +113,7 @@ namespace mistral::net
   };
 
   // Main coordinator task that owns the HTTP client and manages requests
-  class http_coordinator_task : public dripcore::task
+  class http_coordinator_task : public tcp_connect_task
   {
   public:
     http_coordinator_task(
@@ -204,7 +205,15 @@ namespace mistral::net
             throw std::runtime_error(std::format("failed to resolve {}:{}", host_, port_));
           }
 
-          client_.connect(std::move(*resolved), host_, port_);
+          // Fully non-blocking connect: the TCP connect and the TLS
+          // handshake are driven by writable()/readable() on the event
+          // loop, and the socket is non-blocking from creation —
+          // nothing in this path toggles blocking modes or blocks the
+          // scheduler thread. An unreachable host is bounded by the
+          // kernel's SYN-retry timeout; cancellation resumes promptly.
+          auto sock = co_await tcp_connect(*resolved);
+          client_.attach_connected(std::move(*sock), host_);
+          co_await tls_handshake(client_.connection());
 
           // Advertise a larger receive window (1 MB) to reduce WINDOW_UPDATE
           // frequency and prevent stalls during large response reception.
@@ -235,6 +244,7 @@ namespace mistral::net
           // the consumer's event loop terminates instead of waiting for
           // a connection that will not complete.
           std::cerr << "[http_coordinator] connect to " << host_ << " cancelled" << std::endl;
+          client_.reset();
           response_ch->try_send({api::event_type::error, std::format("connect to {}:{} cancelled", host_, port_)});
           response_ch->close();
           co_return;
@@ -242,6 +252,7 @@ namespace mistral::net
         catch (const std::exception& e)
         {
           std::cerr << "[http_coordinator] connection failed: " << e.what() << std::endl;
+          client_.reset();
           response_ch->try_send({api::event_type::error, e.what()});
           response_ch->close();
           co_return;
