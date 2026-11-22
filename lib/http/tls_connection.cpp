@@ -1,5 +1,6 @@
 #include "http/tls_connection.h"
 
+#include <cerrno>
 #include <format>
 #include <iostream>
 #include <netinet/tcp.h>
@@ -143,6 +144,28 @@ namespace mistral::net
   int ssl_handle::connect()
   {
     return SSL_connect(ssl_);
+  }
+
+  void ssl_handle::map_error_to_errno(int ssl_error)
+  {
+    switch (ssl_error) {
+      case SSL_ERROR_WANT_READ:
+      case SSL_ERROR_WANT_WRITE:
+      case SSL_ERROR_WANT_X509_LOOKUP:
+        errno = EAGAIN;  // retryable: the caller's poll loop tries again
+        break;
+      case SSL_ERROR_SYSCALL:
+        // The failing syscall set errno itself; only synthesise one
+        // when it did not (an unexpected EOF reported as SYSCALL).
+        if (errno == 0) {
+          errno = EIO;
+        }
+        break;
+      default:
+        // Fatal protocol error (SSL_ERROR_SSL and friends): fail fast.
+        errno = EIO;
+        break;
+    }
   }
 
   std::string_view ssl_handle::alpn_selected() const

@@ -118,6 +118,18 @@ namespace mistral::net
     void set_hostname(const std::string& host);
     void set_fd(int fd);
     int connect();
+
+    // Maps an SSL_get_error() result onto errno so errno-based retry
+    // loops (EAGAIN/EWOULDBLOCK checks, std::strerror messages) work
+    // over a TLS stream: WANT_READ/WANT_WRITE become EAGAIN, a fatal
+    // protocol error becomes EIO (fail fast instead of retrying on a
+    // stale errno), and SSL_ERROR_SYSCALL keeps the syscall's own
+    // errno (synthesising EIO only when the syscall did not set one,
+    // e.g. an unexpected EOF). Used by errno-based pump loops such as
+    // mcp_client's; the HTTP read/write tasks branch on the SSL error
+    // codes directly and do not need it.
+    static void map_error_to_errno(int ssl_error);
+
     std::string_view alpn_selected() const;
 
   private:

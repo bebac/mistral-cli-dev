@@ -29,34 +29,6 @@ namespace mistral::mcp
       return s;
     }
 
-    // Maps an SSL_get_error() result onto errno so the pump loop's
-    // retry check (EAGAIN/EWOULDBLOCK) and its std::strerror message
-    // stay meaningful. Without this a fatal TLS error leaves errno
-    // untouched, and a stale EAGAIN from an earlier call would make
-    // the loop retry until the request deadline and report a timeout
-    // instead of the real failure.
-    void map_ssl_error_to_errno(int ssl_error)
-    {
-      switch (ssl_error) {
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-        case SSL_ERROR_WANT_X509_LOOKUP:
-          errno = EAGAIN;  // retryable: the pump loop polls again
-          break;
-        case SSL_ERROR_SYSCALL:
-          // The failing syscall set errno itself; only synthesise one
-          // when it did not (an unexpected EOF reported as SYSCALL).
-          if (errno == 0) {
-            errno = EIO;
-          }
-          break;
-        default:
-          // Fatal protocol error (SSL_ERROR_SSL and friends): fail fast.
-          errno = EIO;
-          break;
-      }
-    }
-
   } // namespace
 
   mcp_client::mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout)
@@ -186,7 +158,7 @@ namespace mistral::mcp
       errno = 0;
       int n = SSL_write(ssl_->get(), buf, static_cast<int>(len));
       if (n <= 0) {
-        map_ssl_error_to_errno(SSL_get_error(ssl_->get(), n));
+        net::ssl_handle::map_error_to_errno(SSL_get_error(ssl_->get(), n));
       }
       return n;
     }
@@ -201,7 +173,7 @@ namespace mistral::mcp
       errno = 0;
       int n = SSL_read(ssl_->get(), buf, static_cast<int>(len));
       if (n <= 0) {
-        map_ssl_error_to_errno(SSL_get_error(ssl_->get(), n));
+        net::ssl_handle::map_error_to_errno(SSL_get_error(ssl_->get(), n));
       }
       return n;
     }
