@@ -41,8 +41,22 @@ namespace mistral::net
 
     void connect(std::string host, int port)
     {
-      // NOTE: Connect is blocking for now, should probably use non-blocking connect as well.
+      // NOTE: TCP connect + TLS handshake are still blocking; a
+      // non-blocking connect remains future work. Name resolution should
+      // use the overload below so getaddrinfo runs off the scheduler
+      // thread.
       conn_->connect(host, std::to_string(port));
+      // Switch to non-blocking mode for dripcore event loop
+      conn_->set_non_blocking(true);
+    }
+
+    // Connect using a pre-resolved address list. The caller resolves via
+    // dripcore's task::run_blocking() so a slow getaddrinfo cannot stall
+    // the scheduler thread. TCP connect + TLS handshake are still
+    // blocking.
+    void connect(net::address_info addr, const std::string& host, int port)
+    {
+      conn_->connect(addr, host, std::to_string(port));
       // Switch to non-blocking mode for dripcore event loop
       conn_->set_non_blocking(true);
     }

@@ -25,6 +25,7 @@
 #include <openssl/ssl.h>
 
 #include <charconv>
+#include <chrono>
 #include <format>
 #include <functional>
 #include <iostream>
@@ -188,7 +189,22 @@ namespace mistral::net
         try
         {
           std::cerr << "[http_coordinator] " << host_ << " connecting..." << std::endl;
-          client_.connect(host_, port_);
+
+          // Name resolution runs on the blocking pool: getaddrinfo can
+          // stall for seconds on a slow or broken resolver and must not
+          // freeze the scheduler thread (UI, tool streaming, MCP
+          // servers). The deadline bounds the wait; an abandoned lookup
+          // finishes on the pool and its result is discarded.
+          auto resolved = co_await run_blocking(
+            [host = host_, port = std::to_string(port_)] { return address_info::resolve(host, port); },
+            std::chrono::seconds(5));
+
+          if (!resolved)
+          {
+            throw std::runtime_error(std::format("failed to resolve {}:{}", host_, port_));
+          }
+
+          client_.connect(std::move(*resolved), host_, port_);
 
           // Advertise a larger receive window (1 MB) to reduce WINDOW_UPDATE
           // frequency and prevent stalls during large response reception.
@@ -212,6 +228,16 @@ namespace mistral::net
             dispatch_protocol_event(ev);
           });
           writer_task_ = spawn_local<http_write_task>(std::ref(client_), event_ch_, output_ready_ch_);
+        }
+        catch (const dripcore::cancelled&)
+        {
+          // Shutdown, or the DNS deadline expired. Fail the request so
+          // the consumer's event loop terminates instead of waiting for
+          // a connection that will not complete.
+          std::cerr << "[http_coordinator] connect to " << host_ << " cancelled" << std::endl;
+          response_ch->try_send({api::event_type::error, std::format("connect to {}:{} cancelled", host_, port_)});
+          response_ch->close();
+          co_return;
         }
         catch (const std::exception& e)
         {

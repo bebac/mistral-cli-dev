@@ -204,15 +204,9 @@ namespace mistral::net
     }
   }
 
-  int tls_connection::create_tcp_socket(std::string_view host, std::string_view port)
+  int tls_connection::create_tcp_socket(const address_info& addr, std::string_view host, std::string_view port)
   {
-    auto addr = address_info::resolve(host, port);
-    if (!addr)
-    {
-      throw std::runtime_error(std::format("failed to resolve {}:{}", host, port));
-    }
-
-    for (auto* res : *addr)
+    for (auto* res : addr)
     {
       int sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sock == -1)
@@ -245,9 +239,19 @@ namespace mistral::net
 
   void tls_connection::connect(std::string_view host, std::string_view port)
   {
+    auto addr = address_info::resolve(host, port);
+    if (!addr)
+    {
+      throw std::runtime_error(std::format("failed to resolve {}:{}", host, port));
+    }
+    connect(*addr, host, port);
+  }
+
+  void tls_connection::connect(const address_info& addr, std::string_view host, std::string_view port)
+  {
     ssl_ctx_.enable_h2();
 
-    sock_ = create_tcp_socket(host, port);
+    sock_ = create_tcp_socket(addr, host, port);
 
     ssl_ = ssl_handle(ssl_ctx_.get());
 

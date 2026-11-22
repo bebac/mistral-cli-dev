@@ -144,8 +144,15 @@ namespace mistral::net
   public:
     tls_connection() = default;
 
-    // Connect to host:port with TLS + HTTP/2 ALPN.
+    // Connect to host:port with TLS + HTTP/2 ALPN. Resolves the host
+    // first — a blocking getaddrinfo; prefer the overload below when the
+    // caller resolves off the scheduler thread.
     void connect(std::string_view host, std::string_view port);
+
+    // Connect to a pre-resolved address list with TLS + HTTP/2 ALPN.
+    // The TCP connect and the TLS handshake are still blocking; only
+    // name resolution is the caller's to move off-thread.
+    void connect(const address_info& addr, std::string_view host, std::string_view port);
 
     int fd() const
     {
@@ -213,7 +220,7 @@ namespace mistral::net
     tls_connection& operator=(const tls_connection&) = delete;
 
   private:
-    int create_tcp_socket(std::string_view host, std::string_view port);
+    int create_tcp_socket(const address_info& addr, std::string_view host, std::string_view port);
 
     ssl_context ssl_ctx_;
     ssl_handle ssl_;

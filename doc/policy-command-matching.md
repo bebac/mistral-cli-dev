@@ -501,22 +501,23 @@ cannot block because `args` cannot *require* `-q`). Version pinning
 would make a stale list fail safe, but the tool is the cleaner
 boundary: one code path, auditable, and expressible in the policy.
 
-**Blocker (November 2026): every connect is synchronous.** Name
-resolution is a blocking `getaddrinfo` (`address_info::resolve`,
-`lib/http/tls_connection.cpp:20`), and `tls_connection::connect`
-loops over addresses with blocking `::connect` and `SSL_connect`
-(`lib/http/tls_connection.cpp:209-258`; `http_client::connect` says
-so itself, `lib/http/http_client.h:44`). The dripcore executor is
-single-threaded, so a blocking DNS lookup or connect inside a tool
-call would freeze the whole UI; the model-API coordinators only
-connect once at startup (`agent_system::start_transport`,
-`lib/agent/agent_system.cpp:1569`), which is why nobody has felt it.
-Until async resolve/connect lands - a resolver thread handing results
-through a channel, or `getaddrinfo_a`/c-ares, plus non-blocking
-connect driven by `readable()`/`writable()` with `SSL_connect` in
-the io loop - `web_fetch` stays unimplemented and network egress
-keeps prompting. Recorded here so the decision and the curl analysis
-survive the wait.
+**Blocker (November 2026, updated after the blocking-offload work):
+connect is still partly synchronous.** Name resolution no longer
+blocks the executor: the HTTP coordinator resolves via dripcore's
+`task::run_blocking` on a blocking pool with a 5 s deadline
+(`http_coordinator_task::handle_new_request`,
+`lib/http/http_coordinator_task.h`; pre-resolved overload
+`http_client::connect(addr, host, port)`), landed together with
+dripcore's blocking-offload primitive (`run_blocking`,
+`resume_external`; see
+`third_party/dripcore/doc/blocking_offload_proposal.md`). What still
+runs on the scheduler thread is the TCP connect loop and the
+`SSL_connect` handshake (`tls_connection::connect`,
+`lib/http/tls_connection.cpp`), and `mcp_client::connect` still
+resolves inline. Until non-blocking connect driven by
+`readable()`/`writable()` with `SSL_connect` in the io loop lands,
+`web_fetch` stays unimplemented and network egress keeps prompting.
+Recorded here so the decision and the curl analysis survive the wait.
 
 ### F. Path-taking options - adopted, for location problems
 
