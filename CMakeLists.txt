@@ -139,6 +139,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 set(MISTRAL_CORE_SOURCES
+    lib/http/tcp_connect_task.cpp
     lib/http/tls_connection.cpp
     lib/mcp/mcp_client.cpp
     lib/mcp/mcp_stdio_client.cpp

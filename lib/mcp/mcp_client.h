@@ -2,6 +2,7 @@
 #define MISTRAL_MCP_CLIENT_H
 
 #include "mcp/mcp_client_interface.h"
+#include "http/tcp_connect_task.h"
 
 #include <http/client_context.h>
 
@@ -35,16 +36,21 @@ namespace mistral::mcp
   // (http endpoints) or over TLS via OpenSSL (https endpoints; no
   // ALPN is offered so the server defaults to HTTP/1.1).
   //
+  // The TCP connect and the TLS handshake are fully non-blocking via
+  // the net::tcp_connect_task base (DNS on the blocking pool, connect
+  // and handshake driven by the event loop).
+  //
   // Contract notes for the Storybook dev server endpoint are in
   // doc/storybook-mcp.md.
-  class mcp_client : public mcp_client_interface
+  class mcp_client : public mcp_client_interface, public net::tcp_connect_task
   {
   public:
     explicit mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout = std::chrono::seconds{30});
     ~mcp_client() override;
 
     // Parses the endpoint URL and opens a TCP connection (plus the TLS
-    // handshake for https endpoints). Returns false when the server is
+    // handshake for https endpoints) — fully non-blocking (see the
+    // net::tcp_connect_task base). Returns false when the server is
     // unreachable; last_connect_error() then holds the reason.
     dripcore::awaitable<bool> connect();
 

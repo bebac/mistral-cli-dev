@@ -2,8 +2,8 @@
 
 #include "http/tls_connection.h"
 
+#include <dripcore/cancelled.h>
 #include <dripcore/executor.h>
-#include <dripcore/sleep_awaiter.h>
 #include <http/sse.h>
 #include <uri.h>
 
@@ -57,25 +57,6 @@ namespace mistral::mcp
       }
     }
 
-    // Builds a human-readable reason for a failed TLS handshake. Must be
-    // called before the ssl_handle is destroyed: SSL_free() drains the
-    // OpenSSL error queue, so the reason has to be read while it is
-    // still queued.
-    std::string describe_tls_failure(SSL* ssl, int ret)
-    {
-      if (SSL_get_error(ssl, ret) == SSL_ERROR_ZERO_RETURN) {
-        return "TLS handshake failed: peer closed the connection";
-      }
-      if (ERR_peek_error() != 0) {
-        return "TLS handshake failed: " + net::tls_connection::get_ssl_error_details().first;
-      }
-      // Nothing queued: the failure came from the socket itself, so
-      // errno is the useful part.
-      if (errno != 0) {
-        return std::string("TLS handshake failed: ") + std::strerror(errno);
-      }
-      return "TLS handshake failed (no OpenSSL error queued)";
-    }
   } // namespace
 
   mcp_client::mcp_client(std::string endpoint_url, std::chrono::seconds request_timeout)
@@ -115,34 +96,32 @@ namespace mistral::mcp
     connect_error_.clear();
     try
     {
-      auto addr = net::address_info::resolve(host_, std::to_string(port_));
+      // Name resolution runs on the blocking pool: getaddrinfo can
+      // stall for seconds on a slow or broken resolver and must not
+      // freeze the scheduler thread. The deadline bounds the wait; an
+      // abandoned lookup finishes on the pool and its result is
+      // discarded.
+      auto addr = co_await run_blocking(
+        [host = host_, port = std::to_string(port_)] {
+          return net::address_info::resolve(host, port);
+        },
+        std::chrono::seconds(5));
       if (!addr) {
         connect_error_ = "cannot resolve host";
         co_return false;
       }
-      std::string last_socket_error;
-      for (auto* res : *addr) {
-        try {
-          dripcore::socket sock{res->ai_family, res->ai_socktype,
-                                res->ai_protocol};
-          sock.connect(res->ai_addr, res->ai_addrlen);
-          socket_ = std::move(sock);
-          break;
-        }
-        catch (const std::exception& e) {
-          // Try the next resolved address.
-          last_socket_error = e.what();
-        }
-      }
-      if (!socket_) {
-        connect_error_ = last_socket_error.empty() ? "no usable address" : last_socket_error;
-        co_return false;
-      }
+
+      // Non-blocking TCP connect on the event loop (the
+      // net::tcp_connect_task base): the socket is non-blocking from
+      // creation and never toggles modes. Throws std::system_error
+      // when no address works.
+      auto sock = co_await tcp_connect(*addr);
+      socket_ = std::move(*sock);
+
       if (use_tls_) {
-        // TLS handshake while the socket is still in blocking mode, so
-        // SSL_connect completes fully or fails outright. No ALPN is
-        // offered: the server must default to HTTP/1.1, which is what
-        // the client_context speaks.
+        // Non-blocking TLS handshake (also the tcp_connect_task
+        // base). No ALPN is offered: the server must default to
+        // HTTP/1.1, which is what the client_context speaks.
         //
         // The context is per-client and reused across connections; only
         // the SSL handle is per-connection. Building it once keeps the
@@ -154,20 +133,23 @@ namespace mistral::mcp
         ssl_ = std::make_unique<net::ssl_handle>(ssl_ctx_->get());
         ssl_->set_hostname(host_);
         ssl_->set_fd(socket_->platform_handle());
-        errno = 0;
-        int ret = ssl_->connect();
-        if (ret != 1) {
-          // Capture the reason before close(): SSL_free() drains the
-          // OpenSSL error queue.
-          connect_error_ = describe_tls_failure(ssl_->get(), ret);
-          close();
-          co_return false;
-        }
+        // The handshake throws with the reason baked into the message,
+        // so the catch below can close() first (unlike the old blocking
+        // path, where the reason had to be read before close() because
+        // SSL_free() drains the OpenSSL error queue).
+        co_await tls_handshake(ssl_->get(), socket_->platform_handle());
       }
-      socket_->nonblocking(true);
       ctx_ = std::make_unique<http::client_context>();
       ctx_->set_protocol_version(http::protocol_version::v1_1);
       co_return true;
+    }
+    catch (const dripcore::cancelled&) {
+      // Shutdown, or the DNS deadline expired. The control block stays
+      // cancelled, so this client cannot await again — callers replace
+      // the client (mcp_manager resets st.client) to retry.
+      connect_error_ = "connect cancelled (shutdown or DNS deadline)";
+      close();
+      co_return false;
     }
     catch (const std::exception& e) {
       connect_error_ = e.what();
@@ -339,17 +321,14 @@ namespace mistral::mcp
 
       // Nothing progressed: check the deadline and yield a timeslice.
       // (Same poll pattern as exec_tools - io_awaiter has no timeout
-      // support, and MCP round trips are few and small.)
+      // support, and MCP round trips are few and small. The sleep uses
+      // the task's control block, so shutdown cancels it promptly.)
       if (std::chrono::steady_clock::now() >= deadline)
       {
         close();
         throw std::runtime_error("mcp request timed out after " + std::to_string(timeout_.count()) + "s");
       }
-      co_await dripcore::sleep_awaiter{
-        dripcore::executor::current(),
-        nullptr,
-        std::chrono::milliseconds(5)
-      };
+      co_await sleep_for(std::chrono::milliseconds(5));
     }
 
     // One request per connection (Connection: close).

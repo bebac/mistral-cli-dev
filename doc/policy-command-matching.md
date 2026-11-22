@@ -501,22 +501,24 @@ cannot block because `args` cannot *require* `-q`). Version pinning
 would make a stale list fail safe, but the tool is the cleaner
 boundary: one code path, auditable, and expressible in the policy.
 
-**Resolved on the HTTP path (November 2026): connect is fully
-non-blocking.** Name resolution runs on dripcore's blocking pool
+**Resolved (November 2026): connect is fully non-blocking on both
+network paths.** Name resolution runs on dripcore's blocking pool
 (`task::run_blocking`, 5 s deadline); the TCP connect and the TLS
 handshake are non-blocking on the event loop, driven by
 `co_await writable()` / `co_await readable()` over a
 `dripcore::socket` that is non-blocking from creation and never
 toggles blocking modes (`lib/http/tcp_connect_task.h`,
-`tcp_connect_task::tcp_connect()` / `tls_handshake()`; the
-coordinator derives from `tcp_connect_task` and wires them into
-`http_coordinator_task::handle_new_request`). There is no per-attempt
-deadline: an unreachable host is bounded by the kernel's SYN-retry
-timeout, and task cancellation resumes promptly. `mcp_client::connect`
-still resolves, connects, and handshakes inline (blocking), so
-`web_fetch` stays unimplemented and network egress keeps prompting
-until that path moves onto the same primitives. Recorded here so the
-decision and the curl analysis survive the wait.
+`tcp_connect_task::tcp_connect()` / `tls_handshake()`; the HTTP
+coordinator derives from `tcp_connect_task` and wires it into
+`http_coordinator_task::handle_new_request`, and `mcp_client` now
+derives from it too — its request pump's timeslice sleep also went
+from a null-control-block `sleep_awaiter` to the task's cancellable
+`sleep_for`). There is no per-attempt deadline: an unreachable host
+is bounded by the kernel's SYN-retry timeout, and task cancellation
+resumes promptly. With the last blocking network path gone, the
+original `web_fetch` blocker is resolved; whether to implement it is
+a separate decision. Recorded here so the decision and the curl
+analysis survive the wait.
 
 ### F. Path-taking options - adopted, for location problems
 
