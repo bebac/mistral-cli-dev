@@ -29,6 +29,7 @@ int main(int argc, char* argv[])
   bool bootstrap_enabled = true;
   bool bootstrap_update_managed = false;
   bool resume = false;
+  bool tint_terminal = true;
 
   for (int i = 1; i < argc; ++i)
   {
@@ -57,6 +58,10 @@ int main(int argc, char* argv[])
     {
       resume = true;
     }
+    else if (arg == "--no-terminal-bg")
+    {
+      tint_terminal = false;
+    }
     else if (arg == "-h")
     {
       std::cout << "Usage: mistral-tui [OPTIONS]\n"
@@ -67,7 +72,9 @@ int main(int argc, char* argv[])
                 << "  --no-bootstrap       Do not bootstrap the workspace\n"
                 << "  --resume             Resume the latest chat session\n"
                 << "  --update-managed     Force-update managed files"
-                << " (e.g. sys_patchset_instructions.md)\n";
+                << " (e.g. sys_patchset_instructions.md)\n"
+                << "  --no-terminal-bg     Leave the terminal's default"
+                << " background/foreground alone\n";
       return 0;
     }
   }
@@ -174,7 +181,8 @@ int main(int argc, char* argv[])
     .agent_response_ch = agent_response_ch,
     .cmd_request_ch = cmd_request_ch,
     .slash_cmd_response_ch = slash_cmd_response_ch,
-    .resume = resume
+    .resume = resume,
+    .tint_terminal = tint_terminal
   };
 
   try

@@ -220,6 +220,7 @@ On startup the working directory is bootstrapped with a default `.mistral-cli/` 
 | `--no-bootstrap`         | Do not bootstrap the workspace.                                    |                                 |
 | `--resume`               | Resume the latest chat session                                     |                                 |
 | `--update-managed`       | Force-update managed files.                                        |                                 |
+| `--no-terminal-bg`       | Leave the terminal's default background/foreground alone.          |                                 |
 
 The model is no longer selected on the command line; it comes from the agent's model configuration in `mistral-cli.json`.
 
@@ -279,6 +280,15 @@ scrollable transcript, a multi-line input box, and a footer showing the
 workspace, agent · model, MCP connection status, and token usage. Select
 a theme with `--theme` (`dark`, `light`, `nord`, `tokyo-night`,
 `solarized-light`).
+
+The TUI paints every cell of its grid, but the terminal still draws the area
+around it — window padding, and any cell outside the painted grid — with the
+profile's own background, which shows up as a border in the wrong colour when
+the profile and the theme disagree (a dark terminal running the `light` theme,
+for example). To avoid that, the TUI sets the terminal's default background and
+foreground to the theme's colours with OSC 11/10 for as long as it runs, and
+restores the profile's colours on exit. Terminals that ignore OSC 11/10 are
+unaffected; `--no-terminal-bg` turns the behaviour off.
 
 - **Enter** inserts a newline; **Alt+Enter** — or **Enter** on an empty
   last line (double-Enter) — sends the message.

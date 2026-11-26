@@ -8,6 +8,7 @@
 #include "tui/tui_chat_input.h"
 #include "tui/tui_content_area.h"
 #include "tui/tui_slash_command_popup.h"
+#include "tui/tui_terminal_colors.h"
 #include "tui/tui_widgets.h"
 
 #include <cpptui.hpp>
@@ -59,6 +60,7 @@ namespace mistral::tui
 
     ~tui_app()
     {
+      restore_terminal_colors();
       if (backend_)
       {
         backend_->shutdown();
@@ -70,19 +72,52 @@ namespace mistral::tui
 
     void run()
     {
+      apply_terminal_colors();
       backend_->start();
       app_.run(root_);
+      restore_terminal_colors();
       std::cout.flush();
     }
 
     void shutdown()
     {
+      restore_terminal_colors();
       if (backend_)
         backend_->shutdown();
     }
 
   private:
     using content_type = mistral::tui::content_type;
+
+    // Recolour the terminal's own default background and foreground to the
+    // theme's colours. The TUI paints every cell of its grid, but the terminal
+    // still draws the area around that grid - window padding, and any cell
+    // outside the painted region - with the profile's default background. When
+    // the profile and the theme disagree (a dark terminal running the light
+    // theme, say) that area shows up as a border in the wrong colour.
+    void apply_terminal_colors()
+    {
+      if (!cfg_.tint_terminal || terminal_colors_applied_)
+        return;
+
+      const auto& theme = cpptui::Theme::current();
+      std::cout << osc_set_default_background(theme.background)
+                << osc_set_default_foreground(theme.foreground);
+      std::cout.flush();
+      terminal_colors_applied_ = true;
+    }
+
+    // Put the terminal profile's own default colours back. Safe to call more
+    // than once, and when nothing was applied.
+    void restore_terminal_colors()
+    {
+      if (!terminal_colors_applied_)
+        return;
+
+      std::cout << osc_reset_default_colors();
+      std::cout.flush();
+      terminal_colors_applied_ = false;
+    }
 
     void build_widgets()
     {
@@ -483,6 +518,10 @@ namespace mistral::tui
     std::shared_ptr<SlashCommandPopup> slash_popup_;
     std::shared_ptr<FooterBar> footer_;
     std::shared_ptr<cpptui::Vertical> root_;
+
+    // True while the terminal's default colours are tinted to the theme; guards
+    // the matching reset in restore_terminal_colors().
+    bool terminal_colors_applied_ = false;
   };
 
 } // namespace mistral::tui

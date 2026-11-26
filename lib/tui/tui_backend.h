@@ -51,6 +51,10 @@ namespace mistral::tui
     std::shared_ptr<dripcore::channel<mistral::slash_command::slash_command_request>> cmd_request_ch;
     std::shared_ptr<dripcore::channel<std::string>> slash_cmd_response_ch;
     bool resume = false;
+    // Recolour the terminal's default background/foreground to the theme's
+    // colours while the TUI runs, so the area the terminal draws itself
+    // (window padding, cells outside the painted grid) matches the theme.
+    bool tint_terminal = true;
   };
 
   // -------------------------------------------------------------------------
