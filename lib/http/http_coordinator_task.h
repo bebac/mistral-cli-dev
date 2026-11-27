@@ -52,6 +52,7 @@ namespace mistral::net
     // try_send_remaining() is invoked when a window-available event arrives.
     http::stream stream;
     std::vector<std::byte> pending_body;
+    size_t body_size = 0;   // total request body bytes (pending_body.size())
     size_t send_offset = 0;
     bool end_stream_sent = false;
 
@@ -379,10 +380,22 @@ namespace mistral::net
       case http::event_type::stream_reset:
       {
         auto ec = std::get<std::error_code>(evt.payload);
-        mistral::trace::logger::instance().trace(
-          mistral::trace::category::stream, "on_reset error_code='{}'", ec.message()
+        // Report enough context to tell a peer-side refusal apart from a
+        // request we never finished sending: the HTTP/2 error code, the
+        // stream, how much of the body made it out, and whether the peer
+        // had already started answering.
+        auto msg = std::format(
+          "stream reset: {} (HTTP/2 code 0x{:x}, stream {}, request body {}/{}{}, response {})",
+          ec.message(),
+          evt.http2_error_code,
+          evt.stream_id,
+          state->send_offset,
+          state->body_size,
+          state->end_stream_sent ? " fully sent" : " NOT fully sent",
+          state->response->status_code == 0 ? std::string("none") : std::to_string(state->response->status_code)
         );
-        state->fail(std::format("stream reset: {}", ec.message()));
+        mistral::trace::logger::instance().trace(mistral::trace::category::stream, "on_reset {}", msg);
+        state->fail(msg);
         stream_registry_.erase(it);
         break;
       }
@@ -417,6 +430,7 @@ namespace mistral::net
       // Store pending body in stream state for flow-controlled sending.
       // try_send_remaining() is called on stream_window_available events.
       state->pending_body.assign(body_bytes.begin(), body_bytes.end());
+      state->body_size = state->pending_body.size();
       state->send_offset = 0;
       state->try_send_remaining();
       // If the body is empty (or fully accepted on first try), send
@@ -460,7 +474,17 @@ namespace mistral::net
       std::cerr << "[http_coordinator] GOAWAY received, last_stream_id=" << last_stream_id << ", error=" << ec.message()
                 << " (active_streams=" << client_.active_streams() << ")" << std::endl;
       fail_all_streams(std::format("goaway: {}", ec.message()));
-      client_.shutdown(); // Same reasoning as for coordinator_event_type::shutdown
+
+      // A connection that received GOAWAY must not be reused: the peer
+      // refuses any new stream on it with RST_STREAM, which would surface
+      // as a spurious "stream reset" on the next request. Shut the socket
+      // down first (that wakes the reader, which may be parked in
+      // readable()), then drop the client so the next request reconnects
+      // instead of opening a stream on a connection the peer is closing.
+      client_.shutdown();
+      client_.reset();
+      reader_task_.cancel();
+      writer_task_.cancel();
     }
 
     void handle_shutdown()

@@ -48,9 +48,19 @@ namespace mistral::net
 
         if (in.empty())
         {
-          // No input buffer available, wait for readable
-          co_await readable(client);
-          continue;
+          // The engine's input buffer is full, so it cannot accept more
+          // bytes until it consumes what it already holds. That only
+          // happens when a frame payload has to be buffered whole and is
+          // larger than the buffer (e.g. a GOAWAY with a long debug
+          // string). Waiting for readable data would spin here forever
+          // because the socket stays readable; fail the connection so the
+          // coordinator reconnects instead.
+          std::cerr << "[http_read] engine input buffer full (unconsumable frame payload) fd="
+                    << client.platform_handle() << std::endl;
+          event_ch_->try_send(
+            {coordinator_event_type::connection_error, {}, std::make_error_code(std::errc::message_size)}
+          );
+          break;
         }
 
         int n = client.read(in);
