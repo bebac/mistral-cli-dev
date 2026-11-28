@@ -6,15 +6,24 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstddef>
 #include <format>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace mistral::mcp
 {
+  namespace
+  {
+    // Keep only the last few KiB of the child's stderr: enough to show
+    // why it failed without unbounded growth for a chatty server.
+    constexpr std::size_t k_stderr_tail_max = 4096;
+  }
+
   mcp_stdio_client::mcp_stdio_client(
     std::string command,
     std::vector<std::string> args,
@@ -54,6 +63,8 @@ namespace mistral::mcp
     process_.kill();
     initialized_ = false;
     read_buffer_.clear();
+    stderr_tail_.clear();
+    read_eof_ = false;
   }
 
   void mcp_stdio_client::drain_stderr()
@@ -65,10 +76,38 @@ namespace mistral::mcp
     while (true)
     {
       ssize_t n = ::read(fd, buf, sizeof(buf));
-      if (n > 0)
-        continue; // discard
-      break;      // EAGAIN or EOF or error
+      if (n <= 0)
+        break; // EAGAIN or EOF or error
+      stderr_tail_.append(buf, static_cast<std::size_t>(n));
+      if (stderr_tail_.size() > k_stderr_tail_max)
+      {
+        stderr_tail_.erase(0, stderr_tail_.size() - k_stderr_tail_max);
+      }
     }
+  }
+
+  std::string mcp_stdio_client::failure_detail()
+  {
+    // Pick up anything the child wrote before it exited.
+    drain_stderr();
+
+    std::string detail;
+    if (auto status = process_.try_reap())
+    {
+      if (WIFEXITED(*status))
+      {
+        detail += std::format(" (exit status {})", WEXITSTATUS(*status));
+      }
+      else if (WIFSIGNALED(*status))
+      {
+        detail += std::format(" (killed by signal {})", WTERMSIG(*status));
+      }
+    }
+    if (!stderr_tail_.empty())
+    {
+      detail += "\nstderr:\n" + stderr_tail_;
+    }
+    return detail;
   }
 
   dripcore::awaitable<bool> mcp_stdio_client::write_line(const std::string& line)
@@ -112,6 +151,7 @@ namespace mistral::mcp
     if (fd < 0)
       co_return std::nullopt;
 
+    read_eof_ = false;
     auto deadline = std::chrono::steady_clock::now() + timeout_;
 
     while (true)
@@ -145,6 +185,7 @@ namespace mistral::mcp
       if (n == 0)
       {
         // EOF: child closed stdout.
+        read_eof_ = true;
         co_return std::nullopt;
       }
       if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -158,7 +199,8 @@ namespace mistral::mcp
         co_await dripcore::sleep_awaiter{dripcore::executor::current(), nullptr, std::chrono::milliseconds(5)};
         continue;
       }
-      // Real error.
+      // Real error: the stream is unusable, treat it like EOF.
+      read_eof_ = true;
       co_return std::nullopt;
     }
   }
@@ -175,8 +217,9 @@ namespace mistral::mcp
 
     if (!(co_await write_line(message.dump())))
     {
+      std::string detail = failure_detail();
       close();
-      throw std::runtime_error("failed to write to mcp stdio server: " + command_);
+      throw std::runtime_error("failed to write to mcp stdio server: " + command_ + detail);
     }
 
     // Read lines until we find the response with the matching id.
@@ -186,8 +229,14 @@ namespace mistral::mcp
       auto line = co_await read_line();
       if (!line)
       {
+        bool eof = read_eof_;
+        std::string detail = failure_detail();
         close();
-        throw std::runtime_error("mcp stdio server closed stdout: " + command_);
+        if (eof)
+        {
+          throw std::runtime_error("mcp stdio server closed stdout: " + command_ + detail);
+        }
+        throw std::runtime_error("mcp stdio server timed out: " + command_ + detail);
       }
       if (line->empty())
       {

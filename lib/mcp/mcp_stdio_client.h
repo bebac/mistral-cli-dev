@@ -19,7 +19,8 @@ namespace mistral::mcp
 
   // MCP client for the stdio transport: spawns a child process (e.g.
   // `xerj mcp`) and speaks newline-delimited JSON-RPC 2.0 over its
-  // stdin/stdout pipes. stderr is drained and discarded.
+  // stdin/stdout pipes. stderr is drained continuously; its tail is
+  // kept so a failed start can report what the child said.
   //
   // Same MCP protocol surface as mcp_client (HTTP transport):
   // initialize, tools/list, tools/call.
@@ -103,8 +104,14 @@ namespace mistral::mcp
     // Returns nullopt on EOF / child exit / timeout.
     dripcore::awaitable<std::optional<std::string>> read_line();
 
-    // Drain any available stderr output (non-blocking).
+    // Drain any available stderr output (non-blocking), keeping the
+    // tail for error reporting.
     void drain_stderr();
+
+    // Human-readable detail about why the child stopped responding:
+    // its exit status (when it has exited) and the tail of its stderr.
+    // Empty when neither is available.
+    std::string failure_detail();
 
     std::string command_;
     std::vector<std::string> args_;
@@ -114,6 +121,8 @@ namespace mistral::mcp
     common::subprocess process_;
 
     std::string read_buffer_; // partial line buffer for stdout
+    std::string stderr_tail_; // last bytes of the child's stderr
+    bool read_eof_ = false;   // last read_line() ended at EOF
     bool initialized_ = false;
     json server_info_ = json::object();
     std::string instructions_;
