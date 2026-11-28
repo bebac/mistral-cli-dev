@@ -23,7 +23,8 @@ namespace mistral::agent
    * - Without arguments: lists the model ids offered by the current
    *   agent's model entry, marking the active one.
    * - With an id: switches subsequent requests to that id. The
-   *   conversation history is kept.
+   *   conversation history is kept. An agent that pins a model_id in its
+   *   config cannot be switched.
    */
   class model_command : public slash_command::slash_command
   {

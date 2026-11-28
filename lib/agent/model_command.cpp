@@ -90,6 +90,14 @@ namespace mistral::agent
                 "' (available: " + valid + ")";
     }
 
+    // An agent that pins a model_id always uses it; /model cannot override
+    // the pin (see agent_config::model_id).
+    if (agent_cfg.model_id && *agent_cfg.model_id != model_id)
+    {
+      co_return "Error: agent '" + agent_id + "' pins model_id '" + *agent_cfg.model_id +
+                "'; /model cannot override it";
+    }
+
     if (model_id == agent_sys.resolve_model_id(agent_cfg))
     {
       co_return "Already using " + model_id;

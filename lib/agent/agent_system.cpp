@@ -1337,7 +1337,7 @@ namespace mistral::agent
 
   std::string agent_system::resolve_model_id(
     const std::string& model_name,
-    const std::optional<std::string>& default_id
+    const std::optional<std::string>& agent_model_id
   ) const
   {
     auto it = config_.models.find(model_name);
@@ -1350,6 +1350,18 @@ namespace mistral::agent
     }
 
     const auto& ids = it->second.model_ids;
+
+    // An agent that names a model id always uses it: the pin is
+    // authoritative for that agent. The /model selection is shared per
+    // entry, so letting it win here would silently move a pinned agent
+    // (e.g. the researcher) onto a model it was never meant to run on.
+    // The loader validates the id; re-check for hand-built configs.
+    if (agent_model_id && std::find(ids.begin(), ids.end(), *agent_model_id) != ids.end())
+    {
+      return *agent_model_id;
+    }
+
+    // Otherwise the active /model selection, then the entry's first id.
     {
       std::lock_guard lock(active_model_ids_mtx_);
       if (auto active = active_model_ids_.find(model_name); active != active_model_ids_.end())
@@ -1361,13 +1373,6 @@ namespace mistral::agent
           return active->second;
         }
       }
-    }
-
-    // The agent's own default, when it names an id the entry offers. The
-    // loader validates it; re-check for hand-built configs.
-    if (default_id && std::find(ids.begin(), ids.end(), *default_id) != ids.end())
-    {
-      return *default_id;
     }
     return ids.front();
   }
@@ -1402,14 +1407,16 @@ namespace mistral::agent
 
     // A server-side agent owns its model, and its entity id is cached for
     // the session (see server_agent_task::ensure_server_agent). Drop the
-    // cached ids of the agents using this entry, so the next call re-checks
-    // the config fingerprint and patches the entity's model instead of
-    // silently keeping the one it was created with.
+    // cached ids of the agents using this entry whose model actually
+    // changed — those without a pinned model_id — so the next call
+    // re-checks the config fingerprint and patches the entity's model
+    // instead of silently keeping the one it was created with. A pinned
+    // agent is unaffected by the switch, so its cached id stays valid.
     {
       std::lock_guard lock(server_agent_ids_mtx_);
       for (const auto& [agent_id, agent_cfg] : config_.agents)
       {
-        if (agent_cfg.model == model_name)
+        if (agent_cfg.model == model_name && !agent_cfg.model_id)
         {
           server_agent_ids_.erase(agent_id);
         }

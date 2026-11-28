@@ -1627,6 +1627,48 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command rejects
   CHECK(!input_ch->try_recv().has_value());                        // nothing was routed
 }
 
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "slash_commands: model command refuses to override a pinned model_id")
+{
+  auto config = create_standard_config();
+  config["models"]["mistral-medium"]["model_id"] = {"mistral-medium-latest", "mistral-small-latest"};
+  config["agents"]["main"]["model_id"] = "mistral-medium-latest";
+  create_config_file(config);
+
+  auto& system = mistral::agent::agent_system::instance();
+  system.initialize(config_file, base_dir, tasks_dir);
+  system.set_current_agent_id("main");
+
+  auto input_ch = std::make_shared<dripcore::channel<std::string>>(1);
+  system.set_current_input_ch(input_ch);
+
+  auto registry = system.slash_commands();
+  const auto* model_cmd = registry->get_command("model");
+  REQUIRE(model_cmd != nullptr);
+
+  std::string result;
+  dripcore::scheduler sched;
+  sched.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "mistral-small-latest", system, result
+  );
+  sched.run();
+
+  // The pin is authoritative: the switch is refused and never reaches the
+  // agent task, so the agent keeps running on the id it names.
+  CHECK(result.find("pins model_id 'mistral-medium-latest'") != std::string::npos);
+  CHECK(!input_ch->try_recv().has_value());
+  CHECK(system.resolve_model_id(system.get_agent_config("main")) == "mistral-medium-latest");
+
+  // Asking for the pinned id itself is a no-op, not an error.
+  std::string same;
+  dripcore::scheduler sched_same;
+  sched_same.spawn<slash_command_executor>(
+    const_cast<mistral::slash_command::slash_command*>(model_cmd), "mistral-medium-latest", system, same
+  );
+  sched_same.run();
+
+  CHECK(same == "Already using mistral-medium-latest");
+}
+
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "completion context: the active model id is marked")
 {
   auto config = create_standard_config();
@@ -2147,16 +2189,20 @@ TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: the completion contex
   CHECK(context.model_ids[1].description == "active");
 }
 
-TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: /model still overrides the agent default")
+TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an explicit id is pinned, /model does not override it")
 {
   create_config_file(shared_entry_config());
 
   auto& system = mistral::agent::agent_system::instance();
   system.initialize(config_file, base_dir, tasks_dir);
 
-  // The switch is per entry, so it wins over every agent's own default.
+  // The switch is per entry and applies to agents without an explicit id ...
   system.set_active_model_id("mistral", "mistral-large-4");
-  CHECK(system.resolve_model_id(system.get_agent_config("researcher")) == "mistral-large-4");
+  CHECK(system.resolve_model_id("mistral") == "mistral-large-4");
+  CHECK(system.resolve_model_id(system.get_agent_config("main")) == "mistral-large-4");
+
+  // ... but an agent that names a model id always uses it.
+  CHECK(system.resolve_model_id(system.get_agent_config("researcher")) == "mistral-small-latest");
 }
 
 TEST_CASE_FIXTURE(AgentSystemTestFixture, "agent model_id: an id the entry does not offer fails at load")

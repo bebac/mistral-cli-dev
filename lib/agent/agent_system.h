@@ -126,11 +126,11 @@ namespace mistral::agent
     // one was made, otherwise the entry's first id.
     std::string resolve_model_id(const std::string& model_name) const;
 
-    // Resolved model id of an agent: the active /model selection when one
-    // was made, otherwise the agent's own model_id default when it names an
-    // id the entry offers, otherwise the entry's first id. Tasks and
-    // frontends should prefer this overload, so a per-agent default is
-    // honoured.
+    // Resolved model id of an agent: the agent's own model_id when it names
+    // an id the entry offers (authoritative — /model does not override it),
+    // otherwise the entry's active /model selection, otherwise the entry's
+    // first id. Tasks and frontends should prefer this overload, so a
+    // per-agent pin is honoured.
     std::string resolve_model_id(const agent_config& agent_cfg) const;
 
     // Selectable model ids of a model entry (empty when the entry is
@@ -354,10 +354,13 @@ namespace mistral::agent
     // Resolve a prompt string (handles file:// URLs and templates)
     std::string resolve_prompt_string(const std::string& prompt, const std::string& model_id) const;
 
-    // Shared by the resolve_model_id() overloads: the entry's active
-    // selection, then `default_id` when the entry offers it, then the
-    // entry's first id.
-    std::string resolve_model_id(const std::string& model_name, const std::optional<std::string>& default_id) const;
+    // Shared by the resolve_model_id() overloads: `agent_model_id` when the
+    // entry offers it (an agent pin, authoritative), then the entry's
+    // active /model selection, then the entry's first id.
+    std::string resolve_model_id(
+      const std::string& model_name,
+      const std::optional<std::string>& agent_model_id
+    ) const;
 
     // Agent ids reachable from `agent_id`: the agent itself plus every
     // subagent named in its subagent_tools, transitively. Cycles are

@@ -385,10 +385,11 @@ single string or an array of strings:
 An array makes every id selectable mid-session with `/model <id>`: the
 conversation is kept and only subsequent requests use the new id. The first
 id is the default. The selection is tracked per entry, so it applies to every
-agent referencing that entry, and it is not persisted across sessions.
+agent referencing that entry that does not pin its own `model_id`, and it is
+not persisted across sessions.
 
-An agent can name the id it starts on with its own `model_id`, which lets
-several agents share one entry while starting on different models:
+An agent can pin the id it always uses with its own `model_id`, which lets
+several agents share one entry while running on different models:
 
 ```json
 "agents": {
@@ -398,8 +399,9 @@ several agents share one entry while starting on different models:
 ```
 
 The id must be one the entry offers — a typo fails at startup instead of
-silently falling back to the first id. `/model` still overrides it at
-runtime, for every agent using that entry.
+silently falling back to the first id. A pinned `model_id` is authoritative:
+`/model` cannot override it, so the researcher keeps running on its pinned
+model even when the main agent switches the shared entry to another id.
 
 Each entry's `api_key_env` names the environment variable holding that
 provider's key. Startup checks the keys of the endpoints the selected agent
